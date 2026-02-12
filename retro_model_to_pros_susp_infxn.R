@@ -157,6 +157,15 @@ pr_df <- function(df, cohort_name) {
   out %>% transmute(recall = recall, precision = precision, cohort = cohort_name)
 }
 
+cohort_perf <- function(df, cohort_name) {
+  tibble(
+    cohort = cohort_name,
+    prevalence = mean(df$truth_num == 1L, na.rm = TRUE),
+    auroc = as.numeric(pROC::auc(pROC::roc(df$truth_num, df$p_yes, quiet = TRUE, direction = "<"))),
+    auprc = yardstick::pr_auc(df, truth = truth, p_yes) %>% pull(.estimate)
+  )
+}
+
 roc_no <- bind_rows(
   roc_df(retro_no_eval, "Retrospective test set"),
   roc_df(pros_no_eval, "Prospective suspected infection")
@@ -177,9 +186,36 @@ pr_yes <- bind_rows(
   pr_df(pros_yes_eval, "Prospective suspected infection")
 )
 
+perf_no <- bind_rows(
+  cohort_perf(retro_no_eval, "Retrospective test set"),
+  cohort_perf(pros_no_eval, "Prospective suspected infection")
+)
+
+perf_yes <- bind_rows(
+  cohort_perf(retro_yes_eval, "Retrospective test set"),
+  cohort_perf(pros_yes_eval, "Prospective suspected infection")
+)
+
+build_metric_label <- function(perf_df) {
+  paste0(
+    perf_df$cohort, ": AUROC=", sprintf("%.3f", perf_df$auroc),
+    ", AUPRC=", sprintf("%.3f", perf_df$auprc),
+    collapse = "\n"
+  )
+}
+
+roc_label_no <- build_metric_label(perf_no)
+roc_label_yes <- build_metric_label(perf_yes)
+pr_label_no <- build_metric_label(perf_no)
+pr_label_yes <- build_metric_label(perf_yes)
+
+prev_no <- perf_no %>% select(cohort, prevalence)
+prev_yes <- perf_yes %>% select(cohort, prevalence)
+
 plot_roc_no <- ggplot(roc_no, aes(x = fpr, y = tpr, color = cohort)) +
   geom_line(linewidth = 1) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
+  annotate("text", x = 0.5, y = 0.08, label = roc_label_no, size = 3.2, hjust = 0.5, vjust = 0) +
   coord_equal() +
   labs(
     title = "ROC: Abx-unexposed model",
@@ -192,6 +228,7 @@ plot_roc_no <- ggplot(roc_no, aes(x = fpr, y = tpr, color = cohort)) +
 plot_roc_yes <- ggplot(roc_yes, aes(x = fpr, y = tpr, color = cohort)) +
   geom_line(linewidth = 1) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
+  annotate("text", x = 0.5, y = 0.08, label = roc_label_yes, size = 3.2, hjust = 0.5, vjust = 0) +
   coord_equal() +
   labs(
     title = "ROC: Abx-exposed model",
@@ -203,6 +240,15 @@ plot_roc_yes <- ggplot(roc_yes, aes(x = fpr, y = tpr, color = cohort)) +
 
 plot_pr_no <- ggplot(pr_no, aes(x = recall, y = precision, color = cohort)) +
   geom_line(linewidth = 1) +
+  geom_hline(
+    data = prev_no,
+    aes(yintercept = prevalence, color = cohort),
+    linetype = "dashed",
+    linewidth = 0.8,
+    alpha = 0.9,
+    inherit.aes = FALSE
+  ) +
+  annotate("text", x = 0.5, y = 0.08, label = pr_label_no, size = 3.2, hjust = 0.5, vjust = 0) +
   labs(
     title = "PR: Abx-unexposed model",
     x = "Recall",
@@ -213,6 +259,15 @@ plot_pr_no <- ggplot(pr_no, aes(x = recall, y = precision, color = cohort)) +
 
 plot_pr_yes <- ggplot(pr_yes, aes(x = recall, y = precision, color = cohort)) +
   geom_line(linewidth = 1) +
+  geom_hline(
+    data = prev_yes,
+    aes(yintercept = prevalence, color = cohort),
+    linetype = "dashed",
+    linewidth = 0.8,
+    alpha = 0.9,
+    inherit.aes = FALSE
+  ) +
+  annotate("text", x = 0.5, y = 0.08, label = pr_label_yes, size = 3.2, hjust = 0.5, vjust = 0) +
   labs(
     title = "PR: Abx-exposed model",
     x = "Recall",
