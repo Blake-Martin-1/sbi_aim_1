@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------- #
-# file:    setup.R
+# file:    setup_aim_1.R
 #
 # authors: Blake Martin   <blake.martin@childrenscolorado.org>
 #          Tell Bennett   <tell.bennett@ucdenver.edu>
@@ -72,23 +72,31 @@ if (Sys.info()["user"] == "tdbennett") {
           user_norms_path = "/phi/sbi/sbi_data/")
 }
 
+# Guard/fallback for optional user_norms_path configuration
+# Some user setups may not define user_norms_path explicitly; in that case
+# fall back to user_data_path so norm-based path construction still works.
+user_norms_base_path <- getOption("user_norms_path")
+if (is.null(user_norms_base_path) || !nzchar(user_norms_base_path)) {
+  user_norms_base_path <- getOption("user_data_path")
+  warning("user_norms_path not set; falling back to user_data_path for norm files.")
+}
 
 # File Paths for all SBI Data files
 abx_file_path <- paste0(getOption("user_data_path"), "anti_infectives.csv")
 adm_dx_file_path <- paste0(getOption("user_data_path"), "basic_encounter_information.csv")
-bp_norms_lo_boys <- paste0(getOption("user_norms_path"), "Lo_bp_norms_boys.csv")
-bp_norms_lo_girls <- paste0(getOption("user_norms_path"), "Lo_bp_norms_girls.csv")
-bp_norms_cdc_boys <- paste0(getOption("user_norms_path"), "CDC_bp_norms_boys.csv")
-bp_norms_cdc_girls <- paste0(getOption("user_norms_path"), "CDC_bp_norms_girls.csv")
+bp_norms_lo_boys <- paste0(user_norms_base_path, "Lo_bp_norms_boys.csv")
+bp_norms_lo_girls <- paste0(user_norms_base_path, "Lo_bp_norms_girls.csv")
+bp_norms_cdc_boys <- paste0(user_norms_base_path, "CDC_bp_norms_boys.csv")
+bp_norms_cdc_girls <- paste0(user_norms_base_path, "CDC_bp_norms_girls.csv")
 demographics_file_path <- paste0(getOption("user_data_path"), "demographics_20220128.csv")
 extra_weights_file_path <- paste0(getOption("user_data_path"), "heights_and_weights.csv")
 
 gcs_file_path <- paste0(getOption("user_data_path"), "gcs_scores.csv")
 
-Gemelli_bp_under_one_boys <- paste0(getOption("user_norms_path"), "Gemelli_bp_under_one_boys.csv")
-Gemelli_bp_under_one_girls <- paste0(getOption("user_norms_path"), "Gemelli_bp_under_one_girls.csv")
+Gemelli_bp_under_one_boys <- paste0(user_norms_base_path, "Gemelli_bp_under_one_boys.csv")
+Gemelli_bp_under_one_girls <- paste0(user_norms_base_path, "Gemelli_bp_under_one_girls.csv")
 
-hr_norms <- paste0(getOption("user_norms_path"), "hr_percentiles.CSV")
+hr_norms <- paste0(user_norms_base_path, "hr_percentiles.CSV")
 
 info_admit_epic <- paste0(getOption("user_data_path"), "admit_info.xlsx")
 
@@ -96,31 +104,31 @@ info_admit_epic <- paste0(getOption("user_data_path"), "admit_info.xlsx")
 labs_1_file_path <- paste0(getOption("user_data_path"), "labs.csv")
 labs_2_file_path <- paste0(getOption("user_data_path"), "labs_2_fixed_dates.csv")
 
-length_cdc_infant_boys <- paste0(getOption("user_norms_path"), "CDC_length_infant_boys.csv")
-length_cdc_infant_girls <- paste0(getOption("user_norms_path"), "CDC_length_infant_girls.csv")
-length_cdc_boys <- paste0(getOption("user_norms_path"), "CDC_length_boys.csv")
-length_cdc_girls <- paste0(getOption("user_norms_path"), "CDC_length_girls.csv")
+length_cdc_infant_boys <- paste0(user_norms_base_path, "CDC_length_infant_boys.csv")
+length_cdc_infant_girls <- paste0(user_norms_base_path, "CDC_length_infant_girls.csv")
+length_cdc_boys <- paste0(user_norms_base_path, "CDC_length_boys.csv")
+length_cdc_girls <- paste0(user_norms_base_path, "CDC_length_girls.csv")
 
 # micro_comments_file_path <- paste0(getOption("user_data_path"), "micro_with_comments_fixed_dates.csv")
 micro_file_path <- paste0(getOption("user_data_path"), "micro_20220128.csv")
 
-PRISM_PIM_file_path_1 <- paste0(getOption("user_norms_path"), "PRISM_PIM.csv")
+PRISM_PIM_file_path_1 <- paste0(user_norms_base_path, "PRISM_PIM.csv")
 PRISM_PIM_file_path_2 <- paste0(getOption("user_data_path"), "2018_to_2020_vps.xlsx")
 prob_list_file_path <- paste0(getOption("user_data_path"), "problem_list.csv")
-pt_origin_file_path <- paste0(getOption("user_norms_path"), "pt_origin.csv")
+pt_origin_file_path <- paste0(user_norms_base_path, "pt_origin.csv")
 pt_origin_file_path_10_yr <- paste0(getOption("user_data_path"), "vps_ten_yr.xlsx")
 
 pt_sex_file_path <- paste0(getOption("user_data_path"), "pt_sex.csv")
 race_file_path <- paste0(getOption("user_data_path"), "race_death.csv")
-rr_norms <- paste0(getOption("user_norms_path"), "rr_percentiles.CSV")
+rr_norms <- paste0(user_norms_base_path, "rr_percentiles.CSV")
 vitals_full_file_path <- paste0(getOption("user_data_path"), "vitals.csv")
 vps_file_path_10_yr <- paste0(getOption("user_data_path"), "vps_ten_yr.xlsx")
-vps_file_path <- paste0(getOption("user_norms_path"), "vps_full_admit_list_fixed_dates.xlsx")
+vps_file_path <- paste0(user_norms_base_path, "vps_full_admit_list_fixed_dates.xlsx")
 
-weight_cdc_infant_boys <- paste0(getOption("user_norms_path"), "CDC_weight_infant_boys.csv")
-weight_cdc_infant_girls <- paste0(getOption("user_norms_path"), "CDC_weight_infant_girls.csv")
-weight_cdc_boys <- paste0(getOption("user_norms_path"), "CDC_weight_boys.csv")
-weight_cdc_girls <- paste0(getOption("user_norms_path"), "CDC_weight_girls.csv")
+weight_cdc_infant_boys <- paste0(user_norms_base_path, "CDC_weight_infant_boys.csv")
+weight_cdc_infant_girls <- paste0(user_norms_base_path, "CDC_weight_infant_girls.csv")
+weight_cdc_boys <- paste0(user_norms_base_path, "CDC_weight_boys.csv")
+weight_cdc_girls <- paste0(user_norms_base_path, "CDC_weight_girls.csv")
 
 
 # Script file paths
