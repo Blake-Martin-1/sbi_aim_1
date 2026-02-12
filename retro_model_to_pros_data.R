@@ -1,6 +1,23 @@
 # Script to run retrospective model on prospective input data
 
+validate_predictor_schema <- function(df, required_predictors, dataset_label) {
+  missing_predictors <- setdiff(required_predictors, colnames(df))
+  if (length(missing_predictors) > 0) {
+    stop(
+      paste0(
+        dataset_label,
+        " is missing required predictors: ",
+        paste(missing_predictors, collapse = ", ")
+      )
+    )
+  }
+
+  extra_predictors <- setdiff(colnames(df), required_predictors)
+  list(missing = missing_predictors, extra = extra_predictors)
+}
+
 # Now test the no_abx model on prospective 2hr AU cohort
+validate_predictor_schema(pros_no_abx_1st_infxn, predictors, "pros_no_abx_1st_infxn")
 rf_pred_prob_pros <- predict(rf_model, pros_no_abx_1st_infxn[, all_of(c(predictors))], type = "prob")
 pros_auroc_no_abx <- colAUC(rf_pred_prob_pros, pros_no_abx_1st_infxn$sbi_present, plotROC = FALSE) # AUC of 0.736 in prospective test set
 
@@ -10,6 +27,7 @@ predictors_abx[predictors_abx == "hematocrit_mean"] <- "hematocrit_blood"
 
 pros_yes_temp <- pros_yes_abx_1st_infxn %>% rename(hematocrit_blood = hematocrit_mean, last_fio2 = fio2_last, max_dbp = dbp_max)
 
+validate_predictor_schema(pros_yes_temp, predictors_abx, "pros_yes_temp")
 rf_pred_prob_pros_abx <- predict(rf_model_abx, (pros_yes_temp[, all_of(c(predictors_abx))]), type = "prob")
 pros_auroc_abx_yes_abx <- colAUC(rf_pred_prob_pros_abx, pros_yes_temp$sbi_present, plotROC = FALSE) # AUC of 0.750 in prospective test set
 

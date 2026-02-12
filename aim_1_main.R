@@ -1,4 +1,4 @@
-# Script to evaluate changes over time in put availability, input values, and patient mix. To be used for prospective validation paper looking at reasons why the model had poor
+# Script to evaluate changes over time in input availability, input values, and patient mix. To be used for prospective validation paper looking at reasons why the model had poor
 # performance when evaluated prospectively.
 
 
