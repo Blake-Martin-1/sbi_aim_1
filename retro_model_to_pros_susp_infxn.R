@@ -143,6 +143,9 @@ retro_yes_eval <- test_pr_df_abx %>%
 # -----------------------------------------------------------------------------
 # 5) ROC + PR curve utilities and plots (retro test vs prospective suspected)
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# 5) ROC + PR curve utilities and plots (retro test vs prospective suspected)
+# -----------------------------------------------------------------------------
 roc_df <- function(df, cohort_name) {
   roc_obj <- pROC::roc(df$truth_num, df$p_yes, quiet = TRUE, direction = "<")
   tibble(
@@ -166,51 +169,77 @@ cohort_perf <- function(df, cohort_name) {
   )
 }
 
+# Curves (2 cohorts only)
 roc_no <- bind_rows(
-  roc_df(retro_no_eval, "Retrospective test set"),
-  roc_df(pros_no_eval, "Prospective suspected infection")
+  roc_df(retro_no_eval, "Retro Test Set"),
+  roc_df(pros_no_eval,  "Prospective Test Set*")
 )
 
 roc_yes <- bind_rows(
-  roc_df(retro_yes_eval, "Retrospective test set"),
-  roc_df(pros_yes_eval, "Prospective suspected infection")
+  roc_df(retro_yes_eval, "Retro Test Set"),
+  roc_df(pros_yes_eval,  "Prospective Test Set*")
 )
 
 pr_no <- bind_rows(
-  pr_df(retro_no_eval, "Retrospective test set"),
-  pr_df(pros_no_eval, "Prospective suspected infection")
+  pr_df(retro_no_eval, "Retro Test Set"),
+  pr_df(pros_no_eval,  "Prospective Test Set*")
 )
 
 pr_yes <- bind_rows(
-  pr_df(retro_yes_eval, "Retrospective test set"),
-  pr_df(pros_yes_eval, "Prospective suspected infection")
+  pr_df(retro_yes_eval, "Retro Test Set"),
+  pr_df(pros_yes_eval,  "Prospective Test Set*")
 )
 
+# Performance summaries (keep cohort names clean; do NOT include "SBI Prevalence" here)
 perf_no <- bind_rows(
-  cohort_perf(retro_no_eval, "Retrospective test set"),
-  cohort_perf(pros_no_eval, "Prospective suspected infection")
+  cohort_perf(retro_no_eval, "Test Set (Retro)"),
+  cohort_perf(pros_no_eval,  "Susp Inf (Pros)")
 )
 
 perf_yes <- bind_rows(
-  cohort_perf(retro_yes_eval, "Retrospective test set"),
-  cohort_perf(pros_yes_eval, "Prospective suspected infection")
+  cohort_perf(retro_yes_eval, "Test Set (Retro)"),
+  cohort_perf(pros_yes_eval,  "Susp Inf (Pros)")
 )
 
-build_metric_label <- function(perf_df) {
-  paste0(
-    perf_df$cohort, ": AUROC=", sprintf("%.3f", perf_df$auroc),
-    ", AUPRC=", sprintf("%.3f", perf_df$auprc),
-    collapse = "\n"
-  )
+# Build annotation labels:
+# - line break after cohort name
+# - ROC plots: AUROC only
+# - PR plots:  AUPRC only
+build_metric_label <- function(perf_df, metric = c("auroc", "auprc")) {
+  metric <- match.arg(metric)
+
+  if (metric == "auroc") {
+    paste0(
+      perf_df$cohort, ":\n",
+      "AUROC=", sprintf("%.3f", perf_df$auroc),
+      collapse = "\n"
+    )
+  } else {
+    paste0(
+      perf_df$cohort, ":\n",
+      "AUPRC=", sprintf("%.3f", perf_df$auprc),
+      collapse = "\n"
+    )
+  }
 }
 
-roc_label_no <- build_metric_label(perf_no)
-roc_label_yes <- build_metric_label(perf_yes)
-pr_label_no <- build_metric_label(perf_no)
-pr_label_yes <- build_metric_label(perf_yes)
+roc_label_no  <- build_metric_label(perf_no,  metric = "auroc")
+roc_label_yes <- build_metric_label(perf_yes, metric = "auroc")
+pr_label_no   <- build_metric_label(perf_no,  metric = "auprc")
+pr_label_yes  <- build_metric_label(perf_yes, metric = "auprc")
 
-prev_no <- perf_no %>% select(cohort, prevalence)
-prev_yes <- perf_yes %>% select(cohort, prevalence)
+# Prevalence lines: create separate legend labels ONLY for PR plots
+prev_no <- perf_no %>%
+  transmute(
+    cohort = paste0("SBI Prevalence\n", cohort),
+    prevalence = prevalence
+  )
+
+prev_yes <- perf_yes %>%
+  transmute(
+    cohort = paste0("SBI Prevalence\n", cohort),
+    prevalence = prevalence
+  )
 
 plot_roc_no <- ggplot(roc_no, aes(x = fpr, y = tpr, color = cohort)) +
   geom_line(linewidth = 1) +

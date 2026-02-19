@@ -2259,7 +2259,7 @@ pros_yes_abx_1st_infxn$pccc <- as.factor(pros_yes_abx_1st_infxn$pccc)
 pros_yes_abx_1st_infxn$malignancy_pccc <- as.factor(pros_yes_abx_1st_infxn$malignancy_pccc)
 
 
-# Calculate score of retro model oin prospective data
+# Calculate score of retro model on prospective data
 source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/retro_model_to_pros_data.R")
 source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/retro_model_to_pros_susp_infxn.R")
 
@@ -2467,6 +2467,12 @@ pros_no_abx_1st_infxn$model_score <-
 
 pros_yes_abx_1st_infxn$model_score <-
   rescale_to_unit(pros_yes_abx_1st_infxn$model_score)
+
+#Write pros datasets and retro sets to file
+write_csv(x = retro_no_abx_1st_infxn, "/phi/sbi/sbi_blake/retro_1st_no_abx_2_13_26.csv")
+write_csv(x = retro_yes_abx_1st_infxn, "/phi/sbi/sbi_blake/retro_1st_yes_abx_2_13_26.csv")
+write_csv(x = pros_no_abx_1st_infxn, "/phi/sbi/sbi_blake/pros_1st_no_abx_2_13_26.csv")
+write_csv(x = pros_yes_abx_1st_infxn, "/phi/sbi/sbi_blake/pros_1st_yes_abx_2_13_26.csv")
 
 
 # ------------------------------------------------------------

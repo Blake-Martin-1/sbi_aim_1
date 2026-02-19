@@ -217,8 +217,20 @@ pros_all_clean <- pros_all_clean %>%
   ungroup() %>%
   select(-hour_delta)
 
-# Add suspicion flag candidate
-pros_all_clean <- derive_suspicion_flag(pros_all_clean)
+# Add suspicion flag candidate which we know from the pros_* datasets, thus don't need helper function
+# for now because we know what column we need
+
+# pros_all_clean <- derive_suspicion_flag(pros_all_clean)
+get_susp_infxn_no_abx <- read_csv("/phi/sbi/sbi_blake/pros_1st_no_abx_2_13_26.csv")
+get_susp_infxn_yes_abx <- read_csv("/phi/sbi/sbi_blake/pros_1st_yes_abx_2_13_26.csv")
+
+susp_slim_no_abx <- get_susp_infxn_no_abx %>% dplyr::select(study_id, suspected_infection) %>% distinct()
+susp_slim_yes_abx <- get_susp_infxn_yes_abx %>% dplyr::select(study_id, suspected_infection) %>% distinct()
+
+pros_all_clean <- pros_all_clean %>% left_join(susp_slim_no_abx, by = "study_id")
+pros_all_clean <- pros_all_clean %>% left_join(susp_slim_yes_abx, by = "study_id")
+
+pros_all_clean <- pros_all_clean %>% mutate(suspicion_flag = ifelse())
 
 # Split by prospective model channel
 pros_no_abx <- pros_all_clean %>% filter(model_type == "RF_no_abx")
