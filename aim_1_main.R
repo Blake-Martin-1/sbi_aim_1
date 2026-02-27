@@ -3,7 +3,7 @@
 
 
 # Call setup script to import needed filepaths
-source("/phi/sbi/sbi_blake/aim_1_paper_materials/setup_aim_1.R")
+source("setup_aim_1.R")
 
 # Load additional scripts
 library(gbm)
@@ -21,44 +21,38 @@ library(tidyr)
 library(rsample)
 library(parsnip)
 library(ranger)
-library(pROC)
+library(pROC)      # ROC + AUC
 library(caret)
 library(iml)
-library(rsample)
 library(purrr)
 library(glmnet)
-library(caret)
 library(tidyverse)
 library(survey)
 library(forcats)
 library(gtsummary)
 library(flextable)
 library(officer)
-library(tidyr)
 library(ggplot2)
 library(scales)
-library(stringr)
 library(dplyr)
-library(purrr)
 library(tibble)
-library(ggplot2)
-library(pROC)
 library(yardstick)
-library(ggplot2)
 library(patchwork)
-library(pROC)      # ROC + AUC
 library(PRROC)     # PR curve + AUPRC
 library(WeightIt)
 library(cobalt)
 library(emmeans)
 
 
-
 # Run script to generate models and rf_df and rf_df_abx
-source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/retro_models_to_2026.R")
+source(file = "retro_models_to_2026.R")
 
 # Load in similar dataframe for the prospective model data
-pros_all <- read_csv(file = "/phi/sbi/sbi_blake/pros_all_just_b4_modeling_1_15_26_all_models.csv")
+prospective_model_data_file_path <- getOption(
+  "prospective_model_data_file_path",
+  "/phi/sbi/sbi_blake/pros_all_just_b4_modeling_1_15_26_all_models.csv"
+)
+pros_all <- read_csv(file = prospective_model_data_file_path)
 
 # Filter to just the antibiotic unexposed random forest model
 pros_rf_ue <- pros_all %>% filter(model_type == "RF_no_abx")
@@ -121,8 +115,12 @@ retro_rf_with_case <- retro_rf_with_case %>% relocate(study_id)
 
 # Read pt_sex into df pt_sex, then correct column classes,
 df_demographics <- read_csv(demographics_file_path)
-pt_sex <- df_demographics %>% dplyr::select(MRN, SEX, ETHNICITY)
-pt_sex <- df_demographics %>% dplyr::mutate(sex = as.factor(df_demographics$SEX), mrn = as.character(pt_sex$MRN), ethnicity = as.factor(pt_sex$ETHNICITY))
+pt_sex <- df_demographics %>%
+  dplyr::transmute(
+    mrn = as.character(MRN),
+    sex = as.factor(SEX),
+    ethnicity = as.factor(ETHNICITY)
+  )
 
 encounter_df <- read_csv(file =  adm_dx_file_path)
 colnames(encounter_df) <- c("mrn", "hosp_adm_date_time", "hosp_dc_date_time", "picu_adm_date_time", "admission_dx", "billing_dx", "proc_dx")
@@ -137,7 +135,7 @@ encounter_df <- encounter_df %>% mutate(hosp_adm_date_time = force_tz(hosp_adm_d
                                         picu_adm_date_time = force_tz(picu_adm_date_time, tz = "America/Denver"))
 
 
-vitals_full_file_path <- "/phi/sbi/sbi_data/ten_yr_data/vitals_20220415.csv"
+vitals_full_file_path <- getOption("vitals_full_file_path", vitals_full_file_path)
 vitals_full <- read_csv(file = vitals_full_file_path)
 
 # # #Correct class type for the vitals_full df
@@ -2481,10 +2479,6 @@ write_csv(x = pros_yes_abx_1st_infxn, "/phi/sbi/sbi_blake/pros_1st_yes_abx_2_13_
 
 
 # ------------------------------------------------------------
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-library(scales)
 
 # ----------------------------
 # Inputs: my 4 evaluation dataframes
@@ -3195,7 +3189,6 @@ bind_rows(
   pros_wtd  %>% mutate(epoch = "Pros",  weighting = "Weighted to Retro case-mix")
 )
 
-library(pROC)
 
 weighted_auroc <- function(df, truth_col = "sbi_present", score_col = "model_prob", w_col = "w") {
   d <- df %>% filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]]), !is.na(.data[[w_col]]))
@@ -3210,7 +3203,6 @@ df_noabx_w %>% filter(A == 1) %>% weighted_auroc(truth_col="sbi_present", score_
 # Abx+ Pros weighted to Retro
 df_yesabx_w %>% filter(A == 1) %>% weighted_auroc(truth_col="sbi_present", score_col="model_prob", w_col="w")
 
-library(PRROC)
 
 weighted_auprc <- function(df, truth_col="sbi_present", score_col="model_prob", w_col="w") {
   d <- df %>% filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]]), !is.na(.data[[w_col]]))
@@ -3246,13 +3238,6 @@ weighted_demo_pros_auprc_yes_abx
 #   - Weighted (w = IPTW weights)
 # ============================================================
 
-library(dplyr)
-library(tibble)
-library(purrr)
-library(ggplot2)
-library(pROC)
-library(PRROC)
-library(patchwork)
 
 # ----------------------------
 # Helper: build ROC points (weighted or unweighted)
@@ -3486,11 +3471,6 @@ table1_yesabx <- make_table1_epoch(df_yesabx, title = "Table 1. Baseline charact
 # =============================================================================
 
 suppressPackageStartupMessages({
-  library(dplyr)
-  library(tidyr)
-  library(purrr)
-  library(stringr)
-  library(ggplot2)
   library(readr)
 })
 
@@ -3857,17 +3837,6 @@ p_yes_abx_smd     <- yes_abx_results$p_smd
 
 ### Now perform propensity weighting analysis to determine if measurement frequency
 # and availability explains difference
-suppressPackageStartupMessages({
-  library(dplyr)
-  library(stringr)
-  library(ggplot2)
-  library(WeightIt)
-  library(cobalt)
-  library(patchwork)
-  library(scales)
-  library(PRROC)
-})
-
 get_ps_covariates_case_mix_plus_measurement <- function(df) {
 
   # Never include these in the PS
@@ -3910,9 +3879,6 @@ get_ps_covariates_case_mix_plus_measurement <- function(df) {
   covars
 }
 
-library(dplyr)
-library(WeightIt)
-library(cobalt)
 
 make_weights_pros_to_retro_ebal <- function(df,
                                             ps_trim = NULL,          # usually not needed for ebal

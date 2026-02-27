@@ -295,7 +295,7 @@ rf_pred_prob <- predict(rf_model, test_df, type = "prob")
 
 # 2) Build a tidy predictions df keyed by row order
 test_preds <- tibble(
-  rowIndex   = dplyr::row_number(test_df$sbi_present),  # 1:nrow(test_df)
+  rowIndex   = seq_len(nrow(test_df)),                  # 1:nrow(test_df)
   sbi_present = test_df$sbi_present,                    # keep factor yes/no
   model_score = rf_pred_prob[, "yes"]                   # P(SBI = yes)
 )
@@ -639,5 +639,4 @@ stopifnot(nrow(test_df_with_pred_abx) == nrow(test_df_abx))
 stopifnot(!anyNA(test_df_with_pred_abx$model_score))
 
 rf_df_abx <- test_df_with_pred_abx
-
 
