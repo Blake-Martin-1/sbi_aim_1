@@ -7,7 +7,6 @@
 # This file is sourced by other scripts
 # ---------------------------------------------------------------------------- #
 
-rm(list = ls())
 
 # ---------------------------------------------------------------------------- #
 # Options and library loads
@@ -99,6 +98,10 @@ Gemelli_bp_under_one_girls <- paste0(user_norms_base_path, "Gemelli_bp_under_one
 hr_norms <- paste0(user_norms_base_path, "hr_percentiles.CSV")
 
 info_admit_epic <- paste0(getOption("user_data_path"), "admit_info.xlsx")
+options(prospective_model_data_file_path = getOption(
+  "prospective_model_data_file_path",
+  "/phi/sbi/sbi_blake/pros_all_just_b4_modeling_1_15_26_all_models.csv"
+))
 
 # Need updated lab info
 labs_1_file_path <- paste0(getOption("user_data_path"), "labs.csv")
