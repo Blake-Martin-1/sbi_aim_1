@@ -2456,6 +2456,11 @@ rescale_to_unit <- function(x) {
   }
 }
 
+retro_no_abx_1st_infxn <- retro_no_abx_final
+retro_yes_abx_1st_infxn <- retro_yes_abx_final
+
+
+
 retro_no_abx_1st_infxn$model_score <-
   rescale_to_unit(retro_no_abx_1st_infxn$model_score)
 

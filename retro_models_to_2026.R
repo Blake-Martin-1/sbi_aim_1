@@ -220,7 +220,17 @@ npv_at_threshold(rf_model, threshold = 0.050) # 0.958 = NPV
 
 # Now will apply this model to the training set and compute the AUROC and associated confusion matrix
 rf_pred_prob <- predict(rf_model, test_df, type = "prob")
-retro_test_auroc_no_abx <- colAUC(rf_pred_prob, test_df$sbi_present, plotROC = FALSE) # AUC of 0.745 in test set
+retro_test_auroc_no_abx <- as.numeric(
+  pROC::auc(
+    pROC::roc(
+      response  = test_df$sbi_present,
+      predictor = rf_pred_prob[["yes"]],
+      levels    = c("no", "yes"),
+      direction = "<",
+      quiet     = TRUE
+    )
+  )
+)
 
 # Determine NPV
 # Recalculate confusion matrix based on optimal cut-point
@@ -556,7 +566,17 @@ rf_cm_thr #NPV 0.8333
 
 
 
-retro_test_auroc_yes_abx <- colAUC(rf_pred_prob_abx, test_df_abx$sbi_present, plotROC = FALSE) # AUC of 0.768 in test set
+retro_test_auroc_yes_abx <- as.numeric(
+  pROC::auc(
+    pROC::roc(
+      response  = test_df_abx$sbi_present,
+      predictor = rf_pred_prob_abx[["yes"]],
+      levels    = c("no", "yes"),
+      direction = "<",
+      quiet     = TRUE
+    )
+  )
+)
 
 # Store AUPRC in test set also
 # make a data frame with truth + positive-class prob
