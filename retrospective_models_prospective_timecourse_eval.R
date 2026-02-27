@@ -51,15 +51,25 @@ truth_factor <- function(y01) {
 }
 
 auroc_safe <- function(df, truth_col = "truth", prob_col = "p_yes") {
-  dat <- df %>% filter(!is.na(.data[[truth_col]]), !is.na(.data[[prob_col]]))
+  dat <- df %>% dplyr::filter(!is.na(.data[[truth_col]]), !is.na(.data[[prob_col]]))
   if (nrow(dat) < 10 || dplyr::n_distinct(dat[[truth_col]]) < 2) return(NA_real_)
-  as.numeric(DescTools::colAUC(dat[[prob_col]], dat[[truth_col]], plotROC = FALSE)[1])
+
+  # ensure levels match and event is "yes"
+  dat[[truth_col]] <- factor(dat[[truth_col]], levels = c("yes", "no"))
+
+  # IMPORTANT: pass estimate column positionally (no estimate =)
+  yardstick::roc_auc(dat, !!rlang::sym(truth_col), !!rlang::sym(prob_col), event_level = "first") %>%
+    dplyr::pull(.estimate)
 }
 
 auprc_safe <- function(df, truth_col = "truth", prob_col = "p_yes") {
-  dat <- df %>% filter(!is.na(.data[[truth_col]]), !is.na(.data[[prob_col]]))
+  dat <- df %>% dplyr::filter(!is.na(.data[[truth_col]]), !is.na(.data[[prob_col]]))
   if (nrow(dat) < 10 || dplyr::n_distinct(dat[[truth_col]]) < 2) return(NA_real_)
-  yardstick::pr_auc(dat, truth = !!sym(truth_col), !!sym(prob_col)) %>% pull(.estimate)
+
+  dat[[truth_col]] <- factor(dat[[truth_col]], levels = c("yes", "no"))
+
+  yardstick::pr_auc(dat, !!rlang::sym(truth_col), !!rlang::sym(prob_col), event_level = "first") %>%
+    dplyr::pull(.estimate)
 }
 
 npv_at_threshold_df <- function(df, threshold) {
@@ -230,7 +240,8 @@ susp_slim_yes_abx <- get_susp_infxn_yes_abx %>% dplyr::select(study_id, suspecte
 pros_all_clean <- pros_all_clean %>% left_join(susp_slim_no_abx, by = "study_id")
 pros_all_clean <- pros_all_clean %>% left_join(susp_slim_yes_abx, by = "study_id")
 
-pros_all_clean <- pros_all_clean %>% mutate(suspicion_flag = ifelse())
+pros_all_clean <- pros_all_clean %>% mutate(suspicion_flag = suspected_infection.x) %>%
+  rename(suspected_infection = suspected_infection.x) %>% dplyr::select(-suspected_infection.y)
 
 # Split by prospective model channel
 pros_no_abx <- pros_all_clean %>% filter(model_type == "RF_no_abx")
@@ -292,7 +303,15 @@ p_npv <- npv_hour_out %>%
   ) +
   theme_bw(base_size = 12)
 
-ggsave(output_npv_plot, p_npv, width = 11, height = 6, dpi = 300)
+print(p_npv)
+
+ggsave(
+  output_npv_plot,
+  p_npv,
+  width = 11,
+  height = 6,
+  dpi = 300
+)
 
 # Console summary
 message("\n=== Overall performance summary ===")
