@@ -3,6 +3,8 @@
 
 
 # Call setup script to import needed filepaths
+setwd(dir = "/phi/sbi/sbi_blake/aim_1_paper_materials/")
+
 source("setup_aim_1.R")
 
 # Load additional scripts
@@ -2414,12 +2416,18 @@ roc_plot <- ggplot(roc_df, aes(x = fpr, y = tpr)) +
   ) +
   geom_text(
     data = metrics_df,
-    aes(x = 0.62, y = 0.10, label = label),
+    aes(x = 0.35, y = 0.15, label = label),
     inherit.aes = FALSE,
     hjust = 0,
-    size = 3.5
+    size = 4
   ) +
-  theme_bw()
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    strip.text = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 8)
+  )
 
 pr_plot <- ggplot(pr_df, aes(x = recall, y = precision)) +
   geom_line(linewidth = 1) +
@@ -2432,12 +2440,18 @@ pr_plot <- ggplot(pr_df, aes(x = recall, y = precision)) +
   ) +
   geom_text(
     data = metrics_df,
-    aes(x = 0.62, y = 0.10, label = label),
+    aes(x = 0.80, y = 0.86, label = label),
     inherit.aes = FALSE,
     hjust = 0,
-    size = 3.5
+    size = 4
   ) +
-  theme_bw()
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    strip.text = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 8)
+  )
 
 print(roc_plot)
 print(pr_plot)
