@@ -2507,6 +2507,7 @@ dfs_eval <- list(
 
 score_col <- "model_score"
 y_col     <- "sbi_present"
+sus_col   <- "suspected_infection"
 
 thr_tbl <- tibble(
   abx = c("Abx-", "Abx+"),
@@ -2535,15 +2536,22 @@ to_truth01 <- function(x) {
   as.integer(ifelse(is.na(x_num), NA_integer_, ifelse(x_num >= 1, 1L, 0L)))
 }
 
-ruleout_stats_one <- function(df, scenario, score_col, y_col, threshold) {
+ruleout_stats_one <- function(df, scenario, score_col, y_col, threshold,
+                              sus_col = "suspected_infection",
+                              include_all_comers = TRUE) {
   sc <- parse_scenario(scenario)
 
   dat <- df %>%
     transmute(
       score = as.numeric(.data[[score_col]]),
-      truth = to_truth01(.data[[y_col]])
+      truth = to_truth01(.data[[y_col]]),
+      suspected = if (sus_col %in% names(df)) to_truth01(.data[[sus_col]]) else NA_integer_
     ) %>%
     filter(!is.na(score), !is.na(truth), truth %in% c(0L, 1L))
+
+  if (!include_all_comers) {
+    dat <- dat %>% filter(suspected == 1L)
+  }
 
   n_total <- nrow(dat)
   n_sbi0  <- sum(dat$truth == 0L)
@@ -2577,11 +2585,36 @@ ruleout_stats_one <- function(df, scenario, score_col, y_col, threshold) {
   )
 }
 
-quad_df <- purrr::imap_dfr(dfs_eval, ~{
-  abx_lbl <- ifelse(grepl("Abx\\+", .y), "Abx+", "Abx-")
-  thr <- thr_tbl$threshold[thr_tbl$abx == abx_lbl][1]
-  ruleout_stats_one(.x, scenario = .y, score_col = score_col, y_col = y_col, threshold = thr)
-})
+cohort_tbl <- tibble(
+  cohort = c("All comers", "Suspected infection only"),
+  include_all_comers = c(TRUE, FALSE)
+)
+
+quad_df <- tidyr::crossing(
+  scenario = names(dfs_eval),
+  cohort_tbl
+) %>%
+  mutate(
+    stats = purrr::map2(
+      scenario,
+      include_all_comers,
+      ~{
+        abx_lbl <- ifelse(grepl("Abx\\+", .x), "Abx+", "Abx-")
+        thr <- thr_tbl$threshold[thr_tbl$abx == abx_lbl][1]
+        ruleout_stats_one(
+          dfs_eval[[.x]],
+          scenario = .x,
+          score_col = score_col,
+          y_col = y_col,
+          threshold = thr,
+          sus_col = sus_col,
+          include_all_comers = .y
+        )
+      }
+    )
+  ) %>%
+  select(-include_all_comers) %>%
+  tidyr::unnest(stats)
 
 quad_df <- quad_df %>%
   mutate(
@@ -2598,10 +2631,11 @@ quad_df <- quad_df %>%
   )
 
 seg_df <- quad_df %>%
-  select(abx, epoch, x_plot, y_plot) %>%
+  select(cohort, abx, epoch, x_plot, y_plot) %>%
   tidyr::pivot_wider(names_from = epoch, values_from = c(x_plot, y_plot)) %>%
   filter(!is.na(x_plot_Retro), !is.na(x_plot_Pros)) %>%
   transmute(
+    cohort = cohort,
     abx = abx,
     x = x_plot_Retro, y = y_plot_Retro,
     xend = x_plot_Pros, yend = y_plot_Pros
@@ -2647,7 +2681,7 @@ p_quadrant <-
     seed = 1
   ) +
 
-  facet_wrap(~abx, ncol = 2) +
+  facet_grid(cohort ~ abx) +
   scale_x_continuous(labels = percent_format(accuracy = 1), limits = c(0, 1)) +
 
   # IMPORTANT: zoom without dropping points
@@ -2658,6 +2692,7 @@ p_quadrant <-
     title = "Clinical rule-out performance at fixed SBI risk thresholds",
     subtitle = paste0(
       "Y-axis: NPV among low-risk; X-axis: fraction of SBI-negative encounters captured as low-risk\n",
+      "Rows: all comers (suspected_infection 0/1) vs suspected_infection == 1 only. ",
       "Hollow points indicate zero low-risk predictions at the specified threshold."
     ),
     x = "Proportion of SBI-negative encounters classified as low risk",
@@ -4136,7 +4171,6 @@ w_yesabx_meas_ebal <- make_weights_pros_to_retro_ebal(
 )
 df_yesabx_w_meas_ebal <- w_yesabx_meas_ebal$df_w
 check_weights(df_yesabx_w_meas_ebal)
-
 
 
 
