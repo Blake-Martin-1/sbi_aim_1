@@ -2458,6 +2458,114 @@ print(pr_plot)
 metrics_df
 
 
+# ----------------------------
+# 4) Repeat ROC/PR evaluation for prospective patients with suspected infection
+# ----------------------------
+pros_no_abx_susp <- pros_no_abx_1st_infxn %>%
+  filter(suspected_infection == 1L) %>%
+  transmute(
+    scenario  = "Pros • Abx-",
+    truth_num = as.integer(sbi_present),
+    truth     = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes", "no")),
+    score     = to_prob01(model_score)
+  )
+
+pros_yes_abx_susp <- pros_yes_abx_1st_infxn %>%
+  filter(suspected_infection == 1L) %>%
+  transmute(
+    scenario  = "Pros • Abx+",
+    truth_num = as.integer(sbi_present),
+    truth     = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes", "no")),
+    score     = to_prob01(model_score)
+  )
+
+dat_all_susp <- bind_rows(reto_yes_abx = retro_yes_abx,
+                          reto_no_abx  = retro_no_abx,
+                          pros_yes_abx = pros_yes_abx_susp,
+                          pros_no_abx  = pros_no_abx_susp) %>%
+  filter(!is.na(truth_num), !is.na(score), is.finite(score)) %>%
+  mutate(
+    scenario = factor(
+      scenario,
+      levels = c("Retro • Abx+", "Retro • Abx-", "Pros • Abx+", "Pros • Abx-")
+    )
+  )
+
+dat_list_susp <- split(dat_all_susp, dat_all_susp$scenario)
+
+roc_df_susp <- map_dfr(dat_list_susp, roc_curve_df)
+pr_df_susp  <- map_dfr(dat_list_susp, pr_curve_df)
+
+metrics_df_susp <- map_dfr(dat_list_susp, ~ tibble(
+  scenario   = .x$scenario[1],
+  n          = nrow(.x),
+  prevalence = mean(.x$truth_num == 1L),
+  AUROC      = auroc_one(.x),
+  AUPRC      = auprc_one(.x)
+)) %>%
+  mutate(
+    scenario = factor(scenario, levels = levels(dat_all_susp$scenario)),
+    label = paste0(
+      "AUROC = ", sprintf("%.3f", AUROC), "\n",
+      "AUPRC = ", sprintf("%.3f", AUPRC), "\n",
+      "Prev = ", sprintf("%.3f", prevalence)
+    )
+  )
+
+roc_plot_susp <- ggplot(roc_df_susp, aes(x = fpr, y = tpr)) +
+  geom_abline(intercept = 0, slope = 1, linetype = 2) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ scenario, ncol = 2) +
+  coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(
+    title = "ROC Curves (Suspected Infection Only)",
+    x = "False Positive Rate (1 - Specificity)",
+    y = "True Positive Rate (Sensitivity)"
+  ) +
+  geom_text(
+    data = metrics_df_susp,
+    aes(x = 0.35, y = 0.15, label = label),
+    inherit.aes = FALSE,
+    hjust = 0,
+    size = 4
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    strip.text = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 8)
+  )
+
+pr_plot_susp <- ggplot(pr_df_susp, aes(x = recall, y = precision)) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ scenario, ncol = 2) +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(
+    title = "Precision-Recall Curves (Suspected Infection Only)",
+    x = "Recall",
+    y = "Precision"
+  ) +
+  geom_text(
+    data = metrics_df_susp,
+    aes(x = 0.80, y = 0.86, label = label),
+    inherit.aes = FALSE,
+    hjust = 0,
+    size = 4
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    strip.text = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 8)
+  )
+
+print(roc_plot_susp)
+print(pr_plot_susp)
+metrics_df_susp
+
+
 
 # Ensure correct scale for model scores
 rescale_to_unit <- function(x) {
@@ -4136,7 +4244,6 @@ w_yesabx_meas_ebal <- make_weights_pros_to_retro_ebal(
 )
 df_yesabx_w_meas_ebal <- w_yesabx_meas_ebal$df_w
 check_weights(df_yesabx_w_meas_ebal)
-
 
 
 
