@@ -14,6 +14,8 @@ suppressPackageStartupMessages({
   library(DescTools)
   library(yardstick)
   library(pROC)
+  library(data.table)
+  library(lubridate)
 })
 
 # -----------------------------
@@ -24,6 +26,8 @@ retro_models_script_path <- "/phi/sbi/sbi_blake/aim_1_paper_materials/retro_mode
 output_metrics_csv <- "prospective_timecourse_rf_metrics.csv"
 output_predictions_csv <- "prospective_timecourse_rf_predictions.csv"
 output_npv_plot <- "prospective_timecourse_npv_by_hour.png"
+pros_micro_csv_path <- "/phi/sbi/prospective_data/Prospective/data/micro_export_pros_100125.csv"
+pros_cxr_csv_path <- "/phi/sbi/prospective_data/Prospective/data/hosp_chest_xray_export_pros_100125.csv"
 
 # Thresholds used for NPV calculations (can be adjusted)
 threshold_no_abx <- 0.05
@@ -115,6 +119,74 @@ bootstrap_hourly_npv <- function(df, threshold, n_boot = 200) {
   })
 }
 
+derive_suspicion_from_micro_cxr <- function(pros_df, micro_csv_path, cxr_csv_path) {
+  encounter_dt <- as.data.table(
+    pros_df %>%
+      dplyr::select(study_id, mrn, picu_adm_date_time) %>%
+      distinct()
+  )
+
+  encounter_dt[, `:=`(
+    mrn = as.character(mrn),
+    picu_adm_date_time = force_tz(picu_adm_date_time, tz = "America/Denver"),
+    suspected_infection = 0L,
+    window_start = picu_adm_date_time - as.difftime(24, units = "hours"),
+    window_end = picu_adm_date_time + as.difftime(24, units = "hours"),
+    row_id = .I
+  )]
+
+  micro_dt <- as.data.table(
+    readr::read_csv(micro_csv_path, show_col_types = FALSE) %>%
+      mutate(
+        pat_mrn_id = as.character(pat_mrn_id),
+        specimn_taken_time = force_tz(as.POSIXct(specimn_taken_time), tz = "America/Denver")
+      ) %>%
+      rename(mrn = pat_mrn_id)
+  )
+  micro_dt <- micro_dt[!is.na(mrn) & !is.na(specimn_taken_time)]
+  setindex(micro_dt, mrn, specimn_taken_time)
+
+  micro_hits <- micro_dt[
+    encounter_dt,
+    on = .(mrn, specimn_taken_time >= window_start, specimn_taken_time <= window_end),
+    nomatch = 0L,
+    allow.cartesian = TRUE
+  ][, .(suspected_infection = 1L), by = row_id]
+
+  encounter_dt <- merge(encounter_dt, micro_hits, by = "row_id", all.x = TRUE, suffixes = c("", "_micro"))
+  encounter_dt[!is.na(suspected_infection_micro), suspected_infection := 1L]
+  encounter_dt[, suspected_infection_micro := NULL]
+
+  cxr_dt <- as.data.table(
+    readr::read_csv(cxr_csv_path, show_col_types = FALSE) %>%
+      mutate(
+        mrn = as.character(pat_mrn_id),
+        chest_x_ray_order = force_tz(as.POSIXct(chest_x_ray_order), tz = "America/Denver")
+      )
+  )
+  cxr_dt <- cxr_dt[chest_xray_yn == 1 & !is.na(chest_x_ray_order) & !is.na(mrn)]
+
+  cxr_hit_ids <- unique(
+    cxr_dt[
+      encounter_dt,
+      on = .(mrn, chest_x_ray_order >= window_start, chest_x_ray_order <= window_end),
+      nomatch = 0L,
+      .(study_id)
+    ]$study_id
+  )
+
+  encounter_dt[study_id %in% cxr_hit_ids, suspected_infection := 1L]
+
+  suspicion_map <- encounter_dt[, .(study_id, suspected_infection)]
+
+  pros_df %>%
+    left_join(as_tibble(suspicion_map), by = "study_id") %>%
+    mutate(
+      suspected_infection = replace_na(suspected_infection, 0L),
+      suspicion_flag = suspected_infection
+    )
+}
+
 # Attempt to identify a suspicion-of-infection column in prospective data
 derive_suspicion_flag <- function(df) {
   candidates <- c(
@@ -187,13 +259,16 @@ score_model_dataset <- function(df_model, model_obj, predictors, threshold, mode
     npv = npv_at_threshold_df(scored_susp, threshold = threshold)
   )
 
-  npv_hour <- bootstrap_hourly_npv(scored, threshold = threshold, n_boot = n_boot) %>%
-    mutate(model_label = model_label)
+  npv_hour_all <- bootstrap_hourly_npv(scored, threshold = threshold, n_boot = n_boot) %>%
+    mutate(model_label = model_label, subset = "all_patients")
+
+  npv_hour_susp <- bootstrap_hourly_npv(scored_susp, threshold = threshold, n_boot = n_boot) %>%
+    mutate(model_label = model_label, subset = "suspicion_of_infection")
 
   list(
     scored = scored,
     metrics = bind_rows(all_metrics, susp_metrics),
-    npv_hour = npv_hour
+    npv_hour = bind_rows(npv_hour_all, npv_hour_susp)
   )
 }
 
@@ -227,21 +302,13 @@ pros_all_clean <- pros_all_clean %>%
   ungroup() %>%
   select(-hour_delta)
 
-# Add suspicion flag candidate which we know from the pros_* datasets, thus don't need helper function
-# for now because we know what column we need
-
-# pros_all_clean <- derive_suspicion_flag(pros_all_clean)
-get_susp_infxn_no_abx <- read_csv("/phi/sbi/sbi_blake/pros_1st_no_abx_2_13_26.csv")
-get_susp_infxn_yes_abx <- read_csv("/phi/sbi/sbi_blake/pros_1st_yes_abx_2_13_26.csv")
-
-susp_slim_no_abx <- get_susp_infxn_no_abx %>% dplyr::select(study_id, suspected_infection) %>% distinct()
-susp_slim_yes_abx <- get_susp_infxn_yes_abx %>% dplyr::select(study_id, suspected_infection) %>% distinct()
-
-pros_all_clean <- pros_all_clean %>% left_join(susp_slim_no_abx, by = "study_id")
-pros_all_clean <- pros_all_clean %>% left_join(susp_slim_yes_abx, by = "study_id")
-
-pros_all_clean <- pros_all_clean %>% mutate(suspicion_flag = suspected_infection.x) %>%
-  rename(suspected_infection = suspected_infection.x) %>% dplyr::select(-suspected_infection.y)
+# Derive suspicion-of-infection for every encounter in pros_all_clean using
+# micro orders and chest X-ray orders within +/- 24 hours of PICU admission.
+pros_all_clean <- derive_suspicion_from_micro_cxr(
+  pros_df = pros_all_clean,
+  micro_csv_path = pros_micro_csv_path,
+  cxr_csv_path = pros_cxr_csv_path
+)
 
 # Split by prospective model channel
 pros_no_abx <- pros_all_clean %>% filter(model_type == "RF_no_abx")
@@ -291,11 +358,12 @@ p_npv <- npv_hour_out %>%
   ggplot(aes(x = hour_rounded, y = npv_median, color = model_label, fill = model_label)) +
   geom_ribbon(aes(ymin = npv_q25, ymax = npv_q75), alpha = 0.20, color = NA) +
   geom_line(linewidth = 1.1) +
+  facet_wrap(~subset) +
   scale_x_continuous(breaks = 0:24) +
   scale_y_continuous(limits = c(0, 1)) +
   labs(
     title = "Prospective NPV Over Time for Retrospective RF Models",
-    subtitle = "Median and IQR from bootstrap resampling by rounded hour",
+    subtitle = "Median and IQR from bootstrap resampling by rounded hour, by subset",
     x = "Hours since PICU admission (rounded)",
     y = "Negative Predictive Value (NPV)",
     color = "Model",
