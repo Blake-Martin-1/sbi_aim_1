@@ -2311,7 +2311,7 @@ pros_no_abx <- pros_no_abx_1st_infxn %>%
   )
 
 # Prospective: exposed
-pros_yes_abx <- pros_yes_abx_1st_infxn %>%
+pros_yes_abx <- pros_yes_abx_1st_infxn$suspected_infection %>%
   transmute(
     scenario  = "Pros • Abx+",
     truth_num = as.integer(sbi_present),
@@ -2440,7 +2440,7 @@ pr_plot <- ggplot(pr_df, aes(x = recall, y = precision)) +
   ) +
   geom_text(
     data = metrics_df,
-    aes(x = 0.80, y = 0.86, label = label),
+    aes(x = 0.79, y = 0.86, label = label),
     inherit.aes = FALSE,
     hjust = 0,
     size = 4
@@ -2456,6 +2456,113 @@ pr_plot <- ggplot(pr_df, aes(x = recall, y = precision)) +
 print(roc_plot)
 print(pr_plot)
 metrics_df
+
+# ----------------------------
+# 4) Repeat ROC/PR evaluation for prospective patients with suspected infection
+# ----------------------------
+pros_no_abx_susp <- pros_no_abx_1st_infxn %>%
+  filter(suspected_infection == 1L) %>%
+  transmute(
+    scenario  = "Pros • Abx-",
+    truth_num = as.integer(sbi_present),
+    truth     = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes", "no")),
+    score     = to_prob01(model_score)
+  )
+
+pros_yes_abx_susp <- pros_yes_abx_1st_infxn %>%
+  filter(suspected_infection == 1L) %>%
+  transmute(
+    scenario  = "Pros • Abx+",
+    truth_num = as.integer(sbi_present),
+    truth     = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes", "no")),
+    score     = to_prob01(model_score)
+  )
+
+dat_all_susp <- bind_rows(reto_yes_abx = retro_yes_abx,
+                          reto_no_abx  = retro_no_abx,
+                          pros_yes_abx = pros_yes_abx_susp,
+                          pros_no_abx  = pros_no_abx_susp) %>%
+  filter(!is.na(truth_num), !is.na(score), is.finite(score)) %>%
+  mutate(
+    scenario = factor(
+      scenario,
+      levels = c("Retro • Abx+", "Retro • Abx-", "Pros • Abx+", "Pros • Abx-")
+    )
+  )
+
+dat_list_susp <- split(dat_all_susp, dat_all_susp$scenario)
+
+roc_df_susp <- map_dfr(dat_list_susp, roc_curve_df)
+pr_df_susp  <- map_dfr(dat_list_susp, pr_curve_df)
+
+metrics_df_susp <- map_dfr(dat_list_susp, ~ tibble(
+  scenario   = .x$scenario[1],
+  n          = nrow(.x),
+  prevalence = mean(.x$truth_num == 1L),
+  AUROC      = auroc_one(.x),
+  AUPRC      = auprc_one(.x)
+)) %>%
+  mutate(
+    scenario = factor(scenario, levels = levels(dat_all_susp$scenario)),
+    label = paste0(
+      "AUROC = ", sprintf("%.3f", AUROC), "\n",
+      "AUPRC = ", sprintf("%.3f", AUPRC), "\n",
+      "Prev = ", sprintf("%.3f", prevalence)
+    )
+  )
+
+roc_plot_susp <- ggplot(roc_df_susp, aes(x = fpr, y = tpr)) +
+  geom_abline(intercept = 0, slope = 1, linetype = 2) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ scenario, ncol = 2) +
+  coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(
+    title = "ROC Curves (Suspected Infection Only)",
+    x = "False Positive Rate (1 - Specificity)",
+    y = "True Positive Rate (Sensitivity)"
+  ) +
+  geom_text(
+    data = metrics_df_susp,
+    aes(x = 0.35, y = 0.15, label = label),
+    inherit.aes = FALSE,
+    hjust = 0,
+    size = 4
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    strip.text = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 8)
+  )
+
+pr_plot_susp <- ggplot(pr_df_susp, aes(x = recall, y = precision)) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ scenario, ncol = 2) +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(
+    title = "Precision-Recall Curves (Suspected Infection Only)",
+    x = "Recall",
+    y = "Precision"
+  ) +
+  geom_text(
+    data = metrics_df_susp,
+    aes(x = 0.79, y = 0.86, label = label),
+    inherit.aes = FALSE,
+    hjust = 0,
+    size = 4
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    strip.text = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 8)
+  )
+
+print(roc_plot_susp)
+print(pr_plot_susp)
+metrics_df_susp
 
 
 
@@ -2507,6 +2614,7 @@ dfs_eval <- list(
 
 score_col <- "model_score"
 y_col     <- "sbi_present"
+sus_col   <- "suspected_infection"
 
 thr_tbl <- tibble(
   abx = c("Abx-", "Abx+"),
@@ -2535,15 +2643,22 @@ to_truth01 <- function(x) {
   as.integer(ifelse(is.na(x_num), NA_integer_, ifelse(x_num >= 1, 1L, 0L)))
 }
 
-ruleout_stats_one <- function(df, scenario, score_col, y_col, threshold) {
+ruleout_stats_one <- function(df, scenario, score_col, y_col, threshold,
+                              sus_col = "suspected_infection",
+                              include_all_comers = TRUE) {
   sc <- parse_scenario(scenario)
 
   dat <- df %>%
     transmute(
       score = as.numeric(.data[[score_col]]),
-      truth = to_truth01(.data[[y_col]])
+      truth = to_truth01(.data[[y_col]]),
+      suspected = if (sus_col %in% names(df)) to_truth01(.data[[sus_col]]) else NA_integer_
     ) %>%
     filter(!is.na(score), !is.na(truth), truth %in% c(0L, 1L))
+
+  if (!include_all_comers) {
+    dat <- dat %>% filter(suspected == 1L)
+  }
 
   n_total <- nrow(dat)
   n_sbi0  <- sum(dat$truth == 0L)
@@ -2577,11 +2692,36 @@ ruleout_stats_one <- function(df, scenario, score_col, y_col, threshold) {
   )
 }
 
-quad_df <- purrr::imap_dfr(dfs_eval, ~{
-  abx_lbl <- ifelse(grepl("Abx\\+", .y), "Abx+", "Abx-")
-  thr <- thr_tbl$threshold[thr_tbl$abx == abx_lbl][1]
-  ruleout_stats_one(.x, scenario = .y, score_col = score_col, y_col = y_col, threshold = thr)
-})
+cohort_tbl <- tibble(
+  cohort = c("All encounters", "Suspected infection only"),
+  include_all_comers = c(TRUE, FALSE)
+)
+
+quad_df <- tidyr::crossing(
+  scenario = names(dfs_eval),
+  cohort_tbl
+) %>%
+  mutate(
+    stats = purrr::map2(
+      scenario,
+      include_all_comers,
+      ~{
+        abx_lbl <- ifelse(grepl("Abx\\+", .x), "Abx+", "Abx-")
+        thr <- thr_tbl$threshold[thr_tbl$abx == abx_lbl][1]
+        ruleout_stats_one(
+          dfs_eval[[.x]],
+          scenario = .x,
+          score_col = score_col,
+          y_col = y_col,
+          threshold = thr,
+          sus_col = sus_col,
+          include_all_comers = .y
+        )
+      }
+    )
+  ) %>%
+  select(-include_all_comers) %>%
+  tidyr::unnest(stats)
 
 quad_df <- quad_df %>%
   mutate(
@@ -2598,10 +2738,11 @@ quad_df <- quad_df %>%
   )
 
 seg_df <- quad_df %>%
-  select(abx, epoch, x_plot, y_plot) %>%
+  select(cohort, abx, epoch, x_plot, y_plot) %>%
   tidyr::pivot_wider(names_from = epoch, values_from = c(x_plot, y_plot)) %>%
   filter(!is.na(x_plot_Retro), !is.na(x_plot_Pros)) %>%
   transmute(
+    cohort = cohort,
     abx = abx,
     x = x_plot_Retro, y = y_plot_Retro,
     xend = x_plot_Pros, yend = y_plot_Pros
@@ -2647,7 +2788,7 @@ p_quadrant <-
     seed = 1
   ) +
 
-  facet_wrap(~abx, ncol = 2) +
+  facet_grid(cohort ~ abx) +
   scale_x_continuous(labels = percent_format(accuracy = 1), limits = c(0, 1)) +
 
   # IMPORTANT: zoom without dropping points
@@ -2657,7 +2798,8 @@ p_quadrant <-
   labs(
     title = "Clinical rule-out performance at fixed SBI risk thresholds",
     subtitle = paste0(
-      "Y-axis: NPV among low-risk; X-axis: fraction of SBI-negative encounters captured as low-risk\n",
+      "Y-axis: NPV among low-risk patients | X-axis: fraction of SBI-negative encounters captured as low-risk\n",
+      "Rows: All encounters (regardless of suspicion of infection) vs those with suspected infection only. ",
       "Hollow points indicate zero low-risk predictions at the specified threshold."
     ),
     x = "Proportion of SBI-negative encounters classified as low risk",
@@ -2672,9 +2814,6 @@ p_quadrant <-
   )
 
 p_quadrant
-
-
-
 
 # Now plot the distribution of scores
 # ----------------------------
@@ -3159,7 +3298,7 @@ df_noabx <- bind_rows(
 
 # Fix sbi_present class
 retro_yes_abx_1st_infxn <- retro_yes_abx_1st_infxn %>% mutate(sbi_present =
-                            ifelse(sbi_present == "yes", yes = 1, no = 0))
+                                                                ifelse(sbi_present == "yes", yes = 1, no = 0))
 
 # Now run on my two strata
 df_yesabx <- bind_rows(
@@ -4136,7 +4275,3 @@ w_yesabx_meas_ebal <- make_weights_pros_to_retro_ebal(
 )
 df_yesabx_w_meas_ebal <- w_yesabx_meas_ebal$df_w
 check_weights(df_yesabx_w_meas_ebal)
-
-
-
-
