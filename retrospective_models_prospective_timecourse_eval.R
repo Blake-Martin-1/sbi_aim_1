@@ -122,7 +122,7 @@ bootstrap_hourly_npv <- function(df, threshold, n_boot = 200) {
 derive_suspicion_from_micro_cxr <- function(pros_df, micro_csv_path, cxr_csv_path) {
   encounter_dt <- as.data.table(
     pros_df %>%
-      dplyr::select(study_id, mrn, picu_adm_date_time) %>%
+      dplyr::select(study_id, pat_mrn_id, picu_adm_date_time) %>% rename(mrn = pat_mrn_id) %>%
       distinct()
   )
 
