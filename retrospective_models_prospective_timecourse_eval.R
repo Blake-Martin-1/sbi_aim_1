@@ -161,7 +161,10 @@ derive_suspicion_from_micro_cxr <- function(pros_df, micro_csv_path, cxr_csv_pat
     readr::read_csv(cxr_csv_path, show_col_types = FALSE) %>%
       mutate(
         mrn = as.character(pat_mrn_id),
-        chest_x_ray_order = force_tz(as.POSIXct(chest_x_ray_order), tz = "America/Denver")
+        chest_x_ray_order = force_tz(
+          as.POSIXct(chest_x_ray_order, format = "%Y-%m-%d %H:%M:%OS"),
+          tz = "America/Denver"
+        )
       )
   )
   cxr_dt <- cxr_dt[chest_xray_yn == 1 & !is.na(chest_x_ray_order) & !is.na(mrn)]
