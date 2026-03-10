@@ -20,6 +20,19 @@ validate_predictor_schema <- function(df, required_predictors, dataset_label) {
 validate_predictor_schema(pros_no_abx_1st_infxn, predictors, "pros_no_abx_1st_infxn")
 rf_pred_prob_pros <- predict(rf_model, pros_no_abx_1st_infxn[, all_of(c(predictors))], type = "prob")
 pros_auroc_no_abx <- colAUC(rf_pred_prob_pros, pros_no_abx_1st_infxn$sbi_present, plotROC = FALSE) # AUC of 0.736 in prospective test set
+pros_auroc_no_abx
+
+
+# Create dataframe to view probabilities and outcomes
+pred_df_pros_no_abx <- pros_no_abx_1st_infxn %>%
+  transmute(
+    rowIndex = row_number(),
+    sbi_present = sbi_present,
+    pred_prob_yes = rf_pred_prob_pros[, "yes"]
+  )
+
+
+
 
 # Now test the yes_abx model on prospective 2hr AU cohort
 # First fix predictors_abx to match names in pros df
@@ -30,7 +43,25 @@ pros_yes_temp <- pros_yes_abx_1st_infxn %>% rename(hematocrit_blood = hematocrit
 validate_predictor_schema(pros_yes_temp, predictors_abx, "pros_yes_temp")
 rf_pred_prob_pros_abx <- predict(rf_model_abx, (pros_yes_temp[, all_of(c(predictors_abx))]), type = "prob")
 pros_auroc_abx_yes_abx <- colAUC(rf_pred_prob_pros_abx, pros_yes_temp$sbi_present, plotROC = FALSE) # AUC of 0.750 in prospective test set
+pros_auroc_abx_yes_abx
 
+
+# Now view the predictions along with probabilities if you want
+pred_df_pros_abx <- pros_yes_temp %>%
+  transmute(
+    sbi_present = sbi_present,
+    pred_prob_yes = rf_pred_prob_pros_abx[, "yes"]
+  )
+
+# Get AUROC
+roc_obj_pros_yes_abx <- roc(
+  response  = pred_df_pros_abx$sbi_present,
+  predictor = pred_df_pros_abx$pred_prob_yes,
+  levels    = c(0, 1),   # 1 is the positive class
+  direction = "<"
+)
+
+auc(roc_obj_pros_yes_abx)
 
 
 # =========================
