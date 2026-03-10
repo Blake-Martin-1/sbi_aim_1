@@ -192,7 +192,7 @@ npv_at_threshold <- function(model, threshold = 0.05) {
     transmute(
       truth = obs,
       p_pos = .data[[prob_col]],
-      pred_neg = (p_pos < threshold)  # "rule-out" / predicted negative
+      pred_neg = (p_pos <= threshold)  # "rule-out" / predicted negative
     ) %>%
     filter(!is.na(truth), !is.na(p_pos))
 
@@ -240,7 +240,7 @@ pred_no_abx[pred_no_abx >= ocp_rf] <- 1
 pred_no_abx[pred_no_abx < ocp_rf] <- 0
 pred_no_abx[pred_no_abx == 0] <- "no"; pred_no_abx[pred_no_abx == 1] <- "yes"; pred_no_abx <- pred_no_abx %>% mutate("yes" = as.factor(pred_no_abx$yes))
 rf_cm_no_abx <- confusionMatrix(pred_no_abx$yes, test_df$sbi_present, mode = "everything", positive = "yes")
-rf_cm_no_abx # NPV of 0.93 in hold out test set
+rf_cm_no_abx # NPV of 0.93 in hold out test setm identifies 27 TN of 29 neg predictions
 
 
 # Store AUPRC in test set also
@@ -299,6 +299,33 @@ test_preds <- tibble(
   sbi_present = test_df$sbi_present,                    # keep factor yes/no
   model_score = rf_pred_prob[, "yes"]                   # P(SBI = yes)
 )
+
+roc_obj <- roc(
+  response  = test_preds$sbi_present,
+  predictor = test_preds$model_score,
+  levels = c("no", "yes"),   # sets "yes" as the positive class
+  direction = "<"
+)
+
+auc(roc_obj) # AUROC 0.745 in test set
+
+# Now calculate NPV at prior threshold
+threshold_no_abx <- 0.05
+
+test_preds_npv <- test_preds %>%
+  mutate(
+    pred_class = if_else(model_score <= threshold_no_abx, "no", "yes"),
+    pred_class = factor(pred_class, levels = c("no", "yes")),
+    sbi_present = factor(sbi_present, levels = c("no", "yes"))
+  )
+
+# NPV = TN / (TN + FN)
+npv_retro_no_abx <- with(test_preds_npv,
+            sum(pred_class == "no" & sbi_present == "no") /
+              sum(pred_class == "no"))
+
+npv_retro_no_abx # NPV 0.93
+
 
 # 3) Attach to the test_df inputs
 test_df_with_pred <- test_df %>%
@@ -627,6 +654,33 @@ test_preds_abx <- tibble(
   sbi_present = test_df_abx$sbi_present,     # yes/no factor
   model_score = rf_pred_prob_abx[, "yes"]# P(SBI = yes)
 )
+
+roc_obj_abx <- roc(
+  response  = test_preds_abx$sbi_present,
+  predictor = test_preds_abx$model_score,
+  levels = c("no", "yes"),   # sets "yes" as the positive class
+  direction = "<"
+)
+
+auc(roc_obj_abx) # AUROC 0.77
+
+# Now calculate NPV at prior threshold
+threshold_yes_abx <- 0.074
+
+test_preds_npv_abx <- test_preds_abx %>%
+  mutate(
+    pred_class = if_else(model_score <= threshold_yes_abx, "no", "yes"),
+    pred_class = factor(pred_class, levels = c("no", "yes")),
+    sbi_present = factor(sbi_present, levels = c("no", "yes"))
+  )
+
+# NPV = TN / (TN + FN)
+npv_retro_yes_abx <- with(test_preds_npv_abx,
+                         sum(pred_class == "no" & sbi_present == "no") /
+                           sum(pred_class == "no"))
+
+npv_retro_yes_abx # NPV 0.83
+
 
 test_df_with_pred_abx <- test_df_abx %>%
   mutate(rowIndex = dplyr::row_number()) %>%

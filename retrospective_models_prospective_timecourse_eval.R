@@ -190,22 +190,6 @@ derive_suspicion_from_micro_cxr <- function(pros_df, micro_csv_path, cxr_csv_pat
     )
 }
 
-# Attempt to identify a suspicion-of-infection column in prospective data
-derive_suspicion_flag <- function(df) {
-  candidates <- c(
-    "any_micro_pres", "suspicion_of_infection", "suspicion_infection",
-    "suspected_infection", "micro_sbi_1_0", "bcx_sent"
-  )
-
-  col_hit <- candidates[candidates %in% names(df)][1]
-  if (is.na(col_hit)) {
-    warning("No explicit suspicion column found; using all rows for both 'all' and 'suspicion' metrics.")
-    return(df %>% mutate(suspicion_flag = 1L))
-  }
-
-  message("Using suspicion flag column: ", col_hit)
-  df %>% mutate(suspicion_flag = safe_factor01_to_yesno(.data[[col_hit]]))
-}
 
 prepare_model_inputs <- function(df, predictors, is_abx_model = FALSE) {
   out <- df
@@ -314,8 +298,8 @@ pros_all_clean <- derive_suspicion_from_micro_cxr(
 )
 
 # Split by prospective model channel
-pros_no_abx <- pros_all_clean %>% filter(model_type == "RF_no_abx")
-pros_yes_abx <- pros_all_clean %>% filter(model_type == "RF_yes_abx")
+pros_no_abx <- pros_all_clean %>% filter(model_type == "RF_no_abx") %>% filter(abx_exp == 0)
+pros_yes_abx <- pros_all_clean %>% filter(model_type == "RF_yes_abx") %>% filter(abx_exp == 1)
 
 # Align predictor names/shape
 # For the abx model, this mirrors prior rename logic used in the codebase.
