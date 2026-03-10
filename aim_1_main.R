@@ -4016,9 +4016,12 @@ plot_density_overlays <- function(df_retro, df_pros, shift_tbl, stratum_name) {
     left_join(label_map, by = "variable") %>%
     mutate(
       is_count_var = str_detect(variable, "^n_|_count$|^number_"),
-      value_plot = if_else(is_count_var, pmin(value, 100), value)
+      value_plot   = value
     ) %>%
-    filter(is.finite(value_plot))
+    filter(
+      is.finite(value_plot),
+      !(is_count_var & value_plot > 75)
+    )
 
   ggplot(long, aes(x = value_plot, color = epoch2, fill = epoch2)) +
     geom_density(alpha = 0.18, linewidth = 1) +
