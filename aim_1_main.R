@@ -44,7 +44,17 @@ library(PRROC)     # PR curve + AUPRC
 library(WeightIt)
 library(cobalt)
 library(emmeans)
-
+library(ggrepel)
+library(WeightedROC)
+library(gtsummary)
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(tidyr)
+library(ggplot2)
+library(forcats)
+library(scales)
 
 # Run script to generate models and rf_df and rf_df_abx
 source(file = "retro_models_to_2026.R")
@@ -2204,8 +2214,6 @@ labs_pros$specimn_taken_time <- force_tz(labs_pros$specimn_taken_time, tz = "Ame
 labs_pros$order_time <- force_tz(labs_pros$order_time, tz = "America/Denver")
 labs_pros$result_time <- force_tz(labs_pros$result_time, tz = "America/Denver")
 
-labs_pros[1, ]
-
 
 # Helper: generic "any test within +/- window_hours" using foverlaps
 # ---------------------------
@@ -2253,6 +2261,207 @@ add_presence_foverlaps <- function(pros_df,
   out
 }
 
+crp_pros_df <- labs_pros %>% filter(procedure_name %in% c("C-REACTIVE PROTEIN", "CRP, HIGHLY SENSITIVE, S"))
+pct_pros_df <- labs_pros %>% filter(procedure_name == "PROCALCITONIN")
+
+acute_inf_tests_proc <- c(
+  "ADENOVIRUS PCR QUAL - STOOL ONLY",
+  "ADENOVIRUS PCR QUANTITATIVE",
+  "AEROBIC BACTERIAL CULTURE",
+  "AMOEBA ANTIBODY",
+  "ANAEROBIC BLOOD BACTERIAL",
+  "ANAEROBIC BLOOD BACTERIAL CULTURE (SECOND)",
+  "ANAEROBIC BROTH CULTURE",
+  "ANAEROBIC CULTURE",
+  "BACTERIAL CULTURE",
+  "BARTONELLA AB PANEL, IGG & IGM",
+  "BARTONELLA PCR, B",
+  "BARTONELLA PCR, TISSUE",
+  "BK VIRUS PCR QUANTITATIVE",
+  "BLASTOMYCES AB, EIA, S",
+  "BLOOD BACTERIAL CULTURE",
+  "BLOOD BACTERIAL CULTURE-SECOND",
+  "BLOOD PARASITE EVALUATION PROFILE",
+  "BORDETELLA PERTUSSIS AND BORDETELLA PARAPERTUSSIS MOLECULAR DETECTION, PCR - MAYO",
+  "BRONCHOALVEOLAR LAVAGE (BAL) CULTURE",
+  "BRUCELLA AB SCREEN IGG + IGM",
+  "C. DIFFICILE PCR (TOXIGENIC)",
+  "CHLAMYDIA TRACHOMATIS AND NEISSERIA GONORRHEA PCR",
+  "CMV PCR QUANTITATIVE",
+  "COCCIDIOIDES AB W REFLEX, S (BACKUP)",
+  "COCCIDIOIDES AB, S",
+  "CYSTIC FIBROSIS PATHOGEN PANEL",
+  "CYTOMEGALOVIRUS IGM ANTIBODY - UCH",
+  "CYTOMEGALOVIRUS PCR QUALITATIVE",
+  "DENGUE VIRUS AB, IGG AND IGM,S",
+  "EBV PCR QUANTITATIVE",
+  "ENTEROVIRUS AND PARECHOVIRUS PCR - ARUP",
+  "FUNGAL CULTURE",
+  "GIP WITH CDIFF",
+  "GIP WITHOUT CDIFF",
+  "HANTAVIRUS AB (IGG AND IGM)",
+  "HEPATITIS A ANTIBODY, IGM",
+  "HEPATITIS ACUTE PANEL",
+  "HEPATITIS B CORE AB, IGM",
+  "HEPATITIS B CORE TOTAL AB",
+  "HEPATITIS B ENVELOPE  AB",
+  "HEPATITIS B VIRAL DNA, QN, S",
+  "HEPATITIS C RNA DETECT/QUANT, S (BACKUP)",
+  "HEPATITIS C VIRUS ANTIBODY",
+  "HEPATITIS E ANTIBODY IGM",
+  "HERPES SIMPLEX VIRUS PCR",
+  "HHV6 PCR QUANTITATIVE",
+  "HISTOPLASMA AB",
+  "HIV AG/AB SCREEN",
+  "HIV-1 CAP/TAQ RNA PCR QUANT",
+  "HIV-1 DNA QUALITATIVE PCR",
+  "HIV/HCV/HBV NAT",
+  "JC VIRUS PCR QUAL",
+  "KARIUS PATHOGEN TEST",
+  "KINGELLA PCR",
+  "LEGIONELLA SPECIES, MOLECULAR DETECTION, PCR",
+  "LEPTOSPIRA IGM",
+  "LYME DISEASE SEROLOGY, S",
+  "MEASLES PCR QUAL",
+  "MENINGITIS ENCEPHALITIS PANEL (MEP)",
+  "MONO SCRN (HETEROPHILE AB)",
+  "MRSA CULTURE",
+  "MRSA SA SSTI PCR",
+  "MUMPS PCR QUAL",
+  "MYCOBACTERIAL (AFB) CULTURE",
+  "MYCOBACTERIUM TUBERCULOSIS PCR - NJH",
+  "MYCOPLASMA HOMINIS PCR QUAL",
+  "MYCOPLASMA PNEUMONIAE PCR QUAL",
+  "PARVOVIRUS B19 PCR, P",
+  "PARVOVIRUS B19, IGG & IGM",
+  "PNEUMOCYSTIS JIROVECII PCR",
+  "Q FEVER ANTIBODIES, IGG/IGM, S",
+  "RUBEOLA VIRUS ANTIBODY, IGM AND IGG, SERUM",
+  "SCHISTOSOMA PARASITE EXAM, UR",
+  "SPOTTED FEVER GRP AB IGG IGM",
+  "STREP A ONLY CULTURE",
+  "STREP A REFLEX GROUP",
+  "STREPTOCOCCUS PNEUMONIAE PCR (SEMI-QUANTITATIVE)",
+  "TOXO INFANT <6 MO PROFILE",
+  "TOXO NONINFANT >6 MO PROFILE",
+  "TOXOPLASMA PCR",
+  "TRICHOMONAS PCR",
+  "URINE BACTERIAL CULTURE",
+  "VANCOMYCIN RESISTANT ENTEROCOCCUS CULTURE STOOL OR RECTAL SWAB SOURCE",
+  "VARICELLA-ZOSTER VIRUS PCR",
+  "VARICELLA-ZOSTER VIRUS,AB,IGM",
+  "WEST NILE IGG AND IGM, CSF",
+  "WEST NILE VIRUS ABS, IGG & IGM",
+  "ZZENTEROVIRUS PCR QUAL"
+)
+
+# Filter for only acute infection tests
+micro_pros_df <- micro_raw_pros %>% filter(proc_name %in% acute_inf_tests_proc)
+
+# Fix timezone
+micro_pros_df <- micro_pros_df %>%
+  mutate(
+    order_time = force_tz(order_time, tzone = "America/Denver"),
+    specimn_taken_time = force_tz(specimn_taken_time, tzone = "America/Denver")
+  )
+
+
+pros_no_abx_with_susp_elements <- add_presence_foverlaps(
+  pros_no_abx_final,
+  crp_pros_df,
+  event_time_col = "specimn_taken_time",
+  id_col_pros = "mrn",
+  id_col_events = "pat_mrn_id",
+  window_hours = 24,
+  new_col = "crp_pres"
+)
+
+pros_no_abx_with_susp_elements <- add_presence_foverlaps(
+  pros_no_abx_with_susp_elements,
+  pct_pros_df,
+  event_time_col = "specimn_taken_time",
+  id_col_pros = "mrn",
+  id_col_events = "pat_mrn_id",
+  window_hours = 24,
+  new_col = "pct_pres"
+)
+
+pros_no_abx_with_susp_elements <- add_presence_foverlaps(
+  pros_no_abx_with_susp_elements,
+  micro_pros_df,
+  event_time_col = "specimn_taken_time",
+  id_col_pros = "mrn",
+  id_col_events = "pat_mrn_id",
+  window_hours = 24,
+  new_col = "micro_pres"
+)
+
+# Now add CXR data
+pros_no_abx_with_susp_elements <- add_presence_foverlaps(
+  pros_no_abx_with_susp_elements,
+  cxr_pros,
+  event_time_col = "chest_x_ray_order",
+  id_col_pros = "mrn",
+  id_col_events = "pat_mrn_id",
+  window_hours = 24,
+  new_col = "cxr_pres"
+)
+
+
+# Obtain slim version of the dataset for plotting
+pros_susp_elements_to_plot_no_abx <- pros_no_abx_with_susp_elements %>% dplyr::select(study_id, picu_adm_date_time,
+                                      crp_pres, pct_pres, micro_pres, cxr_pres, suspected_infection) %>% distinct()
+
+
+### Now repeat with prospective abx exposed group ###
+pros_yes_abx_with_susp_elements <- add_presence_foverlaps(
+  pros_yes_abx_final,
+  crp_pros_df,
+  event_time_col = "specimn_taken_time",
+  id_col_pros = "mrn",
+  id_col_events = "pat_mrn_id",
+  window_hours = 24,
+  new_col = "crp_pres"
+)
+
+pros_yes_abx_with_susp_elements <- add_presence_foverlaps(
+  pros_yes_abx_with_susp_elements,
+  pct_pros_df,
+  event_time_col = "specimn_taken_time",
+  id_col_pros = "mrn",
+  id_col_events = "pat_mrn_id",
+  window_hours = 24,
+  new_col = "pct_pres"
+)
+
+pros_yes_abx_with_susp_elements <- add_presence_foverlaps(
+  pros_yes_abx_with_susp_elements,
+  micro_pros_df,
+  event_time_col = "specimn_taken_time",
+  id_col_pros = "mrn",
+  id_col_events = "pat_mrn_id",
+  window_hours = 24,
+  new_col = "micro_pres"
+)
+
+# Now add CXR data
+pros_yes_abx_with_susp_elements <- add_presence_foverlaps(
+  pros_yes_abx_with_susp_elements,
+  cxr_pros,
+  event_time_col = "chest_x_ray_order",
+  id_col_pros = "mrn",
+  id_col_events = "pat_mrn_id",
+  window_hours = 24,
+  new_col = "cxr_pres"
+)
+
+
+# Obtain slim version of the dataset for plotting
+pros_susp_elements_to_plot_yes_abx <- pros_yes_abx_with_susp_elements %>% dplyr::select(study_id, picu_adm_date_time,
+                                                                                      crp_pres, pct_pres, micro_pres, cxr_pres, suspected_infection) %>% distinct()
+
+
+
 
 # Generate first PICU stay per hospital admission
 pros_no_abx_1st_infxn <- pros_no_abx_final %>%
@@ -2293,6 +2502,7 @@ to_prob01 <- function(x) {
 # ----------------------------
 
 # Retro test: unexposed (already in test_pr_df: truth + p_yes)
+# Retro test: unexposed (already in test_pr_df: truth + p_yes)
 retro_no_abx <- test_pr_df %>%
   transmute(
     scenario  = "Retro • Abx-",
@@ -2310,8 +2520,7 @@ retro_yes_abx <- test_pr_df_abx %>%
     score     = to_prob01(p_yes)
   )
 
-# Prospective: unexposed (pros_no_abx_1st_infxn has sbi_present + model_score)
-# NOTE: your pros sbi_present is 0/1
+# Prospective: unexposed
 pros_no_abx <- tibble(
   scenario  = "Pros • Abx-",
   truth_num = as.integer(pros_no_abx_1st_infxn$sbi_present),
@@ -2319,6 +2528,7 @@ pros_no_abx <- tibble(
   score     = to_prob01(rf_pred_prob_pros[, "yes"])
 )
 
+# Prospective: exposed
 pros_yes_abx <- tibble(
   scenario  = "Pros • Abx+",
   truth_num = as.integer(pros_yes_temp$sbi_present),
@@ -2326,10 +2536,12 @@ pros_yes_abx <- tibble(
   score     = to_prob01(rf_pred_prob_pros_abx[, "yes"])
 )
 
-dat_all <- bind_rows(reto_yes_abx = retro_yes_abx,
-                     reto_no_abx  = retro_no_abx,
-                     pros_yes_abx = pros_yes_abx,
-                     pros_no_abx  = pros_no_abx) %>%
+dat_all <- bind_rows(
+  reto_yes_abx = retro_yes_abx,
+  reto_no_abx  = retro_no_abx,
+  pros_yes_abx = pros_yes_abx,
+  pros_no_abx  = pros_no_abx
+) %>%
   filter(!is.na(truth_num), !is.na(score), is.finite(score)) %>%
   mutate(
     scenario = factor(
@@ -2368,7 +2580,6 @@ pr_curve_df <- function(df_one) {
 
   pc <- yardstick::pr_curve(df_one, truth, score, event_level = "first")
 
-  # robust column extraction across yardstick versions
   if (all(c("precision", "recall") %in% names(pc))) {
     out <- pc %>% transmute(recall = .data[["recall"]], precision = .data[["precision"]])
   } else if (all(c("precision", "sensitivity") %in% names(pc))) {
@@ -2400,10 +2611,16 @@ metrics_df <- map_dfr(dat_list, ~ tibble(
 )) %>%
   mutate(
     scenario = factor(scenario, levels = levels(dat_all$scenario)),
-    label = paste0(
-      "AUROC = ", sprintf("%.3f", AUROC), "\n",
+    auprc_prev_ratio = AUPRC / prevalence,
+    roc_label = paste0(
+      "AUROC = ", sprintf("%.3f", AUROC)
+    ),
+    pr_label = paste0(
       "AUPRC = ", sprintf("%.3f", AUPRC), "\n",
-      "Prev = ", sprintf("%.3f", prevalence)
+      "AUPRC / Prev = ",
+      sprintf("%.3f", AUPRC), " / ",
+      sprintf("%.3f", prevalence), " = ",
+      sprintf("%.1f", auprc_prev_ratio)
     )
   )
 
@@ -2411,11 +2628,30 @@ metrics_df <- map_dfr(dat_list, ~ tibble(
 # 3) Plots
 # ----------------------------
 
-roc_plot <- ggplot(roc_df, aes(x = fpr, y = tpr)) +
+roc_df <- roc_df %>%
+  mutate(
+    cohort_type = case_when(
+      grepl("retro", scenario, ignore.case = TRUE) ~ "Retrospective",
+      grepl("pros", scenario, ignore.case = TRUE) ~ "Prospective",
+      TRUE ~ "Other"
+    )
+  )
+
+pr_df <- pr_df %>%
+  mutate(
+    cohort_type = case_when(
+      grepl("retro", scenario, ignore.case = TRUE) ~ "Retrospective",
+      grepl("pros", scenario, ignore.case = TRUE) ~ "Prospective",
+      TRUE ~ "Other"
+    )
+  )
+
+roc_plot <- ggplot(roc_df, aes(x = fpr, y = tpr, color = cohort_type)) +
   geom_abline(intercept = 0, slope = 1, linetype = 2) +
   geom_line(linewidth = 1) +
   facet_wrap(~ scenario, ncol = 2) +
   coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
+  scale_color_manual(values = c("Retrospective" = "red", "Prospective" = "blue", "Other" = "black")) +
   labs(
     title = "ROC Curves (Retrospective TEST + Prospective)",
     x = "False Positive Rate (1 - Specificity)",
@@ -2423,7 +2659,7 @@ roc_plot <- ggplot(roc_df, aes(x = fpr, y = tpr)) +
   ) +
   geom_text(
     data = metrics_df,
-    aes(x = 0.35, y = 0.15, label = label),
+    aes(x = 0.35, y = 0.15, label = roc_label),
     inherit.aes = FALSE,
     hjust = 0,
     size = 4
@@ -2433,13 +2669,15 @@ roc_plot <- ggplot(roc_df, aes(x = fpr, y = tpr)) +
     plot.title = element_text(size = 18, face = "bold"),
     strip.text = element_text(size = 14, face = "bold"),
     axis.title = element_text(size = 14, face = "bold"),
-    axis.text = element_text(size = 8)
+    axis.text = element_text(size = 8),
+    legend.position = "none"
   )
 
-pr_plot <- ggplot(pr_df, aes(x = recall, y = precision)) +
+pr_plot <- ggplot(pr_df, aes(x = recall, y = precision, color = cohort_type)) +
   geom_line(linewidth = 1) +
   facet_wrap(~ scenario, ncol = 2) +
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  scale_color_manual(values = c("Retrospective" = "red", "Prospective" = "blue", "Other" = "black")) +
   labs(
     title = "Precision–Recall Curves (Retrospective TEST + Prospective)",
     x = "Recall",
@@ -2447,7 +2685,7 @@ pr_plot <- ggplot(pr_df, aes(x = recall, y = precision)) +
   ) +
   geom_text(
     data = metrics_df,
-    aes(x = 0.79, y = 0.86, label = label),
+    aes(x = 0.10, y = 0.15, label = pr_label),
     inherit.aes = FALSE,
     hjust = 0,
     size = 4
@@ -2457,7 +2695,8 @@ pr_plot <- ggplot(pr_df, aes(x = recall, y = precision)) +
     plot.title = element_text(size = 18, face = "bold"),
     strip.text = element_text(size = 14, face = "bold"),
     axis.title = element_text(size = 14, face = "bold"),
-    axis.text = element_text(size = 8)
+    axis.text = element_text(size = 8),
+    legend.position = "none"
   )
 
 print(roc_plot)
@@ -2467,6 +2706,7 @@ metrics_df
 # ----------------------------
 # 4) Repeat ROC/PR evaluation for prospective patients with suspected infection
 # ----------------------------
+
 pros_no_abx_susp <- tibble(
   suspected_infection = pros_no_abx_1st_infxn$suspected_infection,
   sbi_present         = pros_no_abx_1st_infxn$sbi_present,
@@ -2493,10 +2733,12 @@ pros_yes_abx_susp <- tibble(
     score     = to_prob01(score_raw)
   )
 
-dat_all_susp <- bind_rows(reto_yes_abx = retro_yes_abx,
-                          reto_no_abx  = retro_no_abx,
-                          pros_yes_abx = pros_yes_abx_susp,
-                          pros_no_abx  = pros_no_abx_susp) %>%
+dat_all_susp <- bind_rows(
+  reto_yes_abx = retro_yes_abx,
+  reto_no_abx  = retro_no_abx,
+  pros_yes_abx = pros_yes_abx_susp,
+  pros_no_abx  = pros_no_abx_susp
+) %>%
   filter(!is.na(truth_num), !is.na(score), is.finite(score)) %>%
   mutate(
     scenario = factor(
@@ -2519,18 +2761,43 @@ metrics_df_susp <- map_dfr(dat_list_susp, ~ tibble(
 )) %>%
   mutate(
     scenario = factor(scenario, levels = levels(dat_all_susp$scenario)),
-    label = paste0(
-      "AUROC = ", sprintf("%.3f", AUROC), "\n",
+    auprc_prev_ratio = AUPRC / prevalence,
+    roc_label = paste0(
+      "AUROC = ", sprintf("%.3f", AUROC)
+    ),
+    pr_label = paste0(
       "AUPRC = ", sprintf("%.3f", AUPRC), "\n",
-      "Prev = ", sprintf("%.3f", prevalence)
+      "AUPRC / Prev = ",
+      sprintf("%.3f", AUPRC), " / ",
+      sprintf("%.3f", prevalence), " = ",
+      sprintf("%.1f", auprc_prev_ratio)
     )
   )
 
-roc_plot_susp <- ggplot(roc_df_susp, aes(x = fpr, y = tpr)) +
+roc_df_susp <- roc_df_susp %>%
+  mutate(
+    cohort_type = case_when(
+      grepl("Retro", scenario, ignore.case = TRUE) ~ "Retrospective",
+      grepl("Pros", scenario, ignore.case = TRUE) ~ "Prospective",
+      TRUE ~ "Other"
+    )
+  )
+
+pr_df_susp <- pr_df_susp %>%
+  mutate(
+    cohort_type = case_when(
+      grepl("Retro", scenario, ignore.case = TRUE) ~ "Retrospective",
+      grepl("Pros", scenario, ignore.case = TRUE) ~ "Prospective",
+      TRUE ~ "Other"
+    )
+  )
+
+roc_plot_susp <- ggplot(roc_df_susp, aes(x = fpr, y = tpr, color = cohort_type)) +
   geom_abline(intercept = 0, slope = 1, linetype = 2) +
   geom_line(linewidth = 1) +
   facet_wrap(~ scenario, ncol = 2) +
   coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
+  scale_color_manual(values = c("Retrospective" = "red", "Prospective" = "blue", "Other" = "black")) +
   labs(
     title = "ROC Curves (Suspected Infection Only)",
     x = "False Positive Rate (1 - Specificity)",
@@ -2538,7 +2805,7 @@ roc_plot_susp <- ggplot(roc_df_susp, aes(x = fpr, y = tpr)) +
   ) +
   geom_text(
     data = metrics_df_susp,
-    aes(x = 0.35, y = 0.15, label = label),
+    aes(x = 0.35, y = 0.15, label = roc_label),
     inherit.aes = FALSE,
     hjust = 0,
     size = 4
@@ -2548,13 +2815,15 @@ roc_plot_susp <- ggplot(roc_df_susp, aes(x = fpr, y = tpr)) +
     plot.title = element_text(size = 18, face = "bold"),
     strip.text = element_text(size = 14, face = "bold"),
     axis.title = element_text(size = 14, face = "bold"),
-    axis.text = element_text(size = 8)
+    axis.text = element_text(size = 8),
+    legend.position = "none"
   )
 
-pr_plot_susp <- ggplot(pr_df_susp, aes(x = recall, y = precision)) +
+pr_plot_susp <- ggplot(pr_df_susp, aes(x = recall, y = precision, color = cohort_type)) +
   geom_line(linewidth = 1) +
   facet_wrap(~ scenario, ncol = 2) +
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  scale_color_manual(values = c("Retrospective" = "red", "Prospective" = "blue", "Other" = "black")) +
   labs(
     title = "Precision-Recall Curves (Suspected Infection Only)",
     x = "Recall",
@@ -2562,7 +2831,7 @@ pr_plot_susp <- ggplot(pr_df_susp, aes(x = recall, y = precision)) +
   ) +
   geom_text(
     data = metrics_df_susp,
-    aes(x = 0.79, y = 0.86, label = label),
+    aes(x = 0.10, y = 0.15, label = pr_label),
     inherit.aes = FALSE,
     hjust = 0,
     size = 4
@@ -2572,7 +2841,8 @@ pr_plot_susp <- ggplot(pr_df_susp, aes(x = recall, y = precision)) +
     plot.title = element_text(size = 18, face = "bold"),
     strip.text = element_text(size = 14, face = "bold"),
     axis.title = element_text(size = 14, face = "bold"),
-    axis.text = element_text(size = 8)
+    axis.text = element_text(size = 8),
+    legend.position = "none"
   )
 
 print(roc_plot_susp)
@@ -2616,7 +2886,6 @@ pros_yes_abx_1st_infxn$model_score <-
 
 # ----------------------------
 # Inputs: my 4 evaluation dataframes
-# (these are the prospective/retrospective encounter-level eval frames)
 # ----------------------------
 # ------------------------------------------------------------
 # Build evaluation dfs with the RIGHT score source
@@ -2781,10 +3050,11 @@ p_quadrant <-
     aes(x = x, y = y, xend = xend, yend = yend),
     inherit.aes = FALSE,
     linewidth = 1,
-    alpha = 0.6
+    alpha = 0.6,
+    color = "gray50"
   ) +
 
-  # reference lines (edit/remove if you prefer)
+  # reference lines
   geom_hline(yintercept = 0.95, linetype = 2, alpha = 0.5) +
   geom_vline(xintercept = 0.05, linetype = 2, alpha = 0.5) +
 
@@ -2797,7 +3067,11 @@ p_quadrant <-
   scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1), guide = "none") +
   scale_alpha_manual(values = c(`TRUE` = 1, `FALSE` = 0.45), guide = "none") +
 
-  geom_text_repel(
+  scale_color_manual(
+    values = c("Retro" = "red", "Pros" = "blue")
+  ) +
+
+  ggrepel::geom_text_repel(
     aes(label = note),
     size = 3.2,
     show.legend = FALSE,
@@ -2809,19 +3083,12 @@ p_quadrant <-
   ) +
 
   facet_grid(cohort ~ abx) +
-  scale_x_continuous(labels = percent_format(accuracy = 1), limits = c(0, 1)) +
-
-  # IMPORTANT: zoom without dropping points
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
   coord_cartesian(ylim = c(y_lo, y_hi)) +
-  scale_y_continuous(labels = percent_format(accuracy = 0.5)) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.5)) +
 
   labs(
     title = "Clinical rule-out performance at fixed SBI risk thresholds",
-    subtitle = paste0(
-      "Y-axis: NPV among low-risk patients | X-axis: fraction of SBI-negative encounters captured as low-risk\n",
-      "Rows: All encounters (regardless of suspicion of infection) vs those with suspected infection only. ",
-      "Hollow points indicate zero low-risk predictions at the specified threshold."
-    ),
     x = "Proportion of SBI-negative encounters classified as low risk",
     y = "Negative predictive value (NPV)",
     color = "Epoch"
@@ -2898,8 +3165,8 @@ annot_df <- score_df %>%
   ) %>%
   mutate(
     label = paste0(
-      "N=", n, "\n",
-      "% < thr=", percent(pct_below, accuracy = 0.1)
+      "N = ", n, "\n",
+      "% < threshold = ", percent(pct_below, accuracy = 0.1)
     )
   )
 
@@ -3050,22 +3317,42 @@ retro_yes_abx_1st_infxn <- retro_yes_abx_1st_infxn %>%
   )
 
 
+# ============================================================
+# PROPENSITY SCORE DECOMPOSITION: MODELS 1, 2, 3
+#   Model 1 = demographics/comorbidity
+#   Model 2 = Model 1 + encounter context / pre-ICU location
+#   Model 3 = Model 2 + physiology / lab distribution
+# ============================================================
 
+# ============================================================
+# SAFE OUTCOME STANDARDIZATION + PS ANALYSIS
+# ============================================================
+# ------------------------------------------------------------
+# Robust conversion of outcome to 0/1
+# ------------------------------------------------------------
+to_truth01 <- function(x) {
+  if (is.factor(x)) x <- as.character(x)
 
-#Standardize inputs and create low_risk flag
-prep_epoch_df <- function(df, epoch_label, cutoff_prob, score_vec) {
+  if (is.character(x)) {
+    x2 <- tolower(trimws(x))
+    return(dplyr::case_when(
+      x2 %in% c("1", "yes", "y", "true", "event") ~ 1L,
+      x2 %in% c("0", "no", "n", "false", "none")  ~ 0L,
+      TRUE ~ NA_integer_
+    ))
+  }
 
-  needs_pct_to_prob <- max(score_vec, na.rm = TRUE) > 1
+  x_num <- suppressWarnings(as.numeric(x))
+  as.integer(ifelse(is.na(x_num), NA_integer_, ifelse(x_num >= 1, 1L, 0L)))
+}
 
+# ------------------------------------------------------------
+# Standardize epoch dataframe before prep
+# ------------------------------------------------------------
+standardize_epoch_input <- function(df) {
   df %>%
-    dplyr::mutate(
-      epoch = epoch_label,
-      A = dplyr::if_else(epoch == "pros", 1L, 0L),
-
-      model_prob = if (needs_pct_to_prob) score_vec / 100 else score_vec,
-
-      low_risk = dplyr::if_else(!is.na(model_prob) & model_prob <= cutoff_prob, 1L, 0L),
-
+    mutate(
+      sbi_present = to_truth01(sbi_present),
       is_female = as.factor(is_female),
       race = as.factor(race),
       ethnicity = as.factor(ethnicity),
@@ -3074,127 +3361,58 @@ prep_epoch_df <- function(df, epoch_label, cutoff_prob, score_vec) {
     )
 }
 
+# ------------------------------------------------------------
+# Existing prep function, slightly cleaned
+# ------------------------------------------------------------
+prep_epoch_df <- function(df, epoch_label, cutoff_prob, score_vec) {
 
-# Build defensible covariate set
-get_ps_covariates <- function(df, outcome_vars = character()) {
-  # hard excludes (never in PS model)
-  exclude <- c(
-    "study_id","mrn","picu_adm_date_time",
-    "epoch","A",
+  needs_pct_to_prob <- max(score_vec, na.rm = TRUE) > 1
+
+  df %>%
+    mutate(
+      epoch = epoch_label,
+      A = if_else(epoch == "pros", 1L, 0L),
+      model_prob = if (needs_pct_to_prob) score_vec / 100 else score_vec,
+      low_risk = if_else(!is.na(model_prob) & model_prob <= cutoff_prob, 1L, 0L)
+    )
+}
+
+# ------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------
+ps_exclude_vars <- function(df) {
+  c(
+    "study_id", "mrn", "picu_adm_date_time",
+    "epoch", "A", "A_retro",
     "sbi_present",
-    "model_score","model_prob","low_risk",
-    outcome_vars
+    "model_score", "model_prob", "low_risk"
   )
-
-  # candidate pool: everything else
-  cand <- setdiff(names(df), exclude)
-
-  # strongly recommended baseline set if present
-  force_in <- intersect(
-    c("age","is_female","race","ethnicity","pccc","malignancy_pccc",
-      "los_before_icu_days","imv_at_picu_adm"),
-    cand
-  )
-
-  # include preicu_* one-hot columns if present
-  preicu_cols <- grep("^preicu_", cand, value = TRUE)
-
-  # final covariate list
-  unique(c(force_in, preicu_cols))
-  print(unique(c(force_in, preicu_cols)))
 }
 
-get_ps_covariates_case_mix <- function(df) {
-
-  exclude <- c(
-    "study_id","mrn","picu_adm_date_time",
-    "epoch","A",
-    "sbi_present",
-    "model_score","model_prob","low_risk"
-  )
-
-  cand <- setdiff(names(df), exclude)
-
-  # explicitly remove "management/ascertainment" fields from case-mix PS
-  mgmt_like <- intersect(
-    c("crp_pres","pct_pres","cxr_pres","any_micro_pres",
-      "blood_y_n","urine_y_n","csf_y_n",
-      "suspected_infection"),
-    cand
-  )
-
-  cand <- setdiff(cand, mgmt_like)
-
-  # include demographic/comorbidity and pre-ICU location (if present)
-  force_in <- intersect(
-    c("age","is_female","race","ethnicity","pccc","malignancy_pccc",
-      "los_before_icu_days","imv_at_picu_adm"),
-    cand
-  )
-
-  # include preicu one-hot columns
-  preicu_cols <- grep("^preicu_", cand, value = TRUE)
-
-  # include a broad set of baseline phys summaries if present
-  phys_like <- grep("^(hr_|sbp_|dbp_|rr_|temp_|o2sat_|fio2_|lactate_|hematocrit_|pco2_)", cand, value = TRUE)
-
-  unique(c(force_in, preicu_cols, phys_like))
+w_mean <- function(x, w) {
+  sum(x * w, na.rm = TRUE) / sum(w[!is.na(x)], na.rm = TRUE)
 }
-
-make_weights_pros_to_retro <- function(df, ps_trim = c(0.01, 0.99), weight_cap = 20) {
-
-  covars <- get_ps_covariates_case_mix(df)
-  ps_form <- as.formula(paste("A ~", paste(covars, collapse = " + ")))
-
-  # ATT with treated = Pros (A=1) — NOTE: no stabilize arg
-  wfit <- WeightIt::weightit(
-    formula  = ps_form,
-    data     = df,
-    method   = "ps",
-    estimand = "ATT"
-  )
-
-  out <- df %>%
-    dplyr::mutate(
-      w_raw = wfit$weights,
-      ps    = wfit$ps
-    ) %>%
-    dplyr::filter(!is.na(ps), ps >= ps_trim[1], ps <= ps_trim[2]) %>%
-    dplyr::mutate(w = pmin(w_raw, weight_cap))
-
-  bal <- cobalt::bal.tab(wfit, un = TRUE, m.threshold = 0.1)
-  print(bal)
-
-  list(df_w = out, wfit = wfit, balance = bal, covariates = covars)
-}
-
-
-w_mean <- function(x, w) sum(x * w, na.rm = TRUE) / sum(w[!is.na(x)], na.rm = TRUE)
 
 ruleout_metrics <- function(df, w_col = NULL) {
 
   w <- if (is.null(w_col)) rep(1, nrow(df)) else df[[w_col]]
 
-  # basic quantities
-  y <- df$sbi_present
+  y  <- df$sbi_present
   lr <- df$low_risk
 
-  # weights only where both defined
   ok <- !is.na(y) & !is.na(lr) & !is.na(w)
-  y <- y[ok]; lr <- lr[ok]; w <- w[ok]
+  y  <- y[ok]
+  lr <- lr[ok]
+  w  <- w[ok]
 
-  # low-risk yield
   p_low_all <- w_mean(lr == 1, w)
 
-  # yield among SBI-negative
   neg <- (y == 0)
   p_low_among_neg <- if (sum(w[neg]) > 0) w_mean(lr[neg] == 1, w[neg]) else NA_real_
 
-  # NPV among low-risk (P(Y=0 | low_risk=1))
   lr1 <- (lr == 1)
   npv <- if (sum(w[lr1]) > 0) w_mean(y[lr1] == 0, w[lr1]) else NA_real_
 
-  # false negatives among low-risk (Y=1 & low_risk=1)
   fn_rate <- if (sum(w) > 0) w_mean((y == 1) & (lr == 1), w) else NA_real_
 
   tibble(
@@ -3207,413 +3425,741 @@ ruleout_metrics <- function(df, w_col = NULL) {
   )
 }
 
+safe_unweighted_auroc <- function(df, truth_col = "sbi_present", score_col = "model_prob") {
+  d <- df %>% filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]]))
+  if (nrow(d) == 0 || length(unique(d[[truth_col]])) < 2) return(NA_real_)
 
-# Helper function for running weightint plus diagnostics + one outcome model
-run_iptw_epoch_analysis <- function(df, outcome, estimand = "ATE",
-                                    ps_trim = c(0.01, 0.99),
-                                    weight_cap = NULL) {
-
-  stopifnot(outcome %in% names(df))
-
-  covars <- get_ps_covariates(df, outcome_vars = outcome)
-
-  ps_form <- as.formula(
-    paste("A ~", paste(covars, collapse = " + "))
+  r <- pROC::roc(
+    response = d[[truth_col]],
+    predictor = d[[score_col]],
+    quiet = TRUE,
+    direction = "<"
   )
+  as.numeric(pROC::auc(r))
+}
 
-  # propensity weighting (logistic PS by default)
-  wfit <- if (estimand == "ATE") {
-    weightit(
-      formula  = ps_form,
-      data     = df,
-      method   = "ps",
-      estimand = estimand,
-      stabilize = TRUE
-    )
-  } else {
-    weightit(
-      formula  = ps_form,
-      data     = df,
-      method   = "ps",
-      estimand = estimand
-    )
-  }
-
-
-  out <- df %>%
-    mutate(
-      w = wfit$weights,
-      ps = wfit$ps
+safe_weighted_auroc <- function(df,
+                                truth_col = "sbi_present",
+                                score_col = "model_prob",
+                                w_col = "w") {
+  d <- df %>%
+    dplyr::filter(
+      !is.na(.data[[truth_col]]),
+      !is.na(.data[[score_col]]),
+      !is.na(.data[[w_col]]),
+      .data[[w_col]] > 0
     ) %>%
-    # trim on propensity score for overlap (optional but usually helpful)
-    filter(!is.na(ps), ps >= ps_trim[1], ps <= ps_trim[2])
+    dplyr::mutate(
+      truth01 = as.integer(.data[[truth_col]])
+    )
 
-  # optional truncation/capping of extreme weights
-  if (!is.null(weight_cap)) {
-    out <- out %>% mutate(w = pmin(w, weight_cap))
+  if (nrow(d) == 0 || length(unique(d$truth01)) < 2) {
+    return(NA_real_)
   }
 
-  # balance diagnostics
-  bal <- bal.tab(wfit, un = TRUE, m.threshold = 0.1)
-  print(bal)
-
-  # quick love plot (run interactively)
-  # love.plot(bal, threshold = 0.1, abs = TRUE, var.order = "unadjusted")
-
-  # survey design + weighted model
-  des <- svydesign(ids = ~1, data = out, weights = ~w)
-
-  # binary outcome model: effect of epoch (A)
-  # (quasibinomial is stable with weights)
-  fit <- svyglm(as.formula(paste(outcome, "~ A")), design = des, family = quasibinomial())
-
-  # marginal weighted risks by epoch (on probability scale)
-  emm <- emmeans(fit, ~ A, type = "response")
-
-  # TRUE risk difference (pros - retro), on probability scale
-  rd <- contrast(
-    emm,
-    method = list("RD_pros_minus_retro" = c(-1, 1)),
-    type = "response"
+  roc_obj <- WeightedROC::WeightedROC(
+    guess  = d[[score_col]],
+    label  = d$truth01,
+    weight = d[[w_col]]
   )
 
-  # Risk ratio computed manually from the marginal risks
-  emm_df <- as.data.frame(emm)
-  prob_col <- intersect(c("prob", "response"), names(emm_df))[1]
+  as.numeric(WeightedROC::WeightedAUC(roc_obj))
+}
 
-  p0 <- emm_df[[prob_col]][emm_df$A == 0]
-  p1 <- emm_df[[prob_col]][emm_df$A == 1]
-  rr <- p1 / p0
+safe_unweighted_auprc <- function(df, truth_col = "sbi_present", score_col = "model_prob") {
+  d <- df %>% filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]]))
+  if (nrow(d) == 0 || length(unique(d[[truth_col]])) < 2) return(NA_real_)
 
+  scores_pos <- d[[score_col]][d[[truth_col]] == 1]
+  scores_neg <- d[[score_col]][d[[truth_col]] == 0]
 
-  list(
-    df = out,
-    covariates = covars,
-    weightit = wfit,
-    balance = bal,
-    model = fit,
-    marginal_risks = emm,
-    risk_difference = rd,
-    risk_ratio = rr
+  PRROC::pr.curve(
+    scores.class0 = scores_pos,
+    scores.class1 = scores_neg,
+    curve = FALSE
+  )$auc.integral
+}
+
+safe_weighted_auprc <- function(df, truth_col = "sbi_present", score_col = "model_prob", w_col = "w") {
+  d <- df %>% filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]]), !is.na(.data[[w_col]]))
+  if (nrow(d) == 0 || length(unique(d[[truth_col]])) < 2) return(NA_real_)
+
+  scores_pos <- d[[score_col]][d[[truth_col]] == 1]
+  scores_neg <- d[[score_col]][d[[truth_col]] == 0]
+  w_pos <- d[[w_col]][d[[truth_col]] == 1]
+  w_neg <- d[[w_col]][d[[truth_col]] == 0]
+
+  PRROC::pr.curve(
+    scores.class0 = scores_pos,
+    scores.class1 = scores_neg,
+    weights.class0 = w_pos,
+    weights.class1 = w_neg,
+    curve = FALSE
+  )$auc.integral
+}
+
+safe_unweighted_roc_df <- function(df,
+                                   scenario,
+                                   truth_col = "sbi_present",
+                                   score_col = "model_prob") {
+  d <- df %>%
+    dplyr::filter(
+      !is.na(.data[[truth_col]]),
+      !is.na(.data[[score_col]])
+    ) %>%
+    dplyr::mutate(
+      truth01 = as.integer(.data[[truth_col]])
+    )
+
+  if (nrow(d) == 0 || length(unique(d$truth01)) < 2) {
+    return(tibble::tibble(
+      scenario = character(),
+      fpr = numeric(),
+      tpr = numeric()
+    ))
+  }
+
+  roc_obj <- pROC::roc(
+    response  = d$truth01,
+    predictor = d[[score_col]],
+    quiet     = TRUE,
+    direction = "<"
+  )
+
+  tibble::tibble(
+    scenario = scenario,
+    fpr = 1 - roc_obj$specificities,
+    tpr = roc_obj$sensitivities
   )
 }
 
+safe_weighted_roc_df <- function(df,
+                                 scenario,
+                                 truth_col = "sbi_present",
+                                 score_col = "model_prob",
+                                 w_col = "w") {
+  d <- df %>%
+    dplyr::filter(
+      !is.na(.data[[truth_col]]),
+      !is.na(.data[[score_col]]),
+      !is.na(.data[[w_col]]),
+      .data[[w_col]] > 0
+    ) %>%
+    dplyr::mutate(
+      truth01 = as.integer(.data[[truth_col]])
+    )
+
+  if (nrow(d) == 0 || length(unique(d$truth01)) < 2) {
+    return(tibble::tibble(
+      scenario = character(),
+      fpr = numeric(),
+      tpr = numeric()
+    ))
+  }
+
+  roc_obj <- WeightedROC::WeightedROC(
+    guess  = d[[score_col]],
+    label  = d$truth01,
+    weight = d[[w_col]]
+  )
+
+  tibble::tibble(
+    scenario = scenario,
+    fpr = roc_obj$FPR,
+    tpr = roc_obj$TPR
+  )
+}
+
+ess <- function(w) {
+  (sum(w, na.rm = TRUE)^2) / sum(w^2, na.rm = TRUE)
+}
+
+# ------------------------------------------------------------
+# PS models 1-3
+# ------------------------------------------------------------
+get_ps_covariates_m1 <- function(df) {
+  cand <- get_shared_ps_candidates(df)
+
+  intersect(
+    c("age", "is_female", "race", "ethnicity", "pccc", "malignancy_pccc"),
+    cand
+  )
+}
+
+get_ps_covariates_m2 <- function(df) {
+  cand <- get_shared_ps_candidates(df)
+
+  base <- intersect(
+    c("age", "is_female", "race", "ethnicity", "pccc", "malignancy_pccc",
+      "los_before_icu_days", "imv_at_picu_adm"),
+    cand
+  )
+
+  preicu_cols <- grep("^preicu_", cand, value = TRUE)
+
+  unique(c(base, preicu_cols))
+}
+
+get_ps_covariates_m3 <- function(df) {
+  cand <- get_shared_ps_candidates(df)
+
+  base_context <- get_ps_covariates_m2(df)
+
+  phys_like <- intersect(
+    c(
+      "hr_last", "hr_max", "hr_mean", "hr_median", "hr_min", "hr_slope",
+      "sbp_last", "sbp_max", "sbp_mean", "sbp_median", "sbp_min", "sbp_slope",
+      "dbp_last", "dbp_max", "dbp_mean", "dbp_median", "dbp_min", "dbp_slope",
+      "rr_mean", "rr_median", "rr_min", "rr_slope",
+      "temp_last", "temp_max", "temp_mean", "temp_median", "temp_min", "temp_slope",
+      "o2sat_count", "o2sat_mean", "o2sat_median", "o2sat_min", "o2sat_slope",
+      "fio2_count", "fio2_last", "fio2_max", "fio2_mean", "fio2_median", "fio2_min", "fio2_slope",
+      "lactate_max", "hematocrit_mean", "pco2_mean"
+    ),
+    cand
+  )
+
+  unique(c(base_context, phys_like))
+}
+
+# ------------------------------------------------------------
+# Weighting
+# ------------------------------------------------------------
 make_weights_pros_to_retro <- function(df,
+                                       covariate_fun,
                                        estimand = "ATT",
                                        ps_trim = c(0.01, 0.99),
-                                       weight_cap = NULL,
-                                       covariate_fun = get_ps_covariates) {
+                                       weight_cap = 20,
+                                       verbose = TRUE) {
 
-  # Create A_retro so that "treated" = Retro (keeps w=1),
-  # and Pros gets weighted to look like Retro.
   df2 <- df %>%
-    mutate(
-      A_retro = if_else(epoch == "retro", 1L, 0L)
-    )
+    mutate(A_retro = if_else(epoch == "retro", 1L, 0L))
 
   covars <- covariate_fun(df2)
 
+  if (length(covars) == 0) stop("No PS covariates found for this model.")
+
   ps_form <- as.formula(paste("A_retro ~", paste(covars, collapse = " + ")))
 
-  wfit <- weightit(
-    formula  = ps_form,
-    data     = df2,
-    method   = "ps",
+  wfit <- WeightIt::weightit(
+    formula = ps_form,
+    data = df2,
+    method = "ps",
     estimand = estimand
   )
 
   df_w <- df2 %>%
     mutate(
       ps = wfit$ps,
-      w  = wfit$weights
+      w_raw = wfit$weights
     ) %>%
-    filter(!is.na(ps), ps >= ps_trim[1], ps <= ps_trim[2])
+    filter(!is.na(ps), ps >= ps_trim[1], ps <= ps_trim[2]) %>%
+    mutate(
+      w = if (is.null(weight_cap)) w_raw else pmin(w_raw, weight_cap)
+    )
 
-  if (!is.null(weight_cap)) {
-    df_w <- df_w %>% mutate(w = pmin(w, weight_cap))
+  bal_final <- cobalt::bal.tab(
+    x = ps_form,
+    data = df_w,
+    weights = df_w$w,
+    estimand = estimand,
+    un = TRUE,
+    m.threshold = 0.1
+  )
+
+  if (verbose) {
+    cat("\n==============================\n")
+    cat("Covariates in PS model:\n")
+    print(covars)
+    cat("\nBalance on final weighted sample:\n")
+    print(bal_final)
   }
-
-  # diagnostics
-  bal <- bal.tab(wfit, un = TRUE, m.threshold = 0.1)
-  print(bal)
 
   list(
     df_w = df_w,
     weightit = wfit,
-    balance = bal,
-    covariates = covars
+    balance = bal_final,
+    covariates = covars,
+    formula = ps_form
   )
 }
 
+# ------------------------------------------------------------
+# Summaries
+# ------------------------------------------------------------
+summarize_ps_run <- function(run_obj, stratum_label, model_label) {
 
-# Now run on my two strata
+  df_w <- run_obj$df_w
+
+  retro_df <- df_w %>% filter(epoch == "retro", A == 0)
+  pros_df  <- df_w %>% filter(epoch == "pros",  A == 1)
+
+  ruleout_tbl <- bind_rows(
+    retro_df %>% ruleout_metrics() %>% mutate(epoch = "Retro", weighting = "Unweighted"),
+    pros_df  %>% ruleout_metrics() %>% mutate(epoch = "Pros",  weighting = "Unweighted"),
+    pros_df  %>% ruleout_metrics(w_col = "w") %>% mutate(epoch = "Pros", weighting = "Weighted to Retro")
+  ) %>%
+    mutate(stratum = stratum_label, ps_model = model_label, .before = 1)
+
+  discrim_tbl <- bind_rows(
+    tibble(
+      epoch = "Retro",
+      weighting = "Unweighted",
+      auroc = safe_unweighted_auroc(retro_df),
+      auprc = safe_unweighted_auprc(retro_df)
+    ),
+    tibble(
+      epoch = "Pros",
+      weighting = "Unweighted",
+      auroc = safe_unweighted_auroc(pros_df),
+      auprc = safe_unweighted_auprc(pros_df)
+    ),
+    tibble(
+      epoch = "Pros",
+      weighting = "Weighted to Retro",
+      auroc = safe_weighted_auroc(pros_df, w_col = "w"),
+      auprc = safe_weighted_auprc(pros_df, w_col = "w")
+    )
+  ) %>%
+    mutate(
+      stratum = stratum_label,
+      ps_model = model_label,
+      ess_pros_weighted = ess(pros_df$w),
+      .before = 1
+    )
+
+  list(
+    ruleout = ruleout_tbl,
+    discrimination = discrim_tbl,
+    covariates = tibble(
+      stratum = stratum_label,
+      ps_model = model_label,
+      covariate = run_obj$covariates
+    ),
+    balance = run_obj$balance,
+    df_w = df_w
+  )
+}
+
+run_ps_model_suite <- function(df, stratum_label,
+                               ps_trim = c(0.01, 0.99),
+                               weight_cap = 20) {
+
+  model_defs <- list(
+    "Model 1: Demographics/comorbidity"        = get_ps_covariates_m1,
+    "Model 2: + Encounter context / pre-ICU"   = get_ps_covariates_m2,
+    "Model 3: + Physiology / lab distribution" = get_ps_covariates_m3
+  )
+
+  runs <- imap(model_defs, function(cov_fun, model_label) {
+    run_obj <- make_weights_pros_to_retro(
+      df = df,
+      covariate_fun = cov_fun,
+      estimand = "ATT",
+      ps_trim = ps_trim,
+      weight_cap = weight_cap,
+      verbose = TRUE
+    )
+
+    summarize_ps_run(
+      run_obj = run_obj,
+      stratum_label = stratum_label,
+      model_label = model_label
+    )
+  })
+
+  list(
+    ruleout = bind_rows(map(runs, "ruleout")),
+    discrimination = bind_rows(map(runs, "discrimination")),
+    covariates = bind_rows(map(runs, "covariates")),
+    full_runs = runs
+  )
+}
+
+# ------------------------------------------------------------
+# Variables that are actually available in BOTH epochs
+# within the current stratum dataframe
+# ------------------------------------------------------------
+get_shared_ps_candidates <- function(df) {
+  exclude <- ps_exclude_vars(df)
+
+  cand <- setdiff(names(df), exclude)
+
+  # keep only vars that are not all NA in retro and not all NA in pros
+  keep <- cand[
+    vapply(cand, function(v) {
+      retro_ok <- "retro" %in% df$epoch && any(!is.na(df[df$epoch == "retro", v]))
+      pros_ok  <- "pros"  %in% df$epoch && any(!is.na(df[df$epoch == "pros",  v]))
+      retro_ok && pros_ok
+    }, logical(1))
+  ]
+
+  keep
+}
+
+# ============================================================
+# BUILD STRATA SAFELY
+# ============================================================
+
+retro_no_abx_std <- standardize_epoch_input(retro_no_abx_1st_infxn)
+pros_no_abx_std  <- standardize_epoch_input(pros_no_abx_1st_infxn)
+
+retro_yes_abx_std <- standardize_epoch_input(retro_yes_abx_1st_infxn)
+pros_yes_abx_std  <- standardize_epoch_input(pros_yes_temp)   # swap object if needed
+
 df_noabx <- bind_rows(
   prep_epoch_df(
-    retro_no_abx_1st_infxn,
+    retro_no_abx_std,
     epoch_label = "retro",
     cutoff_prob = 0.05,
-    score_vec = retro_no_abx_1st_infxn$model_score
+    score_vec = retro_no_abx_std$model_score
   ),
   prep_epoch_df(
-    pros_no_abx_1st_infxn,
+    pros_no_abx_std,
     epoch_label = "pros",
     cutoff_prob = 0.05,
     score_vec = rf_pred_prob_pros[, "yes"]
   )
 )
 
-df_noabx
-
-# Fix sbi_present class
-retro_yes_abx_1st_infxn <- retro_yes_abx_1st_infxn %>%
-  mutate(sbi_present = if_else(sbi_present == "yes", 1L, 0L))
-
-# Now run on my two strata
 df_yesabx <- bind_rows(
   prep_epoch_df(
-    retro_yes_abx_1st_infxn,
+    retro_yes_abx_std,
     epoch_label = "retro",
     cutoff_prob = 0.074,
-    score_vec = retro_yes_abx_1st_infxn$model_score
+    score_vec = retro_yes_abx_std$model_score
   ),
   prep_epoch_df(
-    pros_yes_temp,
+    pros_yes_abx_std,
     epoch_label = "pros",
     cutoff_prob = 0.074,
     score_vec = rf_pred_prob_pros_abx[, "yes"]
   )
 )
 
+# Sanity checks
+df_noabx %>% count(epoch, sbi_present)
+df_yesabx %>% count(epoch, sbi_present)
 
-# 1) create weights
-w_noabx <- make_weights_pros_to_retro(df_noabx, ps_trim = c(0.01, 0.99), weight_cap = 20)
-df_noabx_w <- w_noabx$df_w
+# ============================================================
+# RUN MODELS
+# ============================================================
 
-retro_unw <- df_noabx_w %>% filter(A == 0) %>% ruleout_metrics()
-
-pros_unw  <- df_noabx_w %>% filter(A == 1) %>% ruleout_metrics()
-
-# This is now Pros weighted to look like Retro
-pros_wtd  <- df_noabx_w %>%
-  filter(A == 1) %>%
-  ruleout_metrics(w_col = "w")
-
-bind_rows(
-  retro_unw %>% mutate(epoch = "Retro", weighting = "Unweighted"),
-  pros_unw  %>% mutate(epoch = "Pros",  weighting = "Unweighted"),
-  pros_wtd  %>% mutate(epoch = "Pros",  weighting = "Weighted to Retro case-mix")
+ps_noabx_results <- run_ps_model_suite(
+  df = df_noabx,
+  stratum_label = "Abx-",
+  ps_trim = c(0.01, 0.99),
+  weight_cap = 20
 )
 
-w_yesabx <- make_weights_pros_to_retro(df_yesabx, ps_trim = c(0.01, 0.99), weight_cap = 20)
-df_yesabx_w <- w_yesabx$df_w
-
-retro_unw <- df_yesabx_w %>% filter(A == 0) %>% ruleout_metrics()
-pros_unw  <- df_yesabx_w %>% filter(A == 1) %>% ruleout_metrics()
-
-pros_wtd  <- df_yesabx_w %>%
-  filter(A == 1) %>%
-  ruleout_metrics(w_col = "w")
-
-bind_rows(
-  retro_unw %>% mutate(epoch = "Retro", weighting = "Unweighted"),
-  pros_unw  %>% mutate(epoch = "Pros",  weighting = "Unweighted"),
-  pros_wtd  %>% mutate(epoch = "Pros",  weighting = "Weighted to Retro case-mix")
+ps_yesabx_results <- run_ps_model_suite(
+  df = df_yesabx,
+  stratum_label = "Abx+",
+  ps_trim = c(0.01, 0.99),
+  weight_cap = 20
 )
 
+# ============================================================
+# COMBINED OUTPUTS
+# ============================================================
 
-weighted_auroc <- function(df, truth_col = "sbi_present", score_col = "model_prob", w_col = "w") {
-  d <- df %>% filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]]), !is.na(.data[[w_col]]))
-  r <- pROC::roc(response = d[[truth_col]], predictor = d[[score_col]],
-                 weights = d[[w_col]], quiet = TRUE, direction = "<")
-  as.numeric(pROC::auc(r))
-}
+ps_ruleout_results <- bind_rows(
+  ps_noabx_results$ruleout,
+  ps_yesabx_results$ruleout
+) %>%
+  arrange(stratum, ps_model, factor(weighting, levels = c("Unweighted", "Weighted to Retro")), epoch)
 
-# Abx− Pros weighted to Retro
-df_noabx_w %>% filter(A == 1) %>% weighted_auroc(truth_col="sbi_present", score_col="model_prob", w_col="w")
+ps_discrimination_results <- bind_rows(
+  ps_noabx_results$discrimination,
+  ps_yesabx_results$discrimination
+) %>%
+  arrange(stratum, ps_model, factor(weighting, levels = c("Unweighted", "Weighted to Retro")), epoch)
 
-# Abx+ Pros weighted to Retro
-df_yesabx_w %>% filter(A == 1) %>% weighted_auroc(truth_col="sbi_present", score_col="model_prob", w_col="w")
+ps_covariates_used <- bind_rows(
+  ps_noabx_results$covariates,
+  ps_yesabx_results$covariates
+)
 
+ps_ruleout_results
+ps_discrimination_results
+ps_covariates_used
 
-weighted_auprc <- function(df, truth_col="sbi_present", score_col="model_prob", w_col="w") {
-  d <- df %>% filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]]), !is.na(.data[[w_col]]))
-  scores_pos <- d[[score_col]][d[[truth_col]] == 1]
-  scores_neg <- d[[score_col]][d[[truth_col]] == 0]
-  w_pos <- d[[w_col]][d[[truth_col]] == 1]
-  w_neg <- d[[w_col]][d[[truth_col]] == 0]
-  PRROC::pr.curve(scores.class0 = scores_pos, scores.class1 = scores_neg,
-                  weights.class0 = w_pos, weights.class1 = w_neg,
-                  curve = FALSE)$auc.integral
-}
-
-weighted_demo_pros_auroc_no_abx <- df_noabx_w %>% filter(A == 1) %>% weighted_auroc(truth_col="sbi_present", score_col="model_prob", w_col="w")
-weighted_demo_pros_auroc_yes_abx <-  df_yesabx_w %>% filter(A == 1) %>% weighted_auroc(truth_col="sbi_present", score_col="model_prob", w_col="w")
-
-weighted_demo_pros_auprc_no_abx <- df_noabx_w %>% filter(A == 1) %>% weighted_auprc(truth_col="sbi_present", score_col="model_prob", w_col="w")
-weighted_demo_pros_auprc_yes_abx <- df_yesabx_w %>% filter(A == 1) %>% weighted_auprc(truth_col="sbi_present", score_col="model_prob", w_col="w")
-
-weighted_demo_pros_auroc_no_abx
-weighted_demo_pros_auroc_yes_abx
-weighted_demo_pros_auprc_no_abx
-weighted_demo_pros_auprc_yes_abx
+# Optional: write out
+# readr::write_csv(ps_ruleout_results, "ps_ruleout_results_models_1_2_3.csv")
+# readr::write_csv(ps_discrimination_results, "ps_discrimination_results_models_1_2_3.csv")
+# readr::write_csv(ps_covariates_used, "ps_covariates_used_models_1_2_3.csv")
 
 
 #### Plot weighted and unweighted pros charts
 # ============================================================
-# Weighted vs unweighted Pros ROC + PR (2-panel)
-# Assumes you already created:
-#   df_noabx_w  (from w_noabx$df_w)  with columns: epoch, A, sbi_present (0/1), model_prob (0-1), w
-#   df_yesabx_w (from w_yesabx$df_w) with same columns
-# And you want Pros only (epoch=="pros" or A==1), comparing:
-#   - Unweighted (w = 1)
-#   - Weighted (w = IPTW weights)
+# PLOT RETRO (UNWEIGHTED), PROS (UNWEIGHTED), AND
+# PROS (WEIGHTED TO RETRO) FOR EACH STRATUM / MODEL
 # ============================================================
-
-
 # ----------------------------
-# Helper: build ROC points (weighted or unweighted)
+# Helper: ROC points + AUROC
+# Uses WeightedROC for both weighted and unweighted cases
 # ----------------------------
-# ------------------------------------------------------------
-# Helper: ROC curve points
-# ------------------------------------------------------------
-
-roc_points_prroc <- function(df, truth_col="sbi_present", score_col="model_prob", w_col=NULL) {
+roc_points_weighted <- function(df,
+                                truth_col = "sbi_present",
+                                score_col = "model_prob",
+                                w_col = NULL) {
   d <- df %>%
     filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]])) %>%
     mutate(
       y = as.integer(.data[[truth_col]]),
       s = as.numeric(.data[[score_col]]),
-      w = if (is.null(w_col)) rep(1, n()) else as.numeric(.data[[w_col]])
+      w = if (is.null(w_col)) 1 else as.numeric(.data[[w_col]])
     ) %>%
     filter(is.finite(s), !is.na(w), w > 0)
+
+  if (nrow(d) == 0 || length(unique(d$y)) < 2) {
+    return(tibble(
+      fpr = numeric(),
+      tpr = numeric(),
+      auc = numeric()
+    ))
+  }
+
+  roc_obj <- WeightedROC::WeightedROC(
+    guess  = d$s,
+    label  = d$y,
+    weight = d$w
+  )
+
+  tibble(
+    fpr = roc_obj$FPR,
+    tpr = roc_obj$TPR,
+    auc = WeightedROC::WeightedAUC(roc_obj)
+  )
+}
+
+# ----------------------------
+# Helper: PR points + AUPRC
+# ----------------------------
+pr_points_weighted <- function(df,
+                               truth_col = "sbi_present",
+                               score_col = "model_prob",
+                               w_col = NULL) {
+  d <- df %>%
+    filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]])) %>%
+    mutate(
+      y = as.integer(.data[[truth_col]]),
+      s = as.numeric(.data[[score_col]]),
+      w = if (is.null(w_col)) 1 else as.numeric(.data[[w_col]])
+    ) %>%
+    filter(is.finite(s), !is.na(w), w > 0)
+
+  if (nrow(d) == 0 || length(unique(d$y)) < 2) {
+    return(tibble(
+      recall = numeric(),
+      precision = numeric(),
+      auc = numeric()
+    ))
+  }
 
   scores_pos <- d$s[d$y == 1]
   scores_neg <- d$s[d$y == 0]
   w_pos <- d$w[d$y == 1]
   w_neg <- d$w[d$y == 0]
 
-  roc <- if (is.null(w_col)) {
-    PRROC::roc.curve(scores.class0 = scores_pos, scores.class1 = scores_neg, curve = TRUE)
-  } else {
-    PRROC::roc.curve(
-      scores.class0 = scores_pos, scores.class1 = scores_neg,
-      weights.class0 = w_pos, weights.class1 = w_neg, curve = TRUE
-    )
-  }
+  pr_obj <- PRROC::pr.curve(
+    scores.class0 = scores_pos,
+    scores.class1 = scores_neg,
+    weights.class0 = w_pos,
+    weights.class1 = w_neg,
+    curve = TRUE
+  )
 
   tibble(
-    fpr = roc$curve[,1],
-    tpr = roc$curve[,2],
-    auc = roc$auc
+    recall = pr_obj$curve[, 1],
+    precision = pr_obj$curve[, 2],
+    auc = pr_obj$auc.integral
   )
 }
 
-pr_points_prroc <- function(df, truth_col="sbi_present", score_col="model_prob", w_col=NULL) {
+curve_prevalence <- function(df,
+                             truth_col = "sbi_present",
+                             w_col = NULL) {
   d <- df %>%
-    filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]])) %>%
-    mutate(
-      y = as.integer(.data[[truth_col]]),
-      s = as.numeric(.data[[score_col]]),
-      w = if (is.null(w_col)) rep(1, n()) else as.numeric(.data[[w_col]])
-    ) %>%
-    filter(is.finite(s), !is.na(w), w > 0)
+    dplyr::filter(!is.na(.data[[truth_col]]))
 
-  scores_pos <- d$s[d$y == 1]
-  scores_neg <- d$s[d$y == 0]
-  w_pos <- d$w[d$y == 1]
-  w_neg <- d$w[d$y == 0]
+  if (nrow(d) == 0) return(NA_real_)
 
-  pr <- if (is.null(w_col)) {
-    PRROC::pr.curve(scores.class0 = scores_pos, scores.class1 = scores_neg, curve = TRUE)
+  if (is.null(w_col)) {
+    mean(as.integer(d[[truth_col]]) == 1L)
   } else {
-    PRROC::pr.curve(
-      scores.class0 = scores_pos, scores.class1 = scores_neg,
-      weights.class0 = w_pos, weights.class1 = w_neg, curve = TRUE
-    )
+    w <- d[[w_col]]
+    y <- as.integer(d[[truth_col]]) == 1L
+    sum(w * y, na.rm = TRUE) / sum(w, na.rm = TRUE)
   }
-
-  tibble(
-    recall = pr$curve[,1],
-    precision = pr$curve[,2],
-    auc = pr$auc.integral
-  )
 }
 
-plot_weighted_vs_unweighted_pros <- function(df_w, title_suffix="", w_col="w") {
-  d_pros <- df_w %>% filter(epoch == "pros", A == 1)
 
-  roc_unw <- roc_points_prroc(d_pros, w_col = NULL) %>% mutate(kind = "Unweighted Pros")
-  roc_w   <- roc_points_prroc(d_pros, w_col = w_col) %>% mutate(kind = "Weighted Pros")
-  roc_df  <- bind_rows(roc_unw, roc_w) %>%
-    mutate(kind = factor(kind, levels = c("Unweighted Pros", "Weighted Pros")))
+# ----------------------------
+# One run -> ROC + PR plot
+# run_obj should be something like:
+# ps_noabx_results$full_runs[["Model 1: Demographics/comorbidity"]]
+# ----------------------------
+plot_ps_curves_one_run <- function(run_obj, title_suffix = "") {
 
-  pr_unw <- pr_points_prroc(d_pros, w_col = NULL) %>% mutate(kind = "Unweighted Pros")
-  pr_w   <- pr_points_prroc(d_pros, w_col = w_col) %>% mutate(kind = "Weighted Pros")
-  pr_df  <- bind_rows(pr_unw, pr_w) %>%
-    mutate(kind = factor(kind, levels = c("Unweighted Pros", "Weighted Pros")))
+  df_w <- run_obj$df_w
 
-  roc_lab <- tibble(
-    kind  = factor(c("Unweighted Pros", "Weighted Pros"),
-                   levels = c("Unweighted Pros", "Weighted Pros")),
-    x     = c(0.20, 0.20),
-    y     = c(0.1, 0.05),
-    label = c(
-      sprintf("Unweighted AUROC = %.3f", unique(roc_unw$auc)[1]),
-      sprintf("Weighted AUROC = %.3f", unique(roc_w$auc)[1])
+  retro_df <- df_w %>% filter(epoch == "retro", A == 0)
+  pros_df  <- df_w %>% filter(epoch == "pros",  A == 1)
+
+  # ROC data
+  roc_retro <- roc_points_weighted(retro_df, w_col = NULL) %>%
+    mutate(curve = "Retro (unweighted)")
+  roc_pros_unw <- roc_points_weighted(pros_df, w_col = NULL) %>%
+    mutate(curve = "Pros (unweighted)")
+  roc_pros_w <- roc_points_weighted(pros_df, w_col = "w") %>%
+    mutate(curve = "Pros (weighted to Retro)")
+
+  roc_df <- bind_rows(roc_retro, roc_pros_unw, roc_pros_w) %>%
+    mutate(
+      curve = factor(
+        curve,
+        levels = c("Retro (unweighted)", "Pros (unweighted)", "Pros (weighted to Retro)")
+      )
     )
-  )
 
-  pr_lab <- tibble(
-    kind  = factor(c("Unweighted Pros", "Weighted Pros"),
-                   levels = c("Unweighted Pros", "Weighted Pros")),
-    x     = c(0.20, 0.20),
-    y     = c(0.1, 0.05),
-    label = c(
-      sprintf("Unweighted AUPRC = %.3f", unique(pr_unw$auc)[1]),
-      sprintf("Weighted AUPRC = %.3f", unique(pr_w$auc)[1])
+  # PR data
+  pr_retro <- pr_points_weighted(retro_df, w_col = NULL) %>%
+    mutate(curve = "Retro (unweighted)")
+  pr_pros_unw <- pr_points_weighted(pros_df, w_col = NULL) %>%
+    mutate(curve = "Pros (unweighted)")
+  pr_pros_w <- pr_points_weighted(pros_df, w_col = "w") %>%
+    mutate(curve = "Pros (weighted to Retro)")
+
+  pr_df <- bind_rows(pr_retro, pr_pros_unw, pr_pros_w) %>%
+    mutate(
+      curve = factor(
+        curve,
+        levels = c("Retro (unweighted)", "Pros (unweighted)", "Pros (weighted to Retro)")
+      )
     )
-  )
+
+  # Labels
+  roc_lab <- bind_rows(
+    roc_retro %>% summarise(auc = first(auc)) %>% mutate(curve = "Retro (unweighted)"),
+    roc_pros_unw %>% summarise(auc = first(auc)) %>% mutate(curve = "Pros (unweighted)"),
+    roc_pros_w %>% summarise(auc = first(auc)) %>% mutate(curve = "Pros (weighted to Retro)")
+  ) %>%
+    mutate(
+      curve = factor(curve, levels = c("Retro (unweighted)", "Pros (unweighted)", "Pros (weighted to Retro)")),
+      x = 0.25,
+      y = c(0.16, 0.10, 0.04),
+      label = sprintf("%s AUROC = %.3f", curve, auc)
+    )
+
+  pr_lab <- bind_rows(
+    tibble(
+      curve = "Retro (unweighted)",
+      auc = dplyr::first(pr_retro$auc),
+      prev = curve_prevalence(retro_df, w_col = NULL)
+    ),
+    tibble(
+      curve = "Pros (unweighted)",
+      auc = dplyr::first(pr_pros_unw$auc),
+      prev = curve_prevalence(pros_df, w_col = NULL)
+    ),
+    tibble(
+      curve = "Pros (weighted to Retro)",
+      auc = dplyr::first(pr_pros_w$auc),
+      prev = curve_prevalence(pros_df, w_col = "w")
+    )
+  ) %>%
+    mutate(
+      curve = factor(
+        curve,
+        levels = c("Retro (unweighted)", "Pros (unweighted)", "Pros (weighted to Retro)")
+      ),
+      x = 0.2,
+      y = c(0.18, 0.12, 0.06),
+      label = paste0(
+        "AUPRC = ", sprintf("%.3f", auc),
+        " (prev = ", sprintf("%.2f", prev), ")"
+      )
+  ) %>%
+    mutate(
+      curve = factor(
+        curve,
+        levels = c("Retro (unweighted)", "Pros (unweighted)", "Pros (weighted to Retro)")
+      ),
+      legend_label = paste0(
+        as.character(curve),
+        ": AUPRC = ",
+        sprintf("%.3f", auc),
+        " (prev = ",
+        sprintf("%.2f", prev),
+        ")"
+      )
+    )
 
   col_vals <- c(
-    "Unweighted Pros" = "blue",
-    "Weighted Pros"   = "red"
+    "Retro (unweighted)"      = "red",
+    "Pros (unweighted)"       = "blue",
+    "Pros (weighted to Retro)" = "purple"
   )
 
   lt_vals <- c(
-    "Unweighted Pros" = "solid",
-    "Weighted Pros"   = "dashed"
+    "Retro (unweighted)"      = "solid",
+    "Pros (unweighted)"       = "solid",
+    "Pros (weighted to Retro)" = "dashed"
   )
 
-  p_roc <- ggplot(roc_df, aes(fpr, tpr, color = kind, linetype = kind)) +
+  p_roc <- ggplot(roc_df, aes(x = fpr, y = tpr, color = curve, linetype = curve)) +
     geom_abline(intercept = 0, slope = 1, linetype = 2) +
-    geom_line(linewidth = 1) +
+    geom_line(linewidth = 1.1, na.rm = TRUE) +
     coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
     scale_color_manual(values = col_vals, drop = FALSE) +
     scale_linetype_manual(values = lt_vals, drop = FALSE) +
-    theme_bw() +
     labs(
-      title = paste0("Prospective ROC (", title_suffix, ")"),
+      title = paste0("ROC (", title_suffix, ")"),
       x = "False positive rate",
       y = "True positive rate",
       color = "Curve",
       linetype = "Curve"
     ) +
+    theme_bw() +
+    theme(
+      plot.title = element_text(face = "bold"),
+      legend.position = "bottom"
+    ) +
     geom_text(
       data = roc_lab,
-      aes(x = x, y = y, label = label, color = kind),
+      aes(x = x, y = y, label = label, color = curve),
       inherit.aes = FALSE,
       hjust = 0,
-      size = 3.5
+      size = 3.4,
+      show.legend = FALSE
     )
 
-  p_pr <- ggplot(pr_df, aes(recall, precision, color = kind, linetype = kind)) +
-    geom_line(linewidth = 1) +
+  pr_breaks <- c(
+    "Retro (unweighted)",
+    "Pros (unweighted)",
+    "Pros (weighted to Retro)"
+  )
+
+  pr_label_map <- setNames(pr_lab$legend_label, as.character(pr_lab$curve))
+
+  p_pr <- ggplot(pr_df, aes(x = recall, y = precision, color = curve, linetype = curve)) +
+    geom_line(linewidth = 1.1, na.rm = TRUE) +
     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
-    scale_color_manual(values = col_vals, drop = FALSE) +
-    scale_linetype_manual(values = lt_vals, drop = FALSE) +
-    theme_bw() +
+    scale_color_manual(
+      values = col_vals,
+      breaks = c("Retro (unweighted)", "Pros (unweighted)", "Pros (weighted to Retro)"),
+      labels = c("Retro", "Pros", "Pros weighted"),
+      drop = FALSE
+    ) +
+    scale_linetype_manual(
+      values = lt_vals,
+      breaks = c("Retro (unweighted)", "Pros (unweighted)", "Pros (weighted to Retro)"),
+      labels = c("Retro", "Pros", "Pros weighted"),
+      drop = FALSE
+    ) +
     labs(
-      title = paste0("Prospective PR (", title_suffix, ")"),
+      title = paste0("PR (", title_suffix, ")"),
       x = "Recall",
       y = "Precision",
       color = "Curve",
@@ -3621,22 +4167,62 @@ plot_weighted_vs_unweighted_pros <- function(df_w, title_suffix="", w_col="w") {
     ) +
     geom_text(
       data = pr_lab,
-      aes(x = x, y = y, label = label, color = kind),
+      aes(x = x, y = y, label = label, color = curve),
       inherit.aes = FALSE,
       hjust = 0,
-      size = 3.5
+      size = 3.4,
+      show.legend = FALSE
+    ) +
+    theme_bw() +
+    theme(
+      plot.title = element_text(face = "bold"),
+      legend.position = "bottom"
     )
 
   p_roc | p_pr
 }
 
-p_yesabx <- plot_weighted_vs_unweighted_pros(df_yesabx_w, title_suffix = "Abx+")
-p_noabx  <- plot_weighted_vs_unweighted_pros(df_noabx_w,  title_suffix = "Abx-")
+# ============================================================
+# BUILD SIX PLOTS: 2 STRATA x 3 MODELS
+# ============================================================
 
-p_yesabx
-p_noabx
+p_noabx_m1 <- plot_ps_curves_one_run(
+  ps_noabx_results$full_runs[["Model 1: Demographics/comorbidity"]],
+  title_suffix = "Abx- | Model 1"
+)
 
+p_noabx_m2 <- plot_ps_curves_one_run(
+  ps_noabx_results$full_runs[["Model 2: + Encounter context / pre-ICU"]],
+  title_suffix = "Abx- | Model 2"
+)
 
+p_noabx_m3 <- plot_ps_curves_one_run(
+  ps_noabx_results$full_runs[["Model 3: + Physiology / lab distribution"]],
+  title_suffix = "Abx- | Model 3"
+)
+
+p_yesabx_m1 <- plot_ps_curves_one_run(
+  ps_yesabx_results$full_runs[["Model 1: Demographics/comorbidity"]],
+  title_suffix = "Abx+ | Model 1"
+)
+
+p_yesabx_m2 <- plot_ps_curves_one_run(
+  ps_yesabx_results$full_runs[["Model 2: + Encounter context / pre-ICU"]],
+  title_suffix = "Abx+ | Model 2"
+)
+
+p_yesabx_m3 <- plot_ps_curves_one_run(
+  ps_yesabx_results$full_runs[["Model 3: + Physiology / lab distribution"]],
+  title_suffix = "Abx+ | Model 3"
+)
+
+# Print individually
+p_noabx_m1
+p_noabx_m2
+p_noabx_m3
+p_yesabx_m1
+p_yesabx_m2
+p_yesabx_m3
 
 
 ####### Do some  Table 1 creation ##########
@@ -3652,7 +4238,7 @@ add_preicu_location <- function(df, prefix = "preicu_") {
     return(df)
   }
 
-  # Ensure numeric 0/1 (some may be dbl already; just be safe)
+  # Ensure numeric 0/1
   df <- df %>%
     mutate(across(all_of(pre_cols), ~ as.numeric(.)))
 
@@ -3660,7 +4246,7 @@ add_preicu_location <- function(df, prefix = "preicu_") {
   loc <- apply(df[, pre_cols, drop = FALSE], 1, function(x) {
     idx <- which(x == 1)
     if (length(idx) == 0) return(NA_character_)          # none flagged
-    if (length(idx) > 1) return("Multiple/Conflicting")  # >1 flagged (rare but possible)
+    if (length(idx) > 1) return("multiple conflicting")  # >1 flagged
     pre_cols[idx]
   })
 
@@ -3668,7 +4254,9 @@ add_preicu_location <- function(df, prefix = "preicu_") {
     mutate(
       preicu_location = loc,
       preicu_location = str_remove(preicu_location, paste0("^", prefix)),
-      preicu_location = fct_explicit_na(as.factor(preicu_location), na_level = "Missing")
+      preicu_location = str_replace_all(preicu_location, "_", " "),
+      preicu_location = str_to_upper(preicu_location),
+      preicu_location = fct_explicit_na(as.factor(preicu_location), na_level = "MISSING")
     )
 }
 
@@ -3684,17 +4272,41 @@ make_table1_epoch <- function(df, title = NULL) {
   df <- df %>%
     mutate(
       epoch = factor(epoch, levels = c("retro", "pros")),
-      # make is_female prettier if it's 0/1 stored as factor
-      is_female = as.character(is_female),
+      age = as.numeric(age),
+
+      # binary indicators coded 0/1 for one-line display
       is_female = case_when(
-        is_female %in% c("1", "TRUE", "T") ~ "Female",
-        is_female %in% c("0", "FALSE", "F") ~ "Male",
-        TRUE ~ NA_character_
+        as.character(is_female) %in% c("1", "TRUE", "T", "Female", "FEMALE") ~ 1,
+        as.character(is_female) %in% c("0", "FALSE", "F", "Male", "MALE") ~ 0,
+        TRUE ~ NA_real_
       ),
-      is_female = fct_explicit_na(as.factor(is_female), na_level = "Missing")
+
+      pccc = case_when(
+        as.character(pccc) %in% c("1", "TRUE", "T", "Yes", "YES") ~ 1,
+        as.character(pccc) %in% c("0", "FALSE", "F", "No", "NO") ~ 0,
+        TRUE ~ NA_real_
+      ),
+
+      malignancy_pccc = case_when(
+        as.character(malignancy_pccc) %in% c("1", "TRUE", "T", "Yes", "YES") ~ 1,
+        as.character(malignancy_pccc) %in% c("0", "FALSE", "F", "No", "NO") ~ 0,
+        TRUE ~ NA_real_
+      ),
+
+      race = as.character(race),
+      race = str_replace_all(race, "Other_Or_Unknown", "Other Or Unknown"),
+      race = str_replace_all(race, "_", " "),
+      race = str_to_upper(race),
+      race = fct_explicit_na(as.factor(race), na_level = "MISSING"),
+
+      ethnicity = as.character(ethnicity),
+      ethnicity = str_replace_all(ethnicity, "Other_Or_Unknown", "Other Or Unknown"),
+      ethnicity = str_replace_all(ethnicity, "_", " "),
+      ethnicity = str_to_upper(ethnicity),
+      ethnicity = fct_explicit_na(as.factor(ethnicity), na_level = "MISSING")
     )
 
-  # Variables to include (PS-model variables + preicu location)
+  # Variables to include
   vars <- c(
     "age",
     "is_female",
@@ -3707,22 +4319,189 @@ make_table1_epoch <- function(df, title = NULL) {
     "preicu_location"
   )
 
-  # Keep only vars that exist in df (defensive)
+  # Keep only vars that exist in df
   vars <- intersect(vars, names(df))
 
   tab <- df %>%
     dplyr::select(all_of(c("epoch", vars))) %>%
     tbl_summary(
       by = epoch,
+      type = list(
+        age ~ "continuous",
+        los_before_icu_days ~ "continuous",
+        is_female ~ "dichotomous",
+        pccc ~ "dichotomous",
+        malignancy_pccc ~ "dichotomous",
+        imv_at_picu_adm ~ "dichotomous",
+        race ~ "categorical",
+        ethnicity ~ "categorical",
+        preicu_location ~ "categorical"
+      ),
+      value = list(
+        is_female ~ 1,
+        pccc ~ 1,
+        malignancy_pccc ~ 1,
+        imv_at_picu_adm ~ 1
+      ),
       statistic = list(
         all_continuous() ~ "{median} [{p25}, {p75}]",
-        all_categorical() ~ "{n} ({p}%)"
+        all_categorical() ~ "{n} ({p}%)",
+        all_dichotomous() ~ "{n} ({p}%)"
       ),
       digits = all_continuous() ~ 2,
-      missing = "ifany"
+      missing = "ifany",
+      label = list(
+        age ~ "AGE",
+        is_female ~ "FEMALE",
+        race ~ "RACE",
+        ethnicity ~ "ETHNICITY",
+        pccc ~ "PCCC",
+        malignancy_pccc ~ "MALIGNANCY",
+        los_before_icu_days ~ "LOS BEFORE ICU DAYS",
+        imv_at_picu_adm ~ "IMV AT PICU ADM",
+        preicu_location ~ "PREICU LOCATION"
+      )
     ) %>%
-    modify_header(label ~ "**Characteristic**") %>%
-    modify_spanning_header(all_stat_cols() ~ "**Epoch**") %>%
+    modify_header(label ~ "**CHARACTERISTIC**") %>%
+    modify_spanning_header(all_stat_cols() ~ "**EPOCH**") %>%
+    bold_labels()
+
+  if (!is.null(title)) {
+    tab <- tab %>% modify_caption(paste0("**", title, "**"))
+  }
+
+  tab
+}
+
+# -----------------------------
+# 4) Helper: create retro vs prospective suspected infection subset table
+# -----------------------------
+make_table1_retro_vs_pros_si <- function(df, title = NULL) {
+
+  # Add preicu_location
+  df <- add_preicu_location(df)
+
+  # Keep all retro, and only prospective patients with suspected infection == 1
+  df <- df %>%
+    mutate(
+      suspected_infection = case_when(
+        as.character(suspected_infection) %in% c("1", "TRUE", "T") ~ 1,
+        as.character(suspected_infection) %in% c("0", "FALSE", "F") ~ 0,
+        TRUE ~ NA_real_
+      ),
+      epoch = factor(epoch, levels = c("retro", "pros"))
+    ) %>%
+    filter(
+      epoch == "retro" | (epoch == "pros" & suspected_infection == 1)
+    ) %>%
+    mutate(
+      comparison_group = case_when(
+        epoch == "retro" ~ "RETRO",
+        epoch == "pros" & suspected_infection == 1 ~ "PROSPECTIVE, SUSPECTED INFECTION",
+        TRUE ~ NA_character_
+      ),
+      comparison_group = factor(
+        comparison_group,
+        levels = c("RETRO", "PROSPECTIVE, SUSPECTED INFECTION")
+      ),
+
+      age = as.numeric(age),
+
+      # binary indicators coded 0/1 for one-line display
+      is_female = case_when(
+        as.character(is_female) %in% c("1", "TRUE", "T", "Female", "FEMALE") ~ 1,
+        as.character(is_female) %in% c("0", "FALSE", "F", "Male", "MALE") ~ 0,
+        TRUE ~ NA_real_
+      ),
+
+      pccc = case_when(
+        as.character(pccc) %in% c("1", "TRUE", "T", "Yes", "YES") ~ 1,
+        as.character(pccc) %in% c("0", "FALSE", "F", "No", "NO") ~ 0,
+        TRUE ~ NA_real_
+      ),
+
+      malignancy_pccc = case_when(
+        as.character(malignancy_pccc) %in% c("1", "TRUE", "T", "Yes", "YES") ~ 1,
+        as.character(malignancy_pccc) %in% c("0", "FALSE", "F", "No", "NO") ~ 0,
+        TRUE ~ NA_real_
+      ),
+
+      imv_at_picu_adm = case_when(
+        as.character(imv_at_picu_adm) %in% c("1", "TRUE", "T", "Yes", "YES") ~ 1,
+        as.character(imv_at_picu_adm) %in% c("0", "FALSE", "F", "No", "NO") ~ 0,
+        TRUE ~ suppressWarnings(as.numeric(as.character(imv_at_picu_adm)))
+      ),
+
+      race = as.character(race),
+      race = str_replace_all(race, "Other_Or_Unknown", "Other Or Unknown"),
+      race = str_replace_all(race, "_", " "),
+      race = str_to_upper(race),
+      race = fct_explicit_na(as.factor(race), na_level = "MISSING"),
+
+      ethnicity = as.character(ethnicity),
+      ethnicity = str_replace_all(ethnicity, "Other_Or_Unknown", "Other Or Unknown"),
+      ethnicity = str_replace_all(ethnicity, "_", " "),
+      ethnicity = str_to_upper(ethnicity),
+      ethnicity = fct_explicit_na(as.factor(ethnicity), na_level = "MISSING")
+    )
+
+  # Variables to include
+  vars <- c(
+    "age",
+    "is_female",
+    "race",
+    "ethnicity",
+    "pccc",
+    "malignancy_pccc",
+    "los_before_icu_days",
+    "imv_at_picu_adm",
+    "preicu_location"
+  )
+
+  vars <- intersect(vars, names(df))
+
+  tab <- df %>%
+    dplyr::select(all_of(c("comparison_group", vars))) %>%
+    tbl_summary(
+      by = comparison_group,
+      type = list(
+        age ~ "continuous",
+        los_before_icu_days ~ "continuous",
+        is_female ~ "dichotomous",
+        pccc ~ "dichotomous",
+        malignancy_pccc ~ "dichotomous",
+        imv_at_picu_adm ~ "dichotomous",
+        race ~ "categorical",
+        ethnicity ~ "categorical",
+        preicu_location ~ "categorical"
+      ),
+      value = list(
+        is_female ~ 1,
+        pccc ~ 1,
+        malignancy_pccc ~ 1,
+        imv_at_picu_adm ~ 1
+      ),
+      statistic = list(
+        all_continuous() ~ "{median} [{p25}, {p75}]",
+        all_categorical() ~ "{n} ({p}%)",
+        all_dichotomous() ~ "{n} ({p}%)"
+      ),
+      digits = all_continuous() ~ 2,
+      missing = "ifany",
+      label = list(
+        age ~ "AGE",
+        is_female ~ "FEMALE",
+        race ~ "RACE",
+        ethnicity ~ "ETHNICITY",
+        pccc ~ "PCCC",
+        malignancy_pccc ~ "MALIGNANCY",
+        los_before_icu_days ~ "LOS BEFORE ICU DAYS",
+        imv_at_picu_adm ~ "IMV AT PICU ADM",
+        preicu_location ~ "PREICU LOCATION"
+      )
+    ) %>%
+    modify_header(label ~ "**CHARACTERISTIC**") %>%
+    modify_spanning_header(all_stat_cols() ~ "**GROUP**") %>%
     bold_labels()
 
   if (!is.null(title)) {
@@ -3735,9 +4514,32 @@ make_table1_epoch <- function(df, title = NULL) {
 # -----------------------------
 # 3) Create the two Table 1s
 # -----------------------------
-table1_noabx  <- make_table1_epoch(df_noabx,  title = "Table 1. Baseline characteristics by epoch — No antibiotics stratum")
-table1_yesabx <- make_table1_epoch(df_yesabx, title = "Table 1. Baseline characteristics by epoch — Antibiotics stratum")
+table1_noabx  <- make_table1_epoch(
+  df_noabx,
+  title = "Table 1. Baseline characteristics by epoch — No antibiotics stratum"
+)
 
+table1_yesabx <- make_table1_epoch(
+  df_yesabx,
+  title = "Table 1. Baseline characteristics by epoch — Antibiotics stratum"
+)
+
+table1_noabx
+table1_yesabx
+
+# Now make comparisons with just suspicion of infection:
+table1_noabx_si <- make_table1_retro_vs_pros_si(
+  df_noabx,
+  title = "Table 1. Baseline characteristics: retrospective cohort vs prospective suspected infection subset — No antibiotics stratum"
+)
+
+table1_yesabx_si <- make_table1_retro_vs_pros_si(
+  df_yesabx,
+  title = "Table 1. Baseline characteristics: retrospective cohort vs prospective suspected infection subset — Antibiotics stratum"
+)
+
+table1_noabx_si
+table1_yesabx_si
 
 #### Ok now we look at missingness and distribution of key inputs between retro and pros.
 # =============================================================================
@@ -3747,17 +4549,6 @@ table1_yesabx <- make_table1_epoch(df_yesabx, title = "Table 1. Baseline charact
 #   - Returns objects into the R environment
 #   - Prints the shift tables and prints the plots to the active device
 # =============================================================================
-
-suppressPackageStartupMessages({
-  library(readr)
-  library(dplyr)
-  library(stringr)
-  library(purrr)
-  library(tidyr)
-  library(ggplot2)
-  library(forcats)
-  library(scales)
-})
 
 # ----------------------------
 # USER SETTINGS
@@ -4076,9 +4867,14 @@ plot_availability_diff <- function(shift_tbl, stratum_name, min_abs_diff = 0.01)
 
 plot_abs_smd <- function(shift_tbl, stratum_name) {
   top <- shift_tbl %>%
-    filter(is.finite(abs_smd)) %>%
+    filter(
+      is.finite(abs_smd),
+      !variable %in% c("blood_y_n", "urine_y_n", "csf_y_n")
+    ) %>%
     slice_head(n = TOP_N_SMD_PLOT) %>%
     mutate(
+      variable_plot = str_replace(variable_plot, "^N\\s+", "NUMBER OF "),
+      variable_plot = str_to_upper(variable_plot),
       variable_plot = fct_reorder(variable_plot, abs_smd),
       type = factor(type, levels = c("continuous", "binary", "categorical"))
     )
@@ -4124,6 +4920,19 @@ plot_abs_smd <- function(shift_tbl, stratum_name) {
 # ----------------------------
 # Run for each abx stratum
 # ----------------------------
+# ----------------------------
+# Create prospective suspected-infection subsets
+# ----------------------------
+pros_no_abx_1st_infxn_si <- pros_no_abx_1st_infxn %>%
+  filter(suspected_infection == 1)
+
+pros_yes_abx_1st_infxn_si <- pros_yes_abx_1st_infxn %>%
+  filter(suspected_infection == 1)
+
+# Optional: quick check of sample sizes
+cat("No-abx prospective suspected infection subset n =", nrow(pros_no_abx_1st_infxn_si), "\n")
+cat("Yes-abx prospective suspected infection subset n =", nrow(pros_yes_abx_1st_infxn_si), "\n")
+
 
 run_stratum <- function(df_retro, df_pros, stratum_name) {
 
@@ -4160,9 +4969,7 @@ run_stratum <- function(df_retro, df_pros, stratum_name) {
   )
 }
 
-if (interactive() && requireNamespace("rstudioapi", quietly = TRUE) && rstudioapi::isAvailable()) {
-  grDevices::dev.new()
-}
+
 
 # Antibiotic-unexposed stratum
 no_abx_results <- run_stratum(
@@ -4190,351 +4997,19 @@ p_yes_abx_density <- yes_abx_results$p_density
 p_yes_abx_avail   <- yes_abx_results$p_avail
 p_yes_abx_smd     <- yes_abx_results$p_smd
 
-# ============================================================
-# Minimal entropy balancing: baseline case-mix only
-# ============================================================
-
-get_ps_covariates_minimal <- function(df) {
-  cand <- names(df)
-
-  force_in <- intersect(
-    c("age","is_female","race","ethnicity","pccc","malignancy_pccc",
-      "los_before_icu_days","imv_at_picu_adm"),
-    cand
-  )
-
-  preicu_cols <- grep("^preicu_", cand, value = TRUE)
-
-  unique(c(force_in, preicu_cols))
-}
-
-make_weights_pros_to_retro_ebal <- function(df,
-                                            weight_cap = NULL,
-                                            covariate_fun,
-                                            moments = 1) {
-
-  df2 <- df %>%
-    mutate(A_retro = if_else(epoch == "retro", 1L, 0L))
-
-  covars <- covariate_fun(df2)
-
-  ps_form <- as.formula(paste("A_retro ~", paste(covars, collapse = " + ")))
-
-  wfit <- weightit(
-    formula  = ps_form,
-    data     = df2,
-    method   = "ebal",
-    estimand = "ATT",
-    moments  = moments
-  )
-
-  df_w <- df2 %>%
-    mutate(w = wfit$weights)
-
-  if (!is.null(weight_cap)) {
-    df_w <- df_w %>% mutate(w = pmin(w, weight_cap))
-  }
-
-  bal <- bal.tab(wfit, un = TRUE, m.threshold = 0.1)
-  print(bal)
-
-  list(df_w = df_w, weightit = wfit, balance = bal, covariates = covars)
-}
-
-# Weighted AUC via weighted Mann–Whitney
-weighted_auc <- function(truth01, score, w) {
-  ok <- is.finite(score) & !is.na(truth01) & !is.na(w)
-  truth01 <- truth01[ok]; score <- score[ok]; w <- w[ok]
-
-  pos <- truth01 == 1
-  neg <- truth01 == 0
-  if (!any(pos) || !any(neg)) return(NA_real_)
-
-  s_pos <- score[pos]; w_pos <- w[pos]
-  s_neg <- score[neg]; w_neg <- w[neg]
-
-  ord_neg <- order(s_neg)
-  s_neg <- s_neg[ord_neg]; w_neg <- w_neg[ord_neg]
-  cum_w_neg <- cumsum(w_neg)
-  total_w_neg <- sum(w_neg)
-
-  below_w <- function(x) {
-    idx <- findInterval(x, s_neg, left.open = TRUE)
-    if (idx <= 0) return(0)
-    cum_w_neg[idx]
-  }
-
-  equal_w <- function(x) {
-    lo <- match(x, s_neg)
-    if (is.na(lo)) return(0)
-    sum(w_neg[s_neg == x])
-  }
-
-  contrib <- 0
-  for (i in seq_along(s_pos)) {
-    b <- below_w(s_pos[i])
-    e <- equal_w(s_pos[i])
-    contrib <- contrib + w_pos[i] * (b + 0.5 * e)
-  }
-
-  contrib / (sum(w_pos) * total_w_neg)
-}
-
-roc_points_weighted <- function(df, truth_col="sbi_present", score_col="model_prob", w_col=NULL) {
-  d <- df %>%
-    transmute(
-      truth = as.integer(.data[[truth_col]]),
-      score = as.numeric(.data[[score_col]]),
-      w = if (is.null(w_col)) 1 else as.numeric(.data[[w_col]])
-    ) %>%
-    filter(!is.na(truth), is.finite(score), is.finite(w))
-
-  thr <- sort(unique(d$score), decreasing = TRUE)
-  if (length(thr) < 2) return(tibble(fpr=numeric(), tpr=numeric()))
-
-  pos_w_total <- sum(d$w[d$truth == 1])
-  neg_w_total <- sum(d$w[d$truth == 0])
-  if (pos_w_total == 0 || neg_w_total == 0) return(tibble(fpr=numeric(), tpr=numeric()))
-
-  out <- lapply(thr, function(t) {
-    pred_pos <- d$score >= t
-    tp_w <- sum(d$w[pred_pos & d$truth == 1])
-    fp_w <- sum(d$w[pred_pos & d$truth == 0])
-    tpr <- tp_w / pos_w_total
-    fpr <- fp_w / neg_w_total
-    c(fpr=fpr, tpr=tpr)
-  })
-
-  out <- do.call(rbind, out)
-  tibble(fpr = out[, "fpr"], tpr = out[, "tpr"])
-}
-
-auprc_and_points_weighted <- function(df, truth_col="sbi_present", score_col="model_prob", w_col=NULL) {
-  d <- df %>%
-    transmute(
-      truth = as.integer(.data[[truth_col]]),
-      score = as.numeric(.data[[score_col]]),
-      w = if (is.null(w_col)) 1 else as.numeric(.data[[w_col]])
-    ) %>%
-    filter(!is.na(truth), is.finite(score), is.finite(w))
-
-  scores_pos <- d$score[d$truth == 1]
-  scores_neg <- d$score[d$truth == 0]
-  w_pos <- d$w[d$truth == 1]
-  w_neg <- d$w[d$truth == 0]
-
-  if (length(scores_pos) == 0 || length(scores_neg) == 0) {
-    return(list(auprc = NA_real_, curve = tibble(recall=numeric(), precision=numeric())))
-  }
-
-  pr <- PRROC::pr.curve(
-    scores.class0 = scores_pos,
-    scores.class1 = scores_neg,
-    weights.class0 = w_pos,
-    weights.class1 = w_neg,
-    curve = TRUE
-  )
-
-  curve <- as.data.frame(pr$curve)
-  recall <- curve[[1]]
-  precision <- curve[[2]]
-
-  list(
-    auprc = pr$auc.integral,
-    curve = tibble(recall = recall, precision = precision)
-  )
-}
-
-plot_weighted_vs_unweighted <- function(df_w, title_suffix = "") {
-
-  d_pros <- df_w %>% filter(epoch == "pros")
-  stopifnot(nrow(d_pros) > 0)
-
-  # ROC points + AUROC
-  roc_unw <- roc_points_weighted(d_pros, w_col = NULL) %>% mutate(kind = "Unweighted Pros")
-  roc_w   <- roc_points_weighted(d_pros, w_col = "w")  %>% mutate(kind = "Weighted Pros")
-
-  auc_unw <- weighted_auc(d_pros$sbi_present, d_pros$model_prob, rep(1, nrow(d_pros)))
-  auc_w   <- weighted_auc(d_pros$sbi_present, d_pros$model_prob, d_pros$w)
-
-  roc_df <- bind_rows(roc_unw, roc_w)
-
-  # PR points + AUPRC
-  pr_unw <- auprc_and_points_weighted(d_pros, w_col = NULL)
-  pr_w   <- auprc_and_points_weighted(d_pros, w_col = "w")
-
-  pr_df <- bind_rows(
-    pr_unw$curve %>% mutate(kind = "Unweighted Pros"),
-    pr_w$curve   %>% mutate(kind = "Weighted Pros")
-  )
-
-  auprc_unw <- pr_unw$auprc
-  auprc_w   <- pr_w$auprc
-
-  roc_df <- roc_df %>%
-    mutate(kind = factor(kind, levels = c("Unweighted Pros", "Weighted Pros")))
-
-  pr_df <- pr_df %>%
-    mutate(kind = factor(kind, levels = c("Unweighted Pros", "Weighted Pros")))
-
-  col_vals <- c(
-    "Unweighted Pros" = "blue",
-    "Weighted Pros"   = "#006400"
-  )
-
-  lt_vals <- c(
-    "Unweighted Pros" = "solid",
-    "Weighted Pros"   = "dashed"
-  )
-
-  roc_lab <- tibble(
-    kind = factor(c("Unweighted Pros", "Weighted Pros"),
-                  levels = c("Unweighted Pros", "Weighted Pros")),
-    x = c(0.18, 0.18),
-    y = c(0.20, 0.12),
-    label = c(
-      sprintf("Unweighted AUROC = %.3f", auc_unw),
-      sprintf("Weighted AUROC = %.3f", auc_w)
-    )
-  )
-
-  pr_lab <- tibble(
-    kind = factor(c("Unweighted Pros", "Weighted Pros"),
-                  levels = c("Unweighted Pros", "Weighted Pros")),
-    x = c(0.18, 0.18),
-    y = c(0.20, 0.12),
-    label = c(
-      sprintf("Unweighted AUPRC = %.3f", auprc_unw),
-      sprintf("Weighted AUPRC = %.3f", auprc_w)
-    )
-  )
-
-  p_roc <- ggplot(roc_df, aes(x = fpr, y = tpr, color = kind, linetype = kind)) +
-    geom_abline(intercept = 0, slope = 1, linetype = 2) +
-    geom_line(linewidth = 1) +
-    coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
-    scale_color_manual(values = col_vals, drop = FALSE) +
-    scale_linetype_manual(values = lt_vals, drop = FALSE) +
-    geom_text(
-      data = roc_lab,
-      aes(x = x, y = y, label = label, color = kind),
-      inherit.aes = FALSE,
-      hjust = 0,
-      size = 3.5
-    ) +
-    labs(
-      title = paste0("Prospective ROC (", title_suffix, ")"),
-      x = "False positive rate",
-      y = "True positive rate",
-      color = "Curve",
-      linetype = "Curve"
-    ) +
-    theme_bw()
-
-  p_pr <- ggplot(pr_df, aes(x = recall, y = precision, color = kind, linetype = kind)) +
-    geom_line(linewidth = 1) +
-    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
-    scale_color_manual(values = col_vals, drop = FALSE) +
-    scale_linetype_manual(values = lt_vals, drop = FALSE) +
-    geom_text(
-      data = pr_lab,
-      aes(x = x, y = y, label = label, color = kind),
-      inherit.aes = FALSE,
-      hjust = 0,
-      size = 3.5
-    ) +
-    labs(
-      title = paste0("Prospective PR (", title_suffix, ")"),
-      x = "Recall",
-      y = "Precision",
-      color = "Curve",
-      linetype = "Curve"
-    ) +
-    theme_bw()
-
-  p_roc + p_pr
-}
-
-check_weights <- function(df_w) {
-  df_w %>%
-    group_by(epoch) %>%
-    summarise(
-      n = n(),
-      w_mean = mean(w),
-      w_sd   = sd(w),
-      w_min  = min(w),
-      w_max  = max(w),
-      prop_unique = n_distinct(round(w, 8))/n(),
-      .groups = "drop"
-    )
-}
-
-# ============================================================
-# Weight Pros -> Retro using minimal baseline case-mix covariates
-# ============================================================
-
-w_noabx_min_ebal <- make_weights_pros_to_retro_ebal(
-  df_noabx,
-  covariate_fun = get_ps_covariates_minimal,
-  weight_cap = 20,
-  moments = 1
-)
-df_noabx_w_min_ebal <- w_noabx_min_ebal$df_w
-check_weights(df_noabx_w_min_ebal)
-
-w_yesabx_min_ebal <- make_weights_pros_to_retro_ebal(
-  df_yesabx,
-  covariate_fun = get_ps_covariates_minimal,
-  weight_cap = 20,
-  moments = 1
-)
-df_yesabx_w_min_ebal <- w_yesabx_min_ebal$df_w
-check_weights(df_yesabx_w_min_ebal)
-
-# Optional plots
-p_noabx_min_ebal  <- plot_weighted_vs_unweighted(df_noabx_w_min_ebal, title_suffix = "Abx- (minimal ebal)")
-p_yesabx_min_ebal <- plot_weighted_vs_unweighted(df_yesabx_w_min_ebal, title_suffix = "Abx+ (minimal ebal)")
-
-p_noabx_min_ebal
-p_yesabx_min_ebal
-
-weighted_prev <- function(df, truth_col = "sbi_present", w_col = "w") {
-  d <- df %>%
-    dplyr::filter(!is.na(.data[[truth_col]]), !is.na(.data[[w_col]]))
-
-  sum(d[[truth_col]] * d[[w_col]]) / sum(d[[w_col]])
-}
-
-# Unweighted prevalence in prospective
-df_noabx_w_min_ebal %>%
-  dplyr::filter(epoch == "pros") %>%
-  summarise(prev_unweighted = mean(sbi_present))
-
-# Weighted prevalence in prospective
-weighted_prev(
-  df_noabx_w_min_ebal %>% dplyr::filter(epoch == "pros"),
-  truth_col = "sbi_present",
-  w_col = "w"
-)
-
- # Unweighted prevalence in prospective abx exposed
-df_yesabx_w_min_ebal %>%
-  dplyr::filter(epoch == "pros") %>%
-  summarise(prev_unweighted = mean(sbi_present))
-
-# Weighted prevalence in prospective
-weighted_prev(
-  df_yesabx_w_min_ebal %>% dplyr::filter(epoch == "pros"),
-  truth_col = "sbi_present",
-  w_col = "w")
 
 # Now another version of shifed SMD predictor plot without abs value
 plot_signed_smd <- function(shift_tbl, stratum_name) {
   top <- shift_tbl %>%
-    filter(is.finite(smd)) %>%
-    arrange(desc(abs(smd))) %>%
+    filter(
+      is.finite(smd),
+      is.finite(abs_smd),
+      !variable %in% c("blood_y_n", "urine_y_n", "csf_y_n")
+    ) %>%
     slice_head(n = TOP_N_SMD_PLOT) %>%
     mutate(
+      variable_plot = str_replace(variable_plot, "^N\\s+", "NUMBER OF "),
+      variable_plot = str_to_upper(variable_plot),
       variable_plot = fct_reorder(variable_plot, smd),
       type = factor(type, levels = c("continuous", "binary", "categorical"))
     )
@@ -4542,12 +5017,12 @@ plot_signed_smd <- function(shift_tbl, stratum_name) {
   ggplot(top, aes(x = variable_plot, y = smd, fill = type)) +
     geom_col(width = 0.72, alpha = 0.95) +
     coord_flip() +
-    geom_hline(yintercept = 0, linewidth = 0.7, color = "gray30") +
-    geom_hline(yintercept = c(-0.1, 0.1), linetype = "dashed", linewidth = 0.8, color = "gray45") +
+    geom_hline(yintercept = 0, linewidth = 0.7, color = "black") +
+    geom_hline(yintercept = c(-0.1, 0.1), linetype = "dashed", linewidth = 0.8, color = "gray35") +
     geom_text(
       aes(
         label = sprintf("%.2f", smd),
-        hjust = ifelse(smd >= 0, -0.12, 1.12)
+        hjust = ifelse(smd >= 0, -0.1, 1.1)
       ),
       size = 3.5,
       color = "black"
@@ -4561,26 +5036,595 @@ plot_signed_smd <- function(shift_tbl, stratum_name) {
       name = "Variable type"
     ) +
     scale_y_continuous(
-      expand = expansion(mult = c(0.12, 0.12))
+      expand = expansion(mult = c(0.10, 0.10))
     ) +
     labs(
       title = paste0("Most shifted predictors by signed SMD — ", stratum_name),
-      subtitle = "Positive values mean higher in prospective; negative values mean higher in retrospective",
+      subtitle = "Bars show direction of shift; dashed lines mark SMD = ±0.10",
       x = NULL,
-      y = "Standardized Mean Difference"
+      y = "STANDARDIZED MEAN DIFFERENCE"
     ) +
     theme_minimal(base_size = 14) +
     theme(
       plot.title = element_text(face = "bold"),
+      strip.text = element_text(face = "bold"),
       axis.text.y = element_text(face = "bold"),
       legend.position = "bottom",
       panel.grid.major.y = element_blank()
     )
 }
 
-p_no_abx_smd_signed <- plot_signed_smd(shift_no_abx, "No antibiotics prior to prediction")
-p_yes_abx_smd_signed <- plot_signed_smd(shift_yes_abx, "Antibiotics prior to prediction")
+p_no_abx_smd_signed <- plot_signed_smd(
+  shift_no_abx,
+  "No antibiotics prior to prediction"
+)
+
+p_yes_abx_smd_signed <- plot_signed_smd(
+  shift_yes_abx,
+  "Antibiotics prior to prediction"
+)
 
 p_no_abx_smd_signed
 p_yes_abx_smd_signed
 
+
+##### Repeat all above plots with only the suspicion of infection plots #####
+# ----------------------------
+# Run retrospective vs prospective suspected-infection subset
+# ----------------------------
+
+# Antibiotic-unexposed stratum
+no_abx_results_si <- run_stratum(
+  df_retro = retro_no_abx_1st_infxn,
+  df_pros  = pros_no_abx_1st_infxn_si,
+  stratum_name = "No antibiotics prior to prediction: retrospective vs prospective SI+ subset"
+)
+
+# Antibiotic-exposed stratum
+yes_abx_results_si <- run_stratum(
+  df_retro = retro_yes_abx_1st_infxn,
+  df_pros  = pros_yes_abx_1st_infxn_si,
+  stratum_name = "Antibiotics prior to prediction: retrospective vs prospective SI+ subset"
+)
+
+# Convenience: expose key objects at top-level
+shift_no_abx_si <- no_abx_results_si$shift_table
+shift_yes_abx_si <- yes_abx_results_si$shift_table
+
+p_no_abx_density_si <- no_abx_results_si$p_density
+p_no_abx_avail_si   <- no_abx_results_si$p_avail
+p_no_abx_smd_si     <- no_abx_results_si$p_smd
+
+p_yes_abx_density_si <- yes_abx_results_si$p_density
+p_yes_abx_avail_si   <- yes_abx_results_si$p_avail
+p_yes_abx_smd_si     <- yes_abx_results_si$p_smd
+
+## Signed version of SMD plots ##
+p_no_abx_smd_signed_si <- plot_signed_smd(
+  shift_no_abx_si,
+  "No antibiotics prior to prediction: retrospective vs prospective SI+ subset"
+)
+
+p_yes_abx_smd_signed_si <- plot_signed_smd(
+  shift_yes_abx_si,
+  "Antibiotics prior to prediction: retrospective vs prospective SI+ subset"
+)
+
+p_no_abx_smd_signed_si
+p_yes_abx_smd_signed_si
+
+
+#### Now will plot components of suspicion of infection over time: CRP, PCT, CXR, micro
+# Retro data exists in the below dataframes
+
+r_plot_susp_yes_abx <- retro_yes_abx_final %>%
+  dplyr::select(study_id, adm_year, adm_quarter, crp_pres, pct_pres, cxr_pres, any_micro_pres) %>%
+  distinct()
+
+r_plot_susp_no_abx <- retro_no_abx_final %>%
+  dplyr::select(study_id, adm_year, adm_quarter, crp_pres, pct_pres, cxr_pres, any_micro_pres) %>%
+  distinct()
+
+joint_retro <- bind_rows(r_plot_susp_no_abx, r_plot_susp_yes_abx)
+
+# Make the plots
+make_testing_plot <- function(df, plot_title) {
+
+  df2 <- df %>%
+    distinct(
+      study_id, adm_year, adm_quarter,
+      crp_pres, pct_pres, cxr_pres, any_micro_pres
+    ) %>%
+    mutate(
+      adm_quarter = as.integer(adm_quarter),
+      adm_year = as.integer(adm_year),
+      year_quarter = paste0(adm_year, " Q", adm_quarter)
+    )
+
+  # preserve true chronological order
+  quarter_levels <- df2 %>%
+    distinct(adm_year, adm_quarter, year_quarter) %>%
+    arrange(adm_year, adm_quarter) %>%
+    pull(year_quarter)
+
+  long_df <- df2 %>%
+    pivot_longer(
+      cols = c(crp_pres, pct_pres, cxr_pres, any_micro_pres),
+      names_to = "test",
+      values_to = "present"
+    ) %>%
+    mutate(
+      test = recode(
+        test,
+        crp_pres = "CRP",
+        pct_pres = "Procalcitonin",
+        cxr_pres = "CXR",
+        any_micro_pres = "Micro testing"
+      ),
+      test = factor(test, levels = c("CRP", "Procalcitonin", "CXR", "Micro testing")),
+      year_quarter = factor(year_quarter, levels = quarter_levels)
+    )
+
+  plot_df <- long_df %>%
+    group_by(adm_year, adm_quarter, year_quarter, test) %>%
+    summarise(
+      n = n(),
+      n_present = sum(present == 1, na.rm = TRUE),
+      prop = n_present / n,
+      .groups = "drop"
+    ) %>%
+    bind_cols(
+      binom::binom.confint(
+        x = .$n_present,
+        n = .$n,
+        methods = "wilson"
+      ) %>%
+        dplyr::select(lower, upper)
+    ) %>%
+    rename(
+      ci_low = lower,
+      ci_high = upper
+    )
+
+  test_colors <- c(
+    "CRP" = "#D55E00",
+    "Procalcitonin" = "#7B3294",
+    "CXR" = "#0072B2",
+    "Micro testing" = "#009E73"
+  )
+
+  ggplot(plot_df, aes(x = year_quarter, y = prop, color = test, fill = test, group = test)) +
+    geom_ribbon(
+      aes(ymin = ci_low, ymax = ci_high),
+      alpha = 0.18,
+      color = NA
+    ) +
+    geom_line(linewidth = 1.2) +
+    geom_point(size = 2.8) +
+    scale_color_manual(values = test_colors) +
+    scale_fill_manual(values = test_colors) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+    coord_cartesian(ylim = c(0, 1)) +
+    labs(
+      title = plot_title,
+      x = "PICU admission year and quarter",
+      y = "Percent of patients with test performed",
+      color = "Test",
+      fill = "Test"
+    ) +
+    theme_bw(base_size = 16) +
+    theme(
+      plot.title = element_text(face = "bold", size = 18),
+      axis.title.x = element_text(face = "bold", size = 16),
+      axis.title.y = element_text(face = "bold", size = 16),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+      axis.text.y = element_text(size = 14),
+      legend.title = element_text(face = "bold", size = 15),
+      legend.text = element_text(size = 14),
+      strip.text = element_text(face = "bold", size = 15),
+      legend.position = "bottom"
+    )
+}
+
+p_yes_abx <- make_testing_plot(
+  r_plot_susp_yes_abx,
+  "Testing over time: suspected infection, antibiotic exposed before PICU"
+)
+
+p_no_abx <- make_testing_plot(
+  r_plot_susp_no_abx,
+  "Testing over time: suspected infection, no antibiotic exposure before PICU"
+)
+
+p_joint <- make_testing_plot(
+  joint_retro,
+  "Testing over time: all retrospective patients"
+)
+
+p_yes_abx
+p_no_abx
+p_joint
+
+### Now repeat plot for the prospective group ###
+# Add year of admit and fix micro column name to work with function
+pros_susp_elements_to_plot_no_abx <- pros_susp_elements_to_plot_no_abx %>%
+  mutate(adm_year = year(picu_adm_date_time)) %>%
+  rename(any_micro_pres = micro_pres)
+
+pros_susp_elements_to_plot_no_abx <- pros_susp_elements_to_plot_no_abx %>%
+  mutate(adm_quarter = quarter(picu_adm_date_time))
+
+p_no_abx_pros <- make_testing_plot(
+  pros_susp_elements_to_plot_no_abx %>% filter(suspected_infection == 1),
+  "Testing over time: Suspected infection, no antibiotic exposure before PICU, prospective"
+)
+
+p_no_abx_pros
+
+### Repeat for abx exposed group and then full cohort ###
+# Add year of admit and fix micro column name to work with function
+pros_susp_elements_to_plot_yes_abx <- pros_susp_elements_to_plot_yes_abx %>%
+  mutate(adm_year = year(picu_adm_date_time)) %>%
+  rename(any_micro_pres = micro_pres)
+
+pros_susp_elements_to_plot_yes_abx <- pros_susp_elements_to_plot_yes_abx %>%
+  mutate(adm_quarter = quarter(picu_adm_date_time))
+
+p_yes_abx_pros <- make_testing_plot(
+  pros_susp_elements_to_plot_yes_abx %>% filter(suspected_infection == 1),
+  "Testing over time: Suspected infection, no antibiotic exposure before PICU, prospective"
+)
+
+p_yes_abx_pros
+
+### Make joint df and plot
+joint_pros <- bind_rows(pros_susp_elements_to_plot_no_abx, pros_susp_elements_to_plot_yes_abx)
+
+p_joint_pros <- make_testing_plot(
+  joint_pros,
+  "Testing over time: all prospective patients"
+)
+
+p_joint_pros
+
+
+
+
+
+
+
+################## I think unnecesary entropy balancing PS code ##################
+# # Minimal entropy balancing: baseline case-mix only
+# get_ps_covariates_minimal <- function(df) {
+#   cand <- names(df)
+#
+#   force_in <- intersect(
+#     c("age","is_female","race","ethnicity","pccc","malignancy_pccc",
+#       "los_before_icu_days","imv_at_picu_adm"),
+#     cand
+#   )
+#
+#   preicu_cols <- grep("^preicu_", cand, value = TRUE)
+#
+#   unique(c(force_in, preicu_cols))
+# }
+#
+# make_weights_pros_to_retro_ebal <- function(df,
+#                                             weight_cap = NULL,
+#                                             covariate_fun,
+#                                             moments = 1) {
+#
+#   df2 <- df %>%
+#     mutate(A_retro = if_else(epoch == "retro", 1L, 0L))
+#
+#   covars <- covariate_fun(df2)
+#
+#   ps_form <- as.formula(paste("A_retro ~", paste(covars, collapse = " + ")))
+#
+#   wfit <- weightit(
+#     formula  = ps_form,
+#     data     = df2,
+#     method   = "ebal",
+#     estimand = "ATT",
+#     moments  = moments
+#   )
+#
+#   df_w <- df2 %>%
+#     mutate(w = wfit$weights)
+#
+#   if (!is.null(weight_cap)) {
+#     df_w <- df_w %>% mutate(w = pmin(w, weight_cap))
+#   }
+#
+#   bal <- bal.tab(wfit, un = TRUE, m.threshold = 0.1)
+#   print(bal)
+#
+#   list(df_w = df_w, weightit = wfit, balance = bal, covariates = covars)
+# }
+#
+# # Weighted AUC via weighted Mann–Whitney
+# weighted_auc <- function(truth01, score, w) {
+#   ok <- is.finite(score) & !is.na(truth01) & !is.na(w)
+#   truth01 <- truth01[ok]; score <- score[ok]; w <- w[ok]
+#
+#   pos <- truth01 == 1
+#   neg <- truth01 == 0
+#   if (!any(pos) || !any(neg)) return(NA_real_)
+#
+#   s_pos <- score[pos]; w_pos <- w[pos]
+#   s_neg <- score[neg]; w_neg <- w[neg]
+#
+#   ord_neg <- order(s_neg)
+#   s_neg <- s_neg[ord_neg]; w_neg <- w_neg[ord_neg]
+#   cum_w_neg <- cumsum(w_neg)
+#   total_w_neg <- sum(w_neg)
+#
+#   below_w <- function(x) {
+#     idx <- findInterval(x, s_neg, left.open = TRUE)
+#     if (idx <= 0) return(0)
+#     cum_w_neg[idx]
+#   }
+#
+#   equal_w <- function(x) {
+#     lo <- match(x, s_neg)
+#     if (is.na(lo)) return(0)
+#     sum(w_neg[s_neg == x])
+#   }
+#
+#   contrib <- 0
+#   for (i in seq_along(s_pos)) {
+#     b <- below_w(s_pos[i])
+#     e <- equal_w(s_pos[i])
+#     contrib <- contrib + w_pos[i] * (b + 0.5 * e)
+#   }
+#
+#   contrib / (sum(w_pos) * total_w_neg)
+# }
+#
+# roc_points_weighted <- function(df, truth_col="sbi_present", score_col="model_prob", w_col=NULL) {
+#   d <- df %>%
+#     transmute(
+#       truth = as.integer(.data[[truth_col]]),
+#       score = as.numeric(.data[[score_col]]),
+#       w = if (is.null(w_col)) 1 else as.numeric(.data[[w_col]])
+#     ) %>%
+#     filter(!is.na(truth), is.finite(score), is.finite(w))
+#
+#   thr <- sort(unique(d$score), decreasing = TRUE)
+#   if (length(thr) < 2) return(tibble(fpr=numeric(), tpr=numeric()))
+#
+#   pos_w_total <- sum(d$w[d$truth == 1])
+#   neg_w_total <- sum(d$w[d$truth == 0])
+#   if (pos_w_total == 0 || neg_w_total == 0) return(tibble(fpr=numeric(), tpr=numeric()))
+#
+#   out <- lapply(thr, function(t) {
+#     pred_pos <- d$score >= t
+#     tp_w <- sum(d$w[pred_pos & d$truth == 1])
+#     fp_w <- sum(d$w[pred_pos & d$truth == 0])
+#     tpr <- tp_w / pos_w_total
+#     fpr <- fp_w / neg_w_total
+#     c(fpr=fpr, tpr=tpr)
+#   })
+#
+#   out <- do.call(rbind, out)
+#   tibble(fpr = out[, "fpr"], tpr = out[, "tpr"])
+# }
+#
+# auprc_and_points_weighted <- function(df, truth_col="sbi_present", score_col="model_prob", w_col=NULL) {
+#   d <- df %>%
+#     transmute(
+#       truth = as.integer(.data[[truth_col]]),
+#       score = as.numeric(.data[[score_col]]),
+#       w = if (is.null(w_col)) 1 else as.numeric(.data[[w_col]])
+#     ) %>%
+#     filter(!is.na(truth), is.finite(score), is.finite(w))
+#
+#   scores_pos <- d$score[d$truth == 1]
+#   scores_neg <- d$score[d$truth == 0]
+#   w_pos <- d$w[d$truth == 1]
+#   w_neg <- d$w[d$truth == 0]
+#
+#   if (length(scores_pos) == 0 || length(scores_neg) == 0) {
+#     return(list(auprc = NA_real_, curve = tibble(recall=numeric(), precision=numeric())))
+#   }
+#
+#   pr <- PRROC::pr.curve(
+#     scores.class0 = scores_pos,
+#     scores.class1 = scores_neg,
+#     weights.class0 = w_pos,
+#     weights.class1 = w_neg,
+#     curve = TRUE
+#   )
+#
+#   curve <- as.data.frame(pr$curve)
+#   recall <- curve[[1]]
+#   precision <- curve[[2]]
+#
+#   list(
+#     auprc = pr$auc.integral,
+#     curve = tibble(recall = recall, precision = precision)
+#   )
+# }
+#
+# plot_weighted_vs_unweighted <- function(df_w, title_suffix = "") {
+#
+#   d_pros <- df_w %>% filter(epoch == "pros")
+#   stopifnot(nrow(d_pros) > 0)
+#
+#   # ROC points + AUROC
+#   roc_unw <- roc_points_weighted(d_pros, w_col = NULL) %>% mutate(kind = "Unweighted Pros")
+#   roc_w   <- roc_points_weighted(d_pros, w_col = "w")  %>% mutate(kind = "Weighted Pros")
+#
+#   auc_unw <- weighted_auc(d_pros$sbi_present, d_pros$model_prob, rep(1, nrow(d_pros)))
+#   auc_w   <- weighted_auc(d_pros$sbi_present, d_pros$model_prob, d_pros$w)
+#
+#   roc_df <- bind_rows(roc_unw, roc_w)
+#
+#   # PR points + AUPRC
+#   pr_unw <- auprc_and_points_weighted(d_pros, w_col = NULL)
+#   pr_w   <- auprc_and_points_weighted(d_pros, w_col = "w")
+#
+#   pr_df <- bind_rows(
+#     pr_unw$curve %>% mutate(kind = "Unweighted Pros"),
+#     pr_w$curve   %>% mutate(kind = "Weighted Pros")
+#   )
+#
+#   auprc_unw <- pr_unw$auprc
+#   auprc_w   <- pr_w$auprc
+#
+#   roc_df <- roc_df %>%
+#     mutate(kind = factor(kind, levels = c("Unweighted Pros", "Weighted Pros")))
+#
+#   pr_df <- pr_df %>%
+#     mutate(kind = factor(kind, levels = c("Unweighted Pros", "Weighted Pros")))
+#
+#   col_vals <- c(
+#     "Unweighted Pros" = "blue",
+#     "Weighted Pros"   = "#006400"
+#   )
+#
+#   lt_vals <- c(
+#     "Unweighted Pros" = "solid",
+#     "Weighted Pros"   = "dashed"
+#   )
+#
+#   roc_lab <- tibble(
+#     kind = factor(c("Unweighted Pros", "Weighted Pros"),
+#                   levels = c("Unweighted Pros", "Weighted Pros")),
+#     x = c(0.18, 0.18),
+#     y = c(0.20, 0.12),
+#     label = c(
+#       sprintf("Unweighted AUROC = %.3f", auc_unw),
+#       sprintf("Weighted AUROC = %.3f", auc_w)
+#     )
+#   )
+#
+#   pr_lab <- tibble(
+#     kind = factor(c("Unweighted Pros", "Weighted Pros"),
+#                   levels = c("Unweighted Pros", "Weighted Pros")),
+#     x = c(0.18, 0.18),
+#     y = c(0.20, 0.12),
+#     label = c(
+#       sprintf("Unweighted AUPRC = %.3f", auprc_unw),
+#       sprintf("Weighted AUPRC = %.3f", auprc_w)
+#     )
+#   )
+#
+#   p_roc <- ggplot(roc_df, aes(x = fpr, y = tpr, color = kind, linetype = kind)) +
+#     geom_abline(intercept = 0, slope = 1, linetype = 2) +
+#     geom_line(linewidth = 1) +
+#     coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
+#     scale_color_manual(values = col_vals, drop = FALSE) +
+#     scale_linetype_manual(values = lt_vals, drop = FALSE) +
+#     geom_text(
+#       data = roc_lab,
+#       aes(x = x, y = y, label = label, color = kind),
+#       inherit.aes = FALSE,
+#       hjust = 0,
+#       size = 3.5
+#     ) +
+#     labs(
+#       title = paste0("Prospective ROC (", title_suffix, ")"),
+#       x = "False positive rate",
+#       y = "True positive rate",
+#       color = "Curve",
+#       linetype = "Curve"
+#     ) +
+#     theme_bw()
+#
+#   p_pr <- ggplot(pr_df, aes(x = recall, y = precision, color = kind, linetype = kind)) +
+#     geom_line(linewidth = 1) +
+#     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+#     scale_color_manual(values = col_vals, drop = FALSE) +
+#     scale_linetype_manual(values = lt_vals, drop = FALSE) +
+#     geom_text(
+#       data = pr_lab,
+#       aes(x = x, y = y, label = label, color = kind),
+#       inherit.aes = FALSE,
+#       hjust = 0,
+#       size = 3.5
+#     ) +
+#     labs(
+#       title = paste0("Prospective PR (", title_suffix, ")"),
+#       x = "Recall",
+#       y = "Precision",
+#       color = "Curve",
+#       linetype = "Curve"
+#     ) +
+#     theme_bw()
+#
+#   p_roc + p_pr
+# }
+#
+# check_weights <- function(df_w) {
+#   df_w %>%
+#     group_by(epoch) %>%
+#     summarise(
+#       n = n(),
+#       w_mean = mean(w),
+#       w_sd   = sd(w),
+#       w_min  = min(w),
+#       w_max  = max(w),
+#       prop_unique = n_distinct(round(w, 8))/n(),
+#       .groups = "drop"
+#     )
+# }
+#
+# # ============================================================
+# # Weight Pros -> Retro using minimal baseline case-mix covariates
+# # ============================================================
+#
+# w_noabx_min_ebal <- make_weights_pros_to_retro_ebal(
+#   df_noabx,
+#   covariate_fun = get_ps_covariates_minimal,
+#   weight_cap = 20,
+#   moments = 1
+# )
+# df_noabx_w_min_ebal <- w_noabx_min_ebal$df_w
+# check_weights(df_noabx_w_min_ebal)
+#
+# w_yesabx_min_ebal <- make_weights_pros_to_retro_ebal(
+#   df_yesabx,
+#   covariate_fun = get_ps_covariates_minimal,
+#   weight_cap = 20,
+#   moments = 1
+# )
+# df_yesabx_w_min_ebal <- w_yesabx_min_ebal$df_w
+# check_weights(df_yesabx_w_min_ebal)
+#
+# # Optional plots
+# p_noabx_min_ebal  <- plot_weighted_vs_unweighted(df_noabx_w_min_ebal, title_suffix = "Abx- (minimal ebal)")
+# p_yesabx_min_ebal <- plot_weighted_vs_unweighted(df_yesabx_w_min_ebal, title_suffix = "Abx+ (minimal ebal)")
+#
+# p_noabx_min_ebal
+# p_yesabx_min_ebal
+#
+# weighted_prev <- function(df, truth_col = "sbi_present", w_col = "w") {
+#   d <- df %>%
+#     dplyr::filter(!is.na(.data[[truth_col]]), !is.na(.data[[w_col]]))
+#
+#   sum(d[[truth_col]] * d[[w_col]]) / sum(d[[w_col]])
+# }
+#
+# # Unweighted prevalence in prospective
+# df_noabx_w_min_ebal %>%
+#   dplyr::filter(epoch == "pros") %>%
+#   summarise(prev_unweighted = mean(sbi_present))
+#
+# # Weighted prevalence in prospective
+# weighted_prev(
+#   df_noabx_w_min_ebal %>% dplyr::filter(epoch == "pros"),
+#   truth_col = "sbi_present",
+#   w_col = "w"
+# )
+#
+# # Unweighted prevalence in prospective abx exposed
+# df_yesabx_w_min_ebal %>%
+#   dplyr::filter(epoch == "pros") %>%
+#   summarise(prev_unweighted = mean(sbi_present))
+#
+# # Weighted prevalence in prospective
+# weighted_prev(
+#   df_yesabx_w_min_ebal %>% dplyr::filter(epoch == "pros"),
+#   truth_col = "sbi_present",
+#   w_col = "w")
