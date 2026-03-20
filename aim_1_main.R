@@ -2482,7 +2482,12 @@ pros_yes_abx_1st_infxn$malignancy_pccc <- as.factor(pros_yes_abx_1st_infxn$malig
 source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/retro_model_to_pros_data.R")
 # source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/retro_model_to_pros_susp_infxn.R")
 
+### Replace old, incorrect prospective model scores with correct scores ###
+pros_no_abx_1st_infxn <- pros_no_abx_1st_infxn %>%
+  mutate(model_score = rf_pred_prob_pros[, "yes"])
 
+pros_yes_abx_1st_infxn <- pros_yes_abx_1st_infxn %>%
+  mutate(model_score = rf_pred_prob_pros_abx[, "yes"])
 
 # =============================================================================
 # 4-panel ROC + 4-panel PRC (retro/pros × abx yes/no) with bootstrap CIs
@@ -5288,8 +5293,534 @@ p_joint_pros <- make_testing_plot(
 p_joint_pros
 
 
+##Finally will eval number of SBI neg patient who got abx, what proportion predicted to
+## be SBI-negative by the model at the 2 hour mark (from all comers not just suspicion of
+# infection), and the median duration of antibiotics (up to 7 days) given after the 2 hour
+# mark
+
+#-----------------------------
+# Load abx dataset
+#-----------------------------
+abx_raw <- read_csv(file = "/phi/sbi/prospective_data/Prospective/antinfective_export_pros_091225.csv")
+
+# Exact MEDICATION_NAME values from the new source file
+# Classify each as antibiotic, antifungal, antiviral, or other
+
+antibiotic_meds <- c(
+  "AMIKACIN (5 MG/ML) IN NS (BLADDER IRRIGATION)",
+  "AMOXICILLIN 125 MG PO CHEW TAB",
+  "AMOXICILLIN 250 MG PO CAP",
+  "AMOXICILLIN 250 MG PO CHEW TAB",
+  "AMOXICILLIN 400 MG/5ML PO RECON SUSP",
+  "AMOXICILLIN 500 MG PO CAP",
+  "AMOXICILLIN 875 MG PO TAB",
+  "AMOXICILLIN-POT CLAVULANATE 200-28.5 MG PO CHEW TAB",
+  "AMOXICILLIN-POT CLAVULANATE 500-125 MG PO TAB",
+  "AMOXICILLIN-POT CLAVULANATE 600-42.9 MG/5ML PO RECON SUSP",
+  "AMOXICILLIN-POT CLAVULANATE 875-125 MG PO TAB",
+  "AMPICILLIN IN NS INJ",
+  "AMPICILLIN-SULBACTAM IN NS INJ",
+  "ANTIBIOTIC LOCK THERAPY WITH HEPARIN 10 UNITS/ML",
+  "AZITHROMYCIN 125 MG PO TABS - IP ONLY",
+  "AZITHROMYCIN 200 MG/5ML PO RECON SUSP",
+  "AZITHROMYCIN 250 MG PO TAB",
+  "AZITHROMYCIN IN NS INJ",
+  "CEFAZOLIN (CONC: 20MG/ML) IN NS",
+  "CEFAZOLIN PF (CONC: 200 MG/ML) SUBCONJUNCTIVAL INJ (OR USE ONLY)",
+  "CEFAZOLIN SODIUM 1 G INJ RECON SOLN",
+  "CEFAZOLIN SODIUM-DEXTROSE 1-4 GM/50ML-% IV SOLUTION",
+  "CEFDINIR 125 MG/5ML PO RECON SUSP",
+  "CEFDINIR 300 MG PO CAP",
+  "CEFEPIME IN NS",
+  "CEFIXIME 100 MG/5ML PO RECON SUSP",
+  "CEFOXITIN IN NS IV INJ",
+  "CEFPODOXIME PROXETIL 100 MG PO TAB",
+  "CEFPODOXIME PROXETIL 100 MG/5ML PO RECON SUSP",
+  "CEFPODOXIME PROXETIL 200 MG PO TAB",
+  "CEFPROZIL 250 MG/5ML PO RECON SUSP",
+  "CEFTAROLINE (CONC: 12 MG/ML) IN NS",
+  "CEFTAZIDIME (CONC: 2.25MG/0.1ML) INTRAVITREAL INJ",
+  "CEFTAZIDIME IN NS IV INJ",
+  "CEFTRIAXONE IN DEXTROSE (40MG/ML) IV SOLUTION",
+  "CEFTRIAXONE IN NS (40 MG/ML) IV SOLUTION",
+  "CEFTRIAXONE SODIUM 1 G VIAL",
+  "CEFTRIAXONE SODIUM 500 MG INJ RECON SOLN",
+  "CEFTRIAXONE SODIUM IN DEXTROSE 40 MG/ML IV SOLUTION",
+  "CEFTRIAXONE WITH LIDOCAINE 1% PF (350 MG/ML) IM SOLUTION (1 G VIAL)",
+  "CEPHALEXIN 250 MG PO CAP",
+  "CEPHALEXIN 250 MG/5ML PO RECON SUSP",
+  "CEPHALEXIN 500 MG PO CAP",
+  "CIPROFLOXACIN 500 MG/5ML (10%) PO RECON SUSP",
+  "CIPROFLOXACIN HCL 125 MG PO TABS - IP ONLY",
+  "CIPROFLOXACIN HCL 250 MG PO TAB",
+  "CIPROFLOXACIN HCL 500 MG PO TAB",
+  "CIPROFLOXACIN IN D5W 200 MG/100ML IV SOLUTION",
+  "CLINDAMYCIN (CONC: 18MG/ML) IN NS",
+  "CLINDAMYCIN HCL 300 MG PO CAP",
+  "CLINDAMYCIN HCL 75 MG PO CAP",
+  "CLINDAMYCIN PALMITATE HCL 75 MG/5ML PO RECON SOLN",
+  "CLINDAMYCIN PHOSPHATE IN D5W 900 MG/50ML IV SOLUTION",
+  "DAPTOMYCIN IN LR IV",
+  "DOXYCYCLINE (CONC: 8MG/ML) IN NS - PLEURODESIS",
+  "DOXYCYCLINE HYCLATE 100 MG PO CAP",
+  "DOXYCYCLINE IN NS FOR SCLEROTHERAPY",
+  "DOXYCYCLINE IN NS IV INJ",
+  "DOXYCYCLINE MONOHYDRATE 25 MG/5ML PO RECON SUSP",
+  "ERTAPENEM INJECTABLE SOLN",
+  "ERYTHROMYCIN BASE 125 MG PO TABS - IP ONLY",
+  "ERYTHROMYCIN BASE 250 MG PO TAB",
+  "ERYTHROMYCIN ETHYLSUCCINATE 200 MG/5ML PO RECON SUSP",
+  "ERYTHROMYCIN LACTOBIONATE IN NS IV INJ",
+  "FIDAXOMICIN 40 MG/ML PO RECON SUSP",
+  "FIRST-METRONIDAZOLE 50 MG/ML PO RECON SUSP",
+  "FIRST-VANCOMYCIN HCL 50 MG/ML PO RECON SOLN",
+  "GENTAMICIN IN NS BLADDER IRRIGATION",
+  "GENTAMICIN IN SALINE 2-0.9 MG/ML-% IV SOLUTION",
+  "ISONIAZID 100 MG PO TAB",
+  "LEVOFLOXACIN 125 MG PO TABS - IP ONLY",
+  "LEVOFLOXACIN 25 MG/ML PO SOLUTION",
+  "LEVOFLOXACIN 250 MG PO TAB",
+  "LEVOFLOXACIN 500 MG PO TAB",
+  "LEVOFLOXACIN IN D5W 500 MG/100ML IV SOLUTION",
+  "LINEZOLID 100 MG/5ML PO RECON SUSP",
+  "LINEZOLID 2 MG/ML IN DEXTROSE",
+  "LINEZOLID 300 MG PO TABS - IP ONLY",
+  "LINEZOLID 600 MG PO TAB",
+  "LINEZOLID 600 MG/300ML IV SOLUTION",
+  "MEROPENEM IN NS (20 MG/ML) IV INJECTION",
+  "MEROPENEM IN NS (20 MG/ML) IV SOLUTION EXTENDED INFUSION",
+  "MEROPENEM IV INJ",
+  "METRONIDAZOLE 250 MG PO TAB",
+  "METRONIDAZOLE 500 MG PO TAB",
+  "METRONIDAZOLE IN NACL 5 MG/ML IV SOLUTION WRAPPER",
+  "MOXIFLOXACIN HCL IN NACL 400 MG/250ML IV SOLUTION",
+  "NAFCILLIN CONTINUOUS INFUSION",
+  "NAFCILLIN SODIUM IN DEXTROSE 2 GM/100ML IV SOLUTION",
+  "NITROFURANTOIN 25 MG/5ML PO SUSP",
+  "NITROFURANTOIN MACROCRYSTAL 100 MG PO CAP",
+  "NITROFURANTOIN MACROCRYSTAL 50 MG PO CAP",
+  "PENICILLIN G POTASSIUM INJ CONTINUOUS INFUSION",
+  "PENICILLIN V POTASSIUM 250 MG PO TAB",
+  "PENICILLIN V POTASSIUM 250 MG/5ML PO RECON SOLN",
+  "PIPERACILLIN - TAZOBACTAM (ZOSYN)(CONC:60 MG/ML) IN NS IV INJ",
+  "PYRAZINAMIDE 100 MG/ML ORAL SUSP",
+  "RIFAMPIN 25 MG/ML ORAL SUSP",
+  "RIFAMPIN IN NS IV INJ",
+  "RIFAXIMIN (CONC: 20MG/ML) ORAL SUSPENSION",
+  "RIFAXIMIN 550 MG PO TAB",
+  "SULFAMETHOXAZOLE-TRIMETHOPRIM 200-40 MG PO TABS - IP ONLY",
+  "SULFAMETHOXAZOLE-TRIMETHOPRIM 200-40 MG/5ML PO SUSP",
+  "SULFAMETHOXAZOLE-TRIMETHOPRIM 400-80 MG PO TAB",
+  "SULFAMETHOXAZOLE-TRIMETHOPRIM 800-160 MG PO TAB",
+  "SULFAMETHOXAZOLE-TRIMETHOPRIM IN D5W INFUSION (CPOE)",
+  "TOBRAMYCIN 300 MG/5ML INH NEB SOLN",
+  "VANCOMYCIN (CONC: 1MG/0.1ML) INTRAVITREAL INJ",
+  "VANCOMYCIN 1 MG/ML IRRIGATION SOLUTION",
+  "VANCOMYCIN CONTINUOUS INFUSION",
+  "VANCOMYCIN HCL 1000 MG IV RECON SOLN FOR BEADS/TOPICAL USE",
+  "VANCOMYCIN HCL 500 MG IV SOLR FOR BEADS/TOPICAL USE",
+  "VANCOMYCIN HCL IN NACL 1-0.9 GM/200ML-% IV SOLUTION",
+  "VANCOMYCIN HCL IN NACL 500-0.9 MG/100ML-% IV SOLUTION",
+  "VANCOMYCIN IN NS IV INJ"
+)
+
+antifungal_meds <- c(
+  "AMBISOME (AMPHOTERICIN B) IN D5W INJ (CPOE)",
+  "AMPHOTERICIN B IN D5W INJ (CPOE)",
+  "ANIDULAFUNGIN IN NS IV",
+  "FLUCONAZOLE 100 MG PO TAB",
+  "FLUCONAZOLE 150 MG PO TAB",
+  "FLUCONAZOLE 40 MG/ML PO RECON SUSP",
+  "FLUCONAZOLE 50 MG PO TAB",
+  "FLUCONAZOLE IN SODIUM CHLORIDE 200-0.9 MG/100ML-% IV SOLUTION",
+  "ISAVUCONAZONIUM SULFATE 186 MG PO CAP",
+  "ISAVUCONAZONIUM SULFATE 74.5 MG PO CAP",
+  "ISAVUCONAZONIUM SULFATE IN NS IV",
+  "MICAFUNGIN IN NS 1.5 MG/ML (50 MG VIAL) INFUSION",
+  "MICAFUNGIN SODIUM-NACL 100-0.9 MG/100ML-% IV SOLUTION",
+  "MICAFUNGIN SODIUM-NACL 50-0.9 MG/50ML-% IV SOLUTION",
+  "POSACONAZOLE 100 MG PO DR TAB",
+  "POSACONAZOLE 40 MG/ML PO SUSP",
+  "POSACONAZOLE IN NS IV",
+  "TERBINAFINE HCL 125 MG PO TAB - IP ONLY",
+  "TERBINAFINE HCL 250 MG PO TAB",
+  "VORICONAZOLE (CONC: 100MCG/0.1ML) INTRAVITREAL INJ",
+  "VORICONAZOLE 200 MG PO TAB",
+  "VORICONAZOLE 40 MG/ML PO RECON SUSP",
+  "VORICONAZOLE 50 MG PO TAB",
+  "VORICONAZOLE/NS INFUSION"
+)
+
+antiviral_meds <- c(
+  "ACYCLOVIR 200 MG PO CAP",
+  "ACYCLOVIR 200 MG/5ML PO SUSP",
+  "ACYCLOVIR 400 MG PO TAB",
+  "ACYCLOVIR 800 MG PO TAB",
+  "ACYCLOVIR IN NS INJ (CPOE)",
+  "BRINCIDOFOVIR (INVESTIGATIONAL) (EIND #132354) IN D5W IV INFUSION",
+  "CIDOFOVIR IN NS INJ. (CPOE)",
+  "FOSCARNET SODIUM 6000 MG/250ML IV SOLUTION",
+  "GANCICLOVIR IN NS INJ (CPOE)",
+  "LETERMOVIR (1.2 MG/ML) IN NS IV",
+  "LETERMOVIR 120 MG PO TABS - IP ONLY",
+  "LETERMOVIR 240 MG IN NS 250ML IV INFUSION",
+  "LETERMOVIR 240 MG PO TAB",
+  "LETERMOVIR 480 MG IN NS 250ML IV INFUSION",
+  "LETERMOVIR 480 MG PO TAB",
+  "MARIBAVIR 200 MG PO TAB",
+  "NIRMATRELVIR&RITONAVIR 300/100 20 X 150 MG & 10 X 100MG PO TAB TX PACK",
+  "OSELTAMIVIR PHOSPHATE 30 MG PO CAP",
+  "OSELTAMIVIR PHOSPHATE 6 MG/ML PO RECON SUSP",
+  "OSELTAMIVIR PHOSPHATE 75 MG PO CAP",
+  "PERAMIVIR 200 MG/20ML IV SOLUTION",
+  "REMDESIVIR IN NS IV GREATER THAN 40 KG",
+  "REMDESIVIR IN NS IV LESS THAN 40 KG",
+  "VALACYCLOVIR (CONC: 50 MG/ML) ORAL SUSPENSION",
+  "VALACYCLOVIR HCL 500 MG PO TAB",
+  "VALGANCICLOVIR HCL 450 MG PO TAB",
+  "VALGANCICLOVIR HCL 50 MG/ML PO RECON SOLN"
+)
+
+other_meds <- c(
+  "ALBENDAZOLE 200 MG PO TAB",
+  "BASE SOLN/ADDITIVES (CPOE)",
+  "EXTEMPORANEOUS MIXTURE TEMPLATE",
+  "HYDROXYCHLOROQUINE SULFATE 200 MG PO TAB",
+  "HYDROXYCHLOROQUINE SULFATE 25 MG/ML ORAL SUSP",
+  "IV ROOM MIXTURE - BLANK",
+  "IVERMECTIN 3 MG PO TAB",
+  "LIDOCAINE IN NS 4 ML INHALED MIXTURE",
+  "PENTAMIDINE IN D5W IV INJ",
+  "PENTAMIDINE ISETHIONATE 300 MG INH RECON SOLN",
+  "PYRANTEL PAMOATE 144 (50 BASE) MG/ML PO SUSP",
+  "TINIDAZOLE (CONC: 67 MG/ML) ORAL SUSPENSION"
+)
+
+# Build the classification dataframe
+antimicrobial_class_df <- bind_rows(
+  tibble(medication = antibiotic_meds, medication_class = "antibiotic"),
+  tibble(medication = antifungal_meds, medication_class = "antifungal"),
+  tibble(medication = antiviral_meds, medication_class = "antiviral"),
+  tibble(medication = other_meds, medication_class = "other")
+)
+
+# QC checks
+all_meds_in_file <- abx_raw %>%
+  distinct(MEDICATION_NAME) %>%
+  arrange(MEDICATION_NAME)
+
+# Should be 178 rows in each of these
+nrow(all_meds_in_file)
+nrow(antimicrobial_class_df)
+
+# These should both return 0 rows if every medication was classified exactly once
+anti_join(all_meds_in_file, antimicrobial_class_df, by = c("MEDICATION_NAME" = "medication"))
+anti_join(antimicrobial_class_df, all_meds_in_file, by = c("medication" = "MEDICATION_NAME"))
+
+# Optional: make sure there are no duplicates in your classification table
+antimicrobial_class_df %>%
+  count(medication) %>%
+  filter(n > 1)
+
+# Filter to antibiotics only
+list_abx <- antimicrobial_class_df %>%
+  filter(medication_class == "antibiotic")
+
+just_abx <- abx_raw %>%
+  filter(MEDICATION_NAME %in% list_abx$medication)
+
+#-----------------------------
+# 1) Combine prospective data and derive CSN from study_id
+#    Keep CSN as CHARACTER to avoid any coercion issues
+#-----------------------------
+pros_all_1st_infxn <- bind_rows(
+  pros_no_abx_1st_infxn %>% mutate(source_df = "pros_no_abx"),
+  pros_yes_abx_1st_infxn %>% mutate(source_df = "pros_yes_abx")
+) %>%
+  mutate(
+    csn = str_remove(as.character(study_id), "_1$"),
+    picu_adm_date_time = with_tz(as.POSIXct(picu_adm_date_time), tzone = "America/Denver"),
+    window_start = picu_adm_date_time + lubridate::dhours(2),
+    window_end   = picu_adm_date_time + lubridate::dhours(26)
+  ) %>%
+  distinct(study_id, .keep_all = TRUE)
+
+#-----------------------------
+# 2) Prep antibiotic administrations
+#    Keep CSN as CHARACTER
+#-----------------------------
+abx_admin_full <- just_abx %>%
+  transmute(
+    csn             = as.character(PAT_ENC_CSN_ID),
+    taken_time      = force_tz(as.POSIXct(taken_time), tzone = "America/Denver"),
+    GENERIC_NAME    = GENERIC_NAME,
+    MEDICATION_NAME = MEDICATION_NAME,
+    HSP_ACCOUNT_ID  = HSP_ACCOUNT_ID,
+    route_name      = route_name
+  ) %>%
+  filter(!is.na(csn), !is.na(taken_time)) %>%
+  arrange(csn, taken_time)
+
+abx_admin <- abx_admin_full %>% left_join(pros_all_1st_infxn %>% dplyr::select(csn, picu_adm_date_time), by = "csn")
+abx_admin <- abx_admin %>% filter(taken_time > picu_adm_date_time)
+
+# Lookup table to fill in missing/NULL generic names
+generic_name_fill <- tibble::tribble(
+  ~MEDICATION_NAME,                                               ~generic_fill,
+  "AMPICILLIN IN NS INJ",                                         "Ampicillin",
+  "AMPICILLIN-SULBACTAM IN NS INJ",                               "Ampicillin-Sulbactam",
+  "ANTIBIOTIC LOCK THERAPY WITH HEPARIN 10 UNITS/ML",             "Antibiotic Lock Therapy",
+  "AZITHROMYCIN IN NS INJ",                                       "Azithromycin",
+  "CEFAZOLIN (CONC: 20MG/ML) IN NS",                              "Cefazolin",
+  "CEFEPIME IN NS",                                               "Cefepime",
+  "CEFOXITIN IN NS IV INJ",                                       "Cefoxitin",
+  "CEFTAROLINE (CONC: 12 MG/ML) IN NS",                           "Ceftaroline",
+  "CEFTAZIDIME IN NS IV INJ",                                     "Ceftazidime",
+  "CEFTRIAXONE IN DEXTROSE (40MG/ML) IV SOLUTION",                "Ceftriaxone",
+  "CEFTRIAXONE IN NS (40 MG/ML) IV SOLUTION",                     "Ceftriaxone",
+  "DAPTOMYCIN IN LR IV",                                          "Daptomycin",
+  "DOXYCYCLINE (CONC: 8MG/ML) IN NS - PLEURODESIS",               "Doxycycline",
+  "DOXYCYCLINE IN NS FOR SCLEROTHERAPY",                          "Doxycycline",
+  "DOXYCYCLINE IN NS IV INJ",                                     "Doxycycline",
+  "ERTAPENEM INJECTABLE SOLN",                                    "Ertapenem",
+  "GENTAMICIN IN NS BLADDER IRRIGATION",                          "Gentamicin",
+  "MEROPENEM IN NS (20 MG/ML) IV INJECTION",                      "Meropenem",
+  "MEROPENEM IN NS (20 MG/ML) IV SOLUTION EXTENDED INFUSION",     "Meropenem",
+  "PIPERACILLIN - TAZOBACTAM (ZOSYN)(CONC:60 MG/ML) IN NS IV INJ", "Piperacillin-Tazobactam",
+  "SULFAMETHOXAZOLE-TRIMETHOPRIM IN D5W INFUSION (CPOE)",         "Sulfamethoxazole-Trimethoprim",
+  "VANCOMYCIN IN NS IV INJ",                                      "Vancomycin"
+)
+
+abx_admin <- abx_admin %>%
+  dplyr::left_join(generic_name_fill, by = "MEDICATION_NAME") %>%
+  dplyr::mutate(
+    GENERIC_NAME = dplyr::if_else(
+      is.na(GENERIC_NAME) | GENERIC_NAME == "NULL" | GENERIC_NAME == "",
+      generic_fill,
+      GENERIC_NAME
+    )
+  ) %>%
+  dplyr::select(-generic_fill)
+
+#-----------------------------
+# 3) Join by CSN and create antibiotic episodes
+#-----------------------------
+all_abx_by_encounter <- pros_all_1st_infxn %>%
+  dplyr::select(source_df, study_id, csn, picu_adm_date_time, window_start, window_end) %>%
+  inner_join(abx_admin %>% dplyr::select(-picu_adm_date_time), by = "csn") %>%
+  arrange(study_id, taken_time) %>%
+  group_by(study_id) %>%
+  mutate(
+    gap_from_prev_hours = as.numeric(difftime(taken_time, lag(taken_time), units = "hours")),
+    new_episode = case_when(
+      row_number() == 1 ~ 1L,
+      gap_from_prev_hours > 26 ~ 1L,
+      TRUE ~ 0L
+    ),
+    abx_episode_id = cumsum(new_episode),
+    in_target_window = taken_time >= window_start & taken_time < window_end
+  ) %>%
+  ungroup()
+
+#-----------------------------
+# 4) Direct QC: how many actual doses fall in the target window?
+#-----------------------------
+window_hits <- all_abx_by_encounter %>%
+  filter(in_target_window)
+
+window_hits %>%
+  summarise(
+    n_doses_in_window = n(),
+    n_encounters_in_window = n_distinct(study_id)
+  )
+
+#-----------------------------
+# 5) Identify the first in-window dose for each encounter
+#-----------------------------
+first_in_window <- window_hits %>%
+  arrange(study_id, taken_time) %>%
+  group_by(study_id) %>%
+  slice(1) %>%
+  ungroup() %>%
+  transmute(
+    study_id,
+    first_abx_time_in_window = taken_time,
+    first_episode_id = abx_episode_id
+  )
+
+#-----------------------------
+# 6) Build the encounter-level FLAG directly from first_in_window
+#    Do NOT depend on the course summary for this
+#-----------------------------
+encounter_abx_flag <- first_in_window %>%
+  distinct(study_id) %>%
+  mutate(abx_in_24h_after_2h_flag = 1L)
+
+#-----------------------------
+# 7) Keep all rows from the antibiotic episode containing
+#    the first qualifying in-window dose
+#-----------------------------
+course_rows <- all_abx_by_encounter %>%
+  inner_join(first_in_window, by = "study_id") %>%
+  filter(abx_episode_id == first_episode_id)
+
+#-----------------------------
+# 8) Summarize the first qualifying antibiotic course
+#-----------------------------
+abx_course_summary <- course_rows %>%
+  group_by(study_id) %>%
+  summarise(
+    first_abx_time_in_window = first(first_abx_time_in_window),
+    first_course_start_time  = min(taken_time, na.rm = TRUE),
+    first_course_end_time    = max(taken_time, na.rm = TRUE),
+    n_doses_first_course     = n(),
+    meds_in_first_course     = paste(sort(unique(GENERIC_NAME)), collapse = "; "),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    first_course_duration_hours =
+      as.numeric(difftime(first_course_end_time, first_course_start_time, units = "hours")),
+    first_course_duration_days =
+      as.numeric(difftime(first_course_end_time, first_course_start_time, units = "days"))
+  )
+
+#-----------------------------
+# 9) Join back to encounter-level data
+#-----------------------------
+pros_all_1st_infxn_abx <- pros_all_1st_infxn %>%
+  left_join(encounter_abx_flag, by = "study_id") %>%
+  left_join(abx_course_summary, by = "study_id") %>%
+  mutate(
+    abx_in_24h_after_2h_flag = if_else(is.na(abx_in_24h_after_2h_flag), 0L, abx_in_24h_after_2h_flag)
+  )
+
+#-----------------------------
+# 10) Split back out if desired
+#-----------------------------
+pros_no_abx_1st_infxn_abx <- pros_all_1st_infxn_abx %>%
+  filter(source_df == "pros_no_abx") %>%
+  select(-source_df)
+
+pros_yes_abx_1st_infxn_abx <- pros_all_1st_infxn_abx %>%
+  filter(source_df == "pros_yes_abx") %>%
+  select(-source_df)
+
+#-----------------------------
+# QC
+#-----------------------------
+pros_all_1st_infxn_abx %>%
+  count(abx_in_24h_after_2h_flag)
+
+all_abx_by_encounter %>%
+  mutate(hours_from_admit = as.numeric(difftime(taken_time, picu_adm_date_time, units = "hours"))) %>%
+  summarise(
+    min_hours = min(hours_from_admit, na.rm = TRUE),
+    median_hours = median(hours_from_admit, na.rm = TRUE),
+    max_hours = max(hours_from_admit, na.rm = TRUE)
+  )
+
+window_hits %>%
+  select(study_id, csn, picu_adm_date_time, taken_time, GENERIC_NAME, in_target_window) %>%
+  arrange(study_id, taken_time) %>%
+  slice_head(n = 20)
+
+#### Ok now look at antibiotic duration for different subgroups #######
 
 
+#-----------------------------
+# Add cohort labels and cohort-specific prediction flags
+#-----------------------------
+pros_no_abx_for_summary <- pros_no_abx_1st_infxn_abx %>%
+  dplyr::mutate(
+    cohort = "Prospective abx-unexposed",
+    pred_neg_by_model = model_score <= 0.05
+  )
+
+pros_yes_abx_for_summary <- pros_yes_abx_1st_infxn_abx %>%
+  dplyr::mutate(
+    cohort = "Prospective abx-exposed",
+    pred_neg_by_model = model_score <= 0.074
+  )
+
+pros_combined_for_summary <- dplyr::bind_rows(
+  pros_no_abx_for_summary,
+  pros_yes_abx_for_summary
+)
+
+#-----------------------------
+# Helper function for manuscript-style summary
+#-----------------------------
+make_manuscript_summary <- function(df, cohort_label) {
+
+  sbi_neg <- df %>%
+    dplyr::filter(sbi_present == 0)
+
+  sbi_neg_abx <- sbi_neg %>%
+    dplyr::filter(abx_in_24h_after_2h_flag == 1)
+
+  sbi_neg_abx_pred_neg <- sbi_neg_abx %>%
+    dplyr::filter(pred_neg_by_model)
+
+  n_sbi_neg <- nrow(sbi_neg)
+  n_sbi_neg_abx <- nrow(sbi_neg_abx)
+  n_sbi_neg_abx_pred_neg <- nrow(sbi_neg_abx_pred_neg)
+
+  tibble::tibble(
+    cohort = cohort_label,
+
+    `SBI-negative patients given antibiotics after PICU+2h` =
+      paste0(
+        n_sbi_neg_abx, "/", n_sbi_neg,
+        " (", round(100 * n_sbi_neg_abx / n_sbi_neg, 1), "%)"
+      ),
+
+    `Antibiotic course duration, days` =
+      paste0(
+        round(stats::median(sbi_neg_abx$first_course_duration_days, na.rm = TRUE), 2),
+        " [",
+        round(stats::quantile(sbi_neg_abx$first_course_duration_days, probs = 0.25, na.rm = TRUE), 2),
+        ", ",
+        round(stats::quantile(sbi_neg_abx$first_course_duration_days, probs = 0.75, na.rm = TRUE), 2),
+        "]"
+      ),
+
+    `Among SBI-negative patients given antibiotics, predicted SBI-negative by model` =
+      paste0(
+        n_sbi_neg_abx_pred_neg, "/", n_sbi_neg_abx,
+        " (", round(100 * n_sbi_neg_abx_pred_neg / n_sbi_neg_abx, 1), "%)"
+      ),
+
+    `Antibiotic course duration in model-predicted SBI-negative group, days` =
+      paste0(
+        round(stats::median(sbi_neg_abx_pred_neg$first_course_duration_days, na.rm = TRUE), 2),
+        " [",
+        round(stats::quantile(sbi_neg_abx_pred_neg$first_course_duration_days, probs = 0.25, na.rm = TRUE), 2),
+        ", ",
+        round(stats::quantile(sbi_neg_abx_pred_neg$first_course_duration_days, probs = 0.75, na.rm = TRUE), 2),
+        "]"
+      )
+  )
+}
+
+#-----------------------------
+# Create manuscript-style summary table including overall row
+#-----------------------------
+pros_summary_manuscript <- dplyr::bind_rows(
+  make_manuscript_summary(
+    df = pros_no_abx_for_summary,
+    cohort_label = "Prospective abx-unexposed"
+  ),
+  make_manuscript_summary(
+    df = pros_yes_abx_for_summary,
+    cohort_label = "Prospective abx-exposed"
+  ),
+  make_manuscript_summary(
+    df = pros_combined_for_summary,
+    cohort_label = "Overall"
+  )
+)
+
+print(pros_summary_manuscript)
 
 
 
