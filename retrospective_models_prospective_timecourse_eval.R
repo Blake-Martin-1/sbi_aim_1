@@ -232,6 +232,349 @@ p_npv_facet <- ggplot(npv_plot_df, aes(x = picu_hour, y = npv)) +
     strip.text = element_text(face = "bold", size = 14)
   )
 
-p_npv_facet
 
 p_npv_facet
+
+### Repeat but for AUROC and AUPRC by hour ###
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(pROC)
+library(PRROC)
+library(purrr)
+
+#------------------------------------------------------------
+# Metric functions
+#------------------------------------------------------------
+
+calc_auroc <- function(truth, score) {
+  truth_num <- as.integer(truth)
+
+  if (length(unique(truth_num[!is.na(truth_num)])) < 2) {
+    return(NA_real_)
+  }
+
+  roc_obj <- pROC::roc(
+    response = truth_num,
+    predictor = score,
+    quiet = TRUE,
+    direction = "<"
+  )
+
+  as.numeric(pROC::auc(roc_obj))
+}
+
+calc_auprc <- function(truth, score) {
+  truth_num <- as.integer(truth)
+
+  if (length(unique(truth_num[!is.na(truth_num)])) < 2) {
+    return(NA_real_)
+  }
+
+  pos_scores <- score[truth_num == 1]
+  neg_scores <- score[truth_num == 0]
+
+  if (length(pos_scores) == 0 || length(neg_scores) == 0) {
+    return(NA_real_)
+  }
+
+  pr_obj <- PRROC::pr.curve(
+    scores.class0 = pos_scores,
+    scores.class1 = neg_scores,
+    curve = FALSE
+  )
+
+  as.numeric(pr_obj$auc.integral)
+}
+
+#------------------------------------------------------------
+# Bootstrap CI helper
+#------------------------------------------------------------
+
+bootstrap_metric_ci <- function(df, metric_fun, n_boot = 1000, conf_level = 0.95) {
+
+  # Need both classes present
+  if (length(unique(df$sbi_present[!is.na(df$sbi_present)])) < 2) {
+    return(tibble::tibble(
+      estimate = NA_real_,
+      ci_low = NA_real_,
+      ci_high = NA_real_
+    ))
+  }
+
+  estimate <- metric_fun(df$sbi_present, df$pred_prob_yes)
+
+  boot_vals <- replicate(n_boot, {
+    idx <- sample.int(n = nrow(df), size = nrow(df), replace = TRUE)
+    boot_df <- df[idx, , drop = FALSE]
+    metric_fun(boot_df$sbi_present, boot_df$pred_prob_yes)
+  })
+
+  boot_vals <- boot_vals[!is.na(boot_vals)]
+
+  alpha <- 1 - conf_level
+
+  if (length(boot_vals) < 20) {
+    return(tibble::tibble(
+      estimate = estimate,
+      ci_low = NA_real_,
+      ci_high = NA_real_
+    ))
+  }
+
+  tibble::tibble(
+    estimate = estimate,
+    ci_low = as.numeric(stats::quantile(boot_vals, probs = alpha / 2, na.rm = TRUE)),
+    ci_high = as.numeric(stats::quantile(boot_vals, probs = 1 - alpha / 2, na.rm = TRUE))
+  )
+}
+
+#------------------------------------------------------------
+# Generic summary-by-hour function
+#------------------------------------------------------------
+
+make_metric_by_hour <- function(df, group_label, metric = c("auroc", "auprc"), n_boot = 1000) {
+
+  metric <- match.arg(metric)
+
+  metric_fun <- switch(
+    metric,
+    "auroc" = calc_auroc,
+    "auprc" = calc_auprc
+  )
+
+  out <- df %>%
+    dplyr::group_by(picu_hour) %>%
+    dplyr::group_modify(~{
+      dat <- .x
+
+      ci_res <- bootstrap_metric_ci(
+        df = dat,
+        metric_fun = metric_fun,
+        n_boot = n_boot,
+        conf_level = 0.95
+      )
+
+      tibble::tibble(
+        n_total = nrow(dat),
+        n_sbi_pos = sum(dat$sbi_present == 1, na.rm = TRUE),
+        n_sbi_neg = sum(dat$sbi_present == 0, na.rm = TRUE),
+        metric_value = ci_res$estimate,
+        ci_low = ci_res$ci_low,
+        ci_high = ci_res$ci_high
+      )
+    }) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(
+      group = group_label,
+      metric = toupper(metric)
+    )
+
+  out
+}
+
+#------------------------------------------------------------
+# Create hourly AUROC summaries
+#------------------------------------------------------------
+
+auroc_no_abx <- make_metric_by_hour(
+  df = pred_df_pros_no_abx_24,
+  group_label = "No antibiotic exposure before PICU",
+  metric = "auroc",
+  n_boot = 1000
+)
+
+auroc_yes_abx <- make_metric_by_hour(
+  df = pred_df_pros_yes_abx_24,
+  group_label = "Antibiotic exposure before PICU",
+  metric = "auroc",
+  n_boot = 1000
+)
+
+auroc_plot_df <- dplyr::bind_rows(auroc_no_abx, auroc_yes_abx)
+
+#------------------------------------------------------------
+# Create hourly AUPRC summaries
+#------------------------------------------------------------
+
+auprc_no_abx <- make_metric_by_hour(
+  df = pred_df_pros_no_abx_24,
+  group_label = "No antibiotic exposure before PICU",
+  metric = "auprc",
+  n_boot = 1000
+)
+
+auprc_yes_abx <- make_metric_by_hour(
+  df = pred_df_pros_yes_abx_24,
+  group_label = "Antibiotic exposure before PICU",
+  metric = "auprc",
+  n_boot = 1000
+)
+
+auprc_plot_df <- dplyr::bind_rows(auprc_no_abx, auprc_yes_abx)
+
+#------------------------------------------------------------
+# Add facet labels
+#------------------------------------------------------------
+
+auroc_plot_df <- auroc_plot_df %>%
+  dplyr::mutate(
+    facet_label = group
+  )
+
+auprc_plot_df <- auprc_plot_df %>%
+  dplyr::mutate(
+    facet_label = group
+  )
+
+#------------------------------------------------------------
+# Keep only non-missing metric rows for lines/ribbons
+#------------------------------------------------------------
+
+auroc_line_df <- auroc_plot_df %>%
+  dplyr::filter(!is.na(metric_value)) %>%
+  dplyr::arrange(facet_label, picu_hour)
+
+auprc_line_df <- auprc_plot_df %>%
+  dplyr::filter(!is.na(metric_value)) %>%
+  dplyr::arrange(facet_label, picu_hour)
+
+# point labels with metrics
+
+auroc_line_df <- auroc_line_df %>%
+  dplyr::mutate(
+    metric_label = sprintf("%.2f", metric_value)
+  )
+
+auprc_line_df <- auprc_line_df %>%
+  dplyr::mutate(
+    metric_label = sprintf("%.2f", metric_value)
+  )
+
+#------------------------------------------------------------
+# AUROC plot
+#------------------------------------------------------------
+
+p_auroc_facet <- ggplot(auroc_plot_df, aes(x = picu_hour, y = metric_value)) +
+  geom_ribbon(
+    data = auroc_line_df,
+    aes(
+      x = picu_hour,
+      ymin = ci_low,
+      ymax = ci_high,
+      group = facet_label
+    ),
+    inherit.aes = FALSE,
+    fill = "lightblue",
+    alpha = 0.35
+  ) +
+  geom_line(
+    data = auroc_line_df,
+    aes(group = facet_label),
+    linewidth = 1.2,
+    color = "darkblue"
+  ) +
+  geom_point(
+    data = auroc_line_df,
+    size = 2.8,
+    color = "darkblue"
+  ) +
+  facet_wrap(~ facet_label, ncol = 1) +
+  scale_x_continuous(breaks = 0:24) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    labels = scales::number_format(accuracy = 0.01)
+  ) +
+  labs(
+    title = "AUROC over PICU time",
+    subtitle = "Shaded ribbons show 95% bootstrap confidence intervals",
+    x = "PICU hour",
+    y = "AUROC"
+  ) +
+  theme_bw(base_size = 16) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(size = 13),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.title.y = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 13),
+    axis.text.y = element_text(size = 13),
+    strip.text = element_text(face = "bold", size = 14)
+  )
+
+#------------------------------------------------------------
+# AUPRC plot
+#------------------------------------------------------------
+
+p_auprc_facet <- ggplot(auprc_plot_df, aes(x = picu_hour, y = metric_value)) +
+  geom_ribbon(
+    data = auprc_line_df,
+    aes(
+      x = picu_hour,
+      ymin = ci_low,
+      ymax = ci_high,
+      group = facet_label
+    ),
+    inherit.aes = FALSE,
+    fill = "lightblue",
+    alpha = 0.35
+  ) +
+  geom_line(
+    data = auprc_line_df,
+    aes(group = facet_label),
+    linewidth = 1.2,
+    color = "darkblue"
+  ) +
+  geom_point(
+    data = auprc_line_df,
+    size = 2.8,
+    color = "darkblue"
+  ) +
+  facet_wrap(~ facet_label, ncol = 1) +
+  scale_x_continuous(breaks = 0:24) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    labels = scales::number_format(accuracy = 0.01)
+  ) +
+  labs(
+    title = "AUPRC over PICU time",
+    subtitle = "Shaded ribbons show 95% bootstrap confidence intervals",
+    x = "PICU hour",
+    y = "AUPRC"
+  ) +
+  theme_bw(base_size = 16) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(size = 13),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.title.y = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 13),
+    axis.text.y = element_text(size = 13),
+    strip.text = element_text(face = "bold", size = 14)
+  )
+
+# Add labels #
+p_auroc_facet <- p_auroc_facet +
+  geom_text(
+    data = auroc_line_df,
+    aes(label = metric_label),
+    na.rm = TRUE,
+    vjust = -0.8,
+    size = 3.5,
+    color = "darkblue"
+  )
+
+p_auprc_facet <- p_auprc_facet +
+  geom_text(
+    data = auprc_line_df,
+    aes(label = metric_label),
+    na.rm = TRUE,
+    vjust = -0.8,
+    size = 3.5,
+    color = "darkblue"
+  )
+
+
+p_auroc_facet
+
+p_auprc_facet

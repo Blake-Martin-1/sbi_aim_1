@@ -8,6 +8,7 @@ setwd(dir = "/phi/sbi/sbi_blake/aim_1_paper_materials/")
 source("setup_aim_1.R")
 
 # Load additional scripts
+library(scales)
 library(gbm)
 library(lubridate)
 library(data.table)
@@ -35,7 +36,6 @@ library(gtsummary)
 library(flextable)
 library(officer)
 library(ggplot2)
-library(scales)
 library(dplyr)
 library(tibble)
 library(yardstick)
@@ -5823,339 +5823,402 @@ pros_summary_manuscript <- dplyr::bind_rows(
 print(pros_summary_manuscript)
 
 
+##### Now do abx analysis by subgroups #######
+library(dplyr)
+library(tibble)
 
-################## I think unnecesary entropy balancing PS code ##################
-# # Minimal entropy balancing: baseline case-mix only
-# get_ps_covariates_minimal <- function(df) {
-#   cand <- names(df)
-#
-#   force_in <- intersect(
-#     c("age","is_female","race","ethnicity","pccc","malignancy_pccc",
-#       "los_before_icu_days","imv_at_picu_adm"),
-#     cand
-#   )
-#
-#   preicu_cols <- grep("^preicu_", cand, value = TRUE)
-#
-#   unique(c(force_in, preicu_cols))
-# }
-#
-# make_weights_pros_to_retro_ebal <- function(df,
-#                                             weight_cap = NULL,
-#                                             covariate_fun,
-#                                             moments = 1) {
-#
-#   df2 <- df %>%
-#     mutate(A_retro = if_else(epoch == "retro", 1L, 0L))
-#
-#   covars <- covariate_fun(df2)
-#
-#   ps_form <- as.formula(paste("A_retro ~", paste(covars, collapse = " + ")))
-#
-#   wfit <- weightit(
-#     formula  = ps_form,
-#     data     = df2,
-#     method   = "ebal",
-#     estimand = "ATT",
-#     moments  = moments
-#   )
-#
-#   df_w <- df2 %>%
-#     mutate(w = wfit$weights)
-#
-#   if (!is.null(weight_cap)) {
-#     df_w <- df_w %>% mutate(w = pmin(w, weight_cap))
-#   }
-#
-#   bal <- bal.tab(wfit, un = TRUE, m.threshold = 0.1)
-#   print(bal)
-#
-#   list(df_w = df_w, weightit = wfit, balance = bal, covariates = covars)
-# }
-#
-# # Weighted AUC via weighted Mann–Whitney
-# weighted_auc <- function(truth01, score, w) {
-#   ok <- is.finite(score) & !is.na(truth01) & !is.na(w)
-#   truth01 <- truth01[ok]; score <- score[ok]; w <- w[ok]
-#
-#   pos <- truth01 == 1
-#   neg <- truth01 == 0
-#   if (!any(pos) || !any(neg)) return(NA_real_)
-#
-#   s_pos <- score[pos]; w_pos <- w[pos]
-#   s_neg <- score[neg]; w_neg <- w[neg]
-#
-#   ord_neg <- order(s_neg)
-#   s_neg <- s_neg[ord_neg]; w_neg <- w_neg[ord_neg]
-#   cum_w_neg <- cumsum(w_neg)
-#   total_w_neg <- sum(w_neg)
-#
-#   below_w <- function(x) {
-#     idx <- findInterval(x, s_neg, left.open = TRUE)
-#     if (idx <= 0) return(0)
-#     cum_w_neg[idx]
-#   }
-#
-#   equal_w <- function(x) {
-#     lo <- match(x, s_neg)
-#     if (is.na(lo)) return(0)
-#     sum(w_neg[s_neg == x])
-#   }
-#
-#   contrib <- 0
-#   for (i in seq_along(s_pos)) {
-#     b <- below_w(s_pos[i])
-#     e <- equal_w(s_pos[i])
-#     contrib <- contrib + w_pos[i] * (b + 0.5 * e)
-#   }
-#
-#   contrib / (sum(w_pos) * total_w_neg)
-# }
-#
-# roc_points_weighted <- function(df, truth_col="sbi_present", score_col="model_prob", w_col=NULL) {
-#   d <- df %>%
-#     transmute(
-#       truth = as.integer(.data[[truth_col]]),
-#       score = as.numeric(.data[[score_col]]),
-#       w = if (is.null(w_col)) 1 else as.numeric(.data[[w_col]])
-#     ) %>%
-#     filter(!is.na(truth), is.finite(score), is.finite(w))
-#
-#   thr <- sort(unique(d$score), decreasing = TRUE)
-#   if (length(thr) < 2) return(tibble(fpr=numeric(), tpr=numeric()))
-#
-#   pos_w_total <- sum(d$w[d$truth == 1])
-#   neg_w_total <- sum(d$w[d$truth == 0])
-#   if (pos_w_total == 0 || neg_w_total == 0) return(tibble(fpr=numeric(), tpr=numeric()))
-#
-#   out <- lapply(thr, function(t) {
-#     pred_pos <- d$score >= t
-#     tp_w <- sum(d$w[pred_pos & d$truth == 1])
-#     fp_w <- sum(d$w[pred_pos & d$truth == 0])
-#     tpr <- tp_w / pos_w_total
-#     fpr <- fp_w / neg_w_total
-#     c(fpr=fpr, tpr=tpr)
-#   })
-#
-#   out <- do.call(rbind, out)
-#   tibble(fpr = out[, "fpr"], tpr = out[, "tpr"])
-# }
-#
-# auprc_and_points_weighted <- function(df, truth_col="sbi_present", score_col="model_prob", w_col=NULL) {
-#   d <- df %>%
-#     transmute(
-#       truth = as.integer(.data[[truth_col]]),
-#       score = as.numeric(.data[[score_col]]),
-#       w = if (is.null(w_col)) 1 else as.numeric(.data[[w_col]])
-#     ) %>%
-#     filter(!is.na(truth), is.finite(score), is.finite(w))
-#
-#   scores_pos <- d$score[d$truth == 1]
-#   scores_neg <- d$score[d$truth == 0]
-#   w_pos <- d$w[d$truth == 1]
-#   w_neg <- d$w[d$truth == 0]
-#
-#   if (length(scores_pos) == 0 || length(scores_neg) == 0) {
-#     return(list(auprc = NA_real_, curve = tibble(recall=numeric(), precision=numeric())))
-#   }
-#
-#   pr <- PRROC::pr.curve(
-#     scores.class0 = scores_pos,
-#     scores.class1 = scores_neg,
-#     weights.class0 = w_pos,
-#     weights.class1 = w_neg,
-#     curve = TRUE
-#   )
-#
-#   curve <- as.data.frame(pr$curve)
-#   recall <- curve[[1]]
-#   precision <- curve[[2]]
-#
-#   list(
-#     auprc = pr$auc.integral,
-#     curve = tibble(recall = recall, precision = precision)
-#   )
-# }
-#
-# plot_weighted_vs_unweighted <- function(df_w, title_suffix = "") {
-#
-#   d_pros <- df_w %>% filter(epoch == "pros")
-#   stopifnot(nrow(d_pros) > 0)
-#
-#   # ROC points + AUROC
-#   roc_unw <- roc_points_weighted(d_pros, w_col = NULL) %>% mutate(kind = "Unweighted Pros")
-#   roc_w   <- roc_points_weighted(d_pros, w_col = "w")  %>% mutate(kind = "Weighted Pros")
-#
-#   auc_unw <- weighted_auc(d_pros$sbi_present, d_pros$model_prob, rep(1, nrow(d_pros)))
-#   auc_w   <- weighted_auc(d_pros$sbi_present, d_pros$model_prob, d_pros$w)
-#
-#   roc_df <- bind_rows(roc_unw, roc_w)
-#
-#   # PR points + AUPRC
-#   pr_unw <- auprc_and_points_weighted(d_pros, w_col = NULL)
-#   pr_w   <- auprc_and_points_weighted(d_pros, w_col = "w")
-#
-#   pr_df <- bind_rows(
-#     pr_unw$curve %>% mutate(kind = "Unweighted Pros"),
-#     pr_w$curve   %>% mutate(kind = "Weighted Pros")
-#   )
-#
-#   auprc_unw <- pr_unw$auprc
-#   auprc_w   <- pr_w$auprc
-#
-#   roc_df <- roc_df %>%
-#     mutate(kind = factor(kind, levels = c("Unweighted Pros", "Weighted Pros")))
-#
-#   pr_df <- pr_df %>%
-#     mutate(kind = factor(kind, levels = c("Unweighted Pros", "Weighted Pros")))
-#
-#   col_vals <- c(
-#     "Unweighted Pros" = "blue",
-#     "Weighted Pros"   = "#006400"
-#   )
-#
-#   lt_vals <- c(
-#     "Unweighted Pros" = "solid",
-#     "Weighted Pros"   = "dashed"
-#   )
-#
-#   roc_lab <- tibble(
-#     kind = factor(c("Unweighted Pros", "Weighted Pros"),
-#                   levels = c("Unweighted Pros", "Weighted Pros")),
-#     x = c(0.18, 0.18),
-#     y = c(0.20, 0.12),
-#     label = c(
-#       sprintf("Unweighted AUROC = %.3f", auc_unw),
-#       sprintf("Weighted AUROC = %.3f", auc_w)
-#     )
-#   )
-#
-#   pr_lab <- tibble(
-#     kind = factor(c("Unweighted Pros", "Weighted Pros"),
-#                   levels = c("Unweighted Pros", "Weighted Pros")),
-#     x = c(0.18, 0.18),
-#     y = c(0.20, 0.12),
-#     label = c(
-#       sprintf("Unweighted AUPRC = %.3f", auprc_unw),
-#       sprintf("Weighted AUPRC = %.3f", auprc_w)
-#     )
-#   )
-#
-#   p_roc <- ggplot(roc_df, aes(x = fpr, y = tpr, color = kind, linetype = kind)) +
-#     geom_abline(intercept = 0, slope = 1, linetype = 2) +
-#     geom_line(linewidth = 1) +
-#     coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
-#     scale_color_manual(values = col_vals, drop = FALSE) +
-#     scale_linetype_manual(values = lt_vals, drop = FALSE) +
-#     geom_text(
-#       data = roc_lab,
-#       aes(x = x, y = y, label = label, color = kind),
-#       inherit.aes = FALSE,
-#       hjust = 0,
-#       size = 3.5
-#     ) +
-#     labs(
-#       title = paste0("Prospective ROC (", title_suffix, ")"),
-#       x = "False positive rate",
-#       y = "True positive rate",
-#       color = "Curve",
-#       linetype = "Curve"
-#     ) +
-#     theme_bw()
-#
-#   p_pr <- ggplot(pr_df, aes(x = recall, y = precision, color = kind, linetype = kind)) +
-#     geom_line(linewidth = 1) +
-#     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
-#     scale_color_manual(values = col_vals, drop = FALSE) +
-#     scale_linetype_manual(values = lt_vals, drop = FALSE) +
-#     geom_text(
-#       data = pr_lab,
-#       aes(x = x, y = y, label = label, color = kind),
-#       inherit.aes = FALSE,
-#       hjust = 0,
-#       size = 3.5
-#     ) +
-#     labs(
-#       title = paste0("Prospective PR (", title_suffix, ")"),
-#       x = "Recall",
-#       y = "Precision",
-#       color = "Curve",
-#       linetype = "Curve"
-#     ) +
-#     theme_bw()
-#
-#   p_roc + p_pr
-# }
-#
-# check_weights <- function(df_w) {
-#   df_w %>%
-#     group_by(epoch) %>%
-#     summarise(
-#       n = n(),
-#       w_mean = mean(w),
-#       w_sd   = sd(w),
-#       w_min  = min(w),
-#       w_max  = max(w),
-#       prop_unique = n_distinct(round(w, 8))/n(),
-#       .groups = "drop"
-#     )
-# }
-#
-# # ============================================================
-# # Weight Pros -> Retro using minimal baseline case-mix covariates
-# # ============================================================
-#
-# w_noabx_min_ebal <- make_weights_pros_to_retro_ebal(
-#   df_noabx,
-#   covariate_fun = get_ps_covariates_minimal,
-#   weight_cap = 20,
-#   moments = 1
-# )
-# df_noabx_w_min_ebal <- w_noabx_min_ebal$df_w
-# check_weights(df_noabx_w_min_ebal)
-#
-# w_yesabx_min_ebal <- make_weights_pros_to_retro_ebal(
-#   df_yesabx,
-#   covariate_fun = get_ps_covariates_minimal,
-#   weight_cap = 20,
-#   moments = 1
-# )
-# df_yesabx_w_min_ebal <- w_yesabx_min_ebal$df_w
-# check_weights(df_yesabx_w_min_ebal)
-#
-# # Optional plots
-# p_noabx_min_ebal  <- plot_weighted_vs_unweighted(df_noabx_w_min_ebal, title_suffix = "Abx- (minimal ebal)")
-# p_yesabx_min_ebal <- plot_weighted_vs_unweighted(df_yesabx_w_min_ebal, title_suffix = "Abx+ (minimal ebal)")
-#
-# p_noabx_min_ebal
-# p_yesabx_min_ebal
-#
-# weighted_prev <- function(df, truth_col = "sbi_present", w_col = "w") {
-#   d <- df %>%
-#     dplyr::filter(!is.na(.data[[truth_col]]), !is.na(.data[[w_col]]))
-#
-#   sum(d[[truth_col]] * d[[w_col]]) / sum(d[[w_col]])
-# }
-#
-# # Unweighted prevalence in prospective
-# df_noabx_w_min_ebal %>%
-#   dplyr::filter(epoch == "pros") %>%
-#   summarise(prev_unweighted = mean(sbi_present))
-#
-# # Weighted prevalence in prospective
-# weighted_prev(
-#   df_noabx_w_min_ebal %>% dplyr::filter(epoch == "pros"),
-#   truth_col = "sbi_present",
-#   w_col = "w"
-# )
-#
-# # Unweighted prevalence in prospective abx exposed
-# df_yesabx_w_min_ebal %>%
-#   dplyr::filter(epoch == "pros") %>%
-#   summarise(prev_unweighted = mean(sbi_present))
-#
-# # Weighted prevalence in prospective
-# weighted_prev(
-#   df_yesabx_w_min_ebal %>% dplyr::filter(epoch == "pros"),
-#   truth_col = "sbi_present",
-#   w_col = "w")
+# Assumes age is already in YEARS.
+# If age is in months, replace age_years = age with age_years = age / 12
+
+pros_no_abx_for_subgroups <- pros_no_abx_1st_infxn_abx %>%
+  dplyr::mutate(
+    cohort = "Prospective abx-unexposed",
+    age_years = age
+  )
+
+pros_yes_abx_for_subgroups <- pros_yes_abx_1st_infxn_abx %>%
+  dplyr::mutate(
+    cohort = "Prospective abx-exposed",
+    age_years = age
+  )
+
+pros_combined_for_subgroups <- dplyr::bind_rows(
+  pros_no_abx_for_subgroups,
+  pros_yes_abx_for_subgroups
+)
+
+#-----------------------------
+# Helpers
+#-----------------------------
+fmt_n_pct <- function(num, den, digits = 1) {
+  if (is.na(den) || den == 0) return(NA_character_)
+  paste0(num, "/", den, " (", round(100 * num / den, digits), "%)")
+}
+
+fmt_median_iqr <- function(x, digits = 2) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) return(NA_character_)
+
+  paste0(
+    round(stats::median(x), digits),
+    " [",
+    round(as.numeric(stats::quantile(x, probs = 0.25, na.rm = TRUE)), digits),
+    ", ",
+    round(as.numeric(stats::quantile(x, probs = 0.75, na.rm = TRUE)), digits),
+    "]"
+  )
+}
+
+make_nonprediction_row <- function(df, subgroup_label) {
+  sbi_neg <- df %>%
+    dplyr::filter(sbi_present == 0)
+
+  sbi_neg_abx <- sbi_neg %>%
+    dplyr::filter(abx_in_24h_after_2h_flag == 1)
+
+  tibble::tibble(
+    subgroup = subgroup_label,
+    n_sbi_negative = nrow(sbi_neg),
+    `SBI-negative patients given antibiotics after PICU+2h` =
+      fmt_n_pct(nrow(sbi_neg_abx), nrow(sbi_neg)),
+    `Antibiotic course duration, days` =
+      fmt_median_iqr(sbi_neg_abx$first_course_duration_days)
+  )
+}
+
+#-----------------------------
+# Create subgroup table
+#-----------------------------
+pros_subset_summary_manuscript <- dplyr::bind_rows(
+  make_nonprediction_row(
+    pros_combined_for_subgroups,
+    "Overall"
+  ),
+  make_nonprediction_row(
+    pros_combined_for_subgroups %>% dplyr::filter(pccc == 0),
+    "PCCC = 0"
+  ),
+  make_nonprediction_row(
+    pros_combined_for_subgroups %>% dplyr::filter(pccc == 1),
+    "PCCC = 1"
+  ),
+  make_nonprediction_row(
+    pros_combined_for_subgroups %>% dplyr::filter(malignancy_pccc == 0),
+    "Malignancy PCCC = 0"
+  ),
+  make_nonprediction_row(
+    pros_combined_for_subgroups %>% dplyr::filter(malignancy_pccc == 1),
+    "Malignancy PCCC = 1"
+  ),
+  make_nonprediction_row(
+    pros_combined_for_subgroups %>%
+      dplyr::filter(age_years >= 3/12, age_years < 6/12),
+    "Age >=3 months to <6 months"
+  ),
+  make_nonprediction_row(
+    pros_combined_for_subgroups %>%
+      dplyr::filter(age_years >= 6/12, age_years < 1),
+    "Age >=6 months to <1 year"
+  ),
+  make_nonprediction_row(
+    pros_combined_for_subgroups %>%
+      dplyr::filter(age_years >= 1, age_years < 5),
+    "Age >=1 year to <5 years"
+  ),
+  make_nonprediction_row(
+    pros_combined_for_subgroups %>%
+      dplyr::filter(age_years >= 5),
+    "Age >=5 years"
+  )
+)
+
+print(pros_subset_summary_manuscript)
+
+### Now make stacked bar charts for SBI- patients and those given abx
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(forcats)
+
+#-----------------------------------------
+# Create plotting dataframe for stacked bars
+#-----------------------------------------
+make_abx_prop_plot_df <- function(df) {
+
+  sbi_neg_df <- df %>%
+    dplyr::filter(sbi_present == 0)
+
+  subgroup_definitions <- list(
+    "Overall" = sbi_neg_df,
+    "PCCC = 0" = sbi_neg_df %>% dplyr::filter(pccc == 0),
+    "PCCC = 1" = sbi_neg_df %>% dplyr::filter(pccc == 1),
+    "Malignancy PCCC = 0" = sbi_neg_df %>% dplyr::filter(malignancy_pccc == 0),
+    "Malignancy PCCC = 1" = sbi_neg_df %>% dplyr::filter(malignancy_pccc == 1),
+    "Age >=3 months to <6 months" = sbi_neg_df %>% dplyr::filter(age_years >= 3/12, age_years < 6/12),
+    "Age >=6 months to <1 year" = sbi_neg_df %>% dplyr::filter(age_years >= 6/12, age_years < 1),
+    "Age >=1 year to <5 years" = sbi_neg_df %>% dplyr::filter(age_years >= 1, age_years < 5),
+    "Age >=5 years" = sbi_neg_df %>% dplyr::filter(age_years >= 5)
+  )
+
+  plot_df <- purrr::imap_dfr(
+    subgroup_definitions,
+    function(sub_df, subgroup_name) {
+
+      den <- nrow(sub_df)
+
+      n_no_abx <- sum(sub_df$abx_in_24h_after_2h_flag == 0, na.rm = TRUE)
+      n_yes_abx <- sum(sub_df$abx_in_24h_after_2h_flag == 1, na.rm = TRUE)
+
+      tibble::tibble(
+        subgroup = subgroup_name,
+        abx_group = c("No antibiotics after PICU+2h", "Received antibiotics after PICU+2h"),
+        n = c(n_no_abx, n_yes_abx),
+        total = den
+      )
+    }
+  ) %>%
+    dplyr::mutate(
+      prop = dplyr::if_else(total > 0, n / total, NA_real_),
+      label_n = paste0(n, "/", total),
+      subgroup = factor(
+        subgroup,
+        levels = c(
+          "Overall",
+          "PCCC = 0",
+          "PCCC = 1",
+          "Malignancy PCCC = 0",
+          "Malignancy PCCC = 1",
+          "Age >=3 months to <6 months",
+          "Age >=6 months to <1 year",
+          "Age >=1 year to <5 years",
+          "Age >=5 years"
+        )
+      ),
+      abx_group = factor(
+        abx_group,
+        levels = c(
+          "No antibiotics after PICU+2h",
+          "Received antibiotics after PICU+2h"
+        )
+      )
+    )
+
+  return(plot_df)
+}
+
+#-----------------------------------------
+# Build plotting dataframe
+#-----------------------------------------
+abx_prop_plot_df <- make_abx_prop_plot_df(pros_combined_for_subgroups)
+
+print(abx_prop_plot_df)
+
+#-----------------------------------------
+# Stacked percentage bar chart
+#-----------------------------------------
+p_abx_subgroup_stacked <- ggplot(
+  abx_prop_plot_df,
+  aes(x = subgroup, y = prop, fill = abx_group)
+) +
+  geom_col(width = 0.75, color = "black", linewidth = 0.3) +
+  geom_text(
+    aes(label = label_n),
+    position = position_stack(vjust = 0.5),
+    size = 3.8,
+    fontface = "bold",
+    color = "white"
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1)
+  ) +
+  scale_fill_manual(
+    values = c(
+      "No antibiotics after PICU+2h" = "blue",
+      "Received antibiotics after PICU+2h" = "red"
+    ),
+    name = NULL
+  ) +
+  labs(
+    title = "SBI-Negative Encounters: Antibiotic Use After PICU+2h by Subgroup",
+    x = NULL,
+    y = "Percent of SBI-negative encounters"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text.x = element_text(size = 11, face = "bold", angle = 35, hjust = 1),
+    axis.text.y = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 11, face = "bold"),
+    panel.grid.major.x = element_blank()
+  )
+
+p_abx_subgroup_stacked
+
+
+abx_prop_plot_df <- abx_prop_plot_df %>%
+  dplyr::mutate(
+    label_both = paste0(label_n, "\n", scales::percent(prop, accuracy = 0.1))
+  )
+
+p_abx_subgroup_stacked_2 <- ggplot(
+  abx_prop_plot_df,
+  aes(x = subgroup, y = prop, fill = abx_group)
+) +
+  geom_col(width = 0.75, color = "black", linewidth = 0.3) +
+  geom_text(
+    aes(label = label_both),
+    position = position_stack(vjust = 0.5),
+    size = 3.5,
+    fontface = "bold",
+    color = "white",
+    lineheight = 0.9
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1)
+  ) +
+  scale_fill_manual(
+    values = c(
+      "No antibiotics after PICU+2h" = "blue",
+      "Received antibiotics after PICU+2h" = "red"
+    ),
+    name = NULL
+  ) +
+  labs(
+    title = "SBI-Negative Encounters: Antibiotic Use After PICU+2h by Subgroup",
+    x = NULL,
+    y = "Percent of SBI-negative encounters"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text.x = element_text(size = 11, face = "bold", angle = 35, hjust = 1),
+    axis.text.y = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 11, face = "bold"),
+    panel.grid.major.x = element_blank()
+  )
+
+p_abx_subgroup_stacked_2
+
+# Create plotting dataframe for duration boxplots
+# Uses SBI-negative encounters who received antibiotics
+# after the +2h PICU timepoint
+#-------------------------------------------------
+make_abx_duration_plot_df <- function(df) {
+
+  sbi_neg_df <- df %>%
+    dplyr::filter(
+      sbi_present == 0,
+      abx_in_24h_after_2h_flag == 1,
+      !is.na(first_course_duration_days),
+      first_course_duration_days <= 7
+    )
+
+  subgroup_definitions <- list(
+    "Overall" = sbi_neg_df,
+    "PCCC = 0" = sbi_neg_df %>% dplyr::filter(as.character(pccc) == "0"),
+    "PCCC = 1" = sbi_neg_df %>% dplyr::filter(as.character(pccc) == "1"),
+    "Malignancy = 0" = sbi_neg_df %>% dplyr::filter(as.character(malignancy_pccc) == "0"),
+    "Malignancy = 1" = sbi_neg_df %>% dplyr::filter(as.character(malignancy_pccc) == "1"),
+    "Age >=3 months to <6 months" = sbi_neg_df %>% dplyr::filter(age_years >= 3/12, age_years < 6/12),
+    "Age >=6 months to <1 year" = sbi_neg_df %>% dplyr::filter(age_years >= 6/12, age_years < 1),
+    "Age >=1 year to <5 years" = sbi_neg_df %>% dplyr::filter(age_years >= 1, age_years < 5),
+    "Age >=5 years" = sbi_neg_df %>% dplyr::filter(age_years >= 5)
+  )
+
+  plot_df <- purrr::imap_dfr(
+    subgroup_definitions,
+    function(sub_df, subgroup_name) {
+      sub_df %>%
+        dplyr::transmute(
+          subgroup = subgroup_name,
+          first_course_duration_days = first_course_duration_days
+        )
+    }
+  ) %>%
+    dplyr::mutate(
+      subgroup = factor(
+        subgroup,
+        levels = c(
+          "Overall",
+          "PCCC = 0",
+          "PCCC = 1",
+          "Malignancy = 0",
+          "Malignancy = 1",
+          "Age >=3 months to <6 months",
+          "Age >=6 months to <1 year",
+          "Age >=1 year to <5 years",
+          "Age >=5 years"
+        )
+      )
+    )
+
+  return(plot_df)
+}
+
+abx_duration_plot_df <- make_abx_duration_plot_df(pros_combined_for_subgroups)
+
+#-------------------------------------------------
+# Build N labels for each subgroup
+#-------------------------------------------------
+n_labels_df <- abx_duration_plot_df %>%
+  dplyr::group_by(subgroup) %>%
+  dplyr::summarise(
+    n = dplyr::n(),
+    ymax = max(first_course_duration_days, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+overall_ymax <- max(abx_duration_plot_df$first_course_duration_days, na.rm = TRUE)
+
+n_labels_df <- n_labels_df %>%
+  dplyr::mutate(
+    label = paste0("N = ", n),
+    label_y = ymax + 0.06 * overall_ymax
+  )
+
+#-------------------------------------------------
+# Box and whisker plot
+#-------------------------------------------------
+p_abx_duration_subgroups <- ggplot(
+  abx_duration_plot_df,
+  aes(x = subgroup, y = first_course_duration_days)
+) +
+  geom_boxplot(
+    width = 0.7,
+    linewidth = 0.8,
+    outlier.size = 2
+  ) +
+  geom_text(
+    data = n_labels_df,
+    aes(x = subgroup, y = label_y, label = label),
+    inherit.aes = FALSE,
+    size = 3.8,
+    fontface = "bold"
+  ) +
+  scale_x_discrete(labels = \(x) stringr::str_wrap(x, width = 18)) +
+  labs(
+    title = "Duration of First Antibiotic Course Among SBI-Negative Encounters",
+    subtitle = "Includes only SBI-negative encounters receiving antibiotics after PICU +2h",
+    x = NULL,
+    y = "Antibiotic duration (days)"
+  ) +
+  coord_cartesian(
+    ylim = c(
+      min(abx_duration_plot_df$first_course_duration_days, na.rm = TRUE),
+      max(n_labels_df$label_y, na.rm = TRUE) * 1.05
+    )
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text.x = element_text(size = 11, face = "bold", angle = 35, hjust = 1),
+    axis.text.y = element_text(size = 12, face = "bold")
+  )
+
+p_abx_duration_subgroups
