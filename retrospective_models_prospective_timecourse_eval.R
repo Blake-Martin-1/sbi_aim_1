@@ -455,6 +455,19 @@ auprc_line_df <- auprc_line_df %>%
 # AUROC plot
 #------------------------------------------------------------
 
+# Omit hour 0
+auroc_plot_df_no0 <- auroc_plot_df %>%
+  dplyr::filter(picu_hour != 0)
+
+auprc_plot_df_no0 <- auprc_plot_df %>%
+  dplyr::filter(picu_hour != 0)
+
+auroc_line_df_no0 <- auroc_line_df %>%
+  dplyr::filter(picu_hour != 0)
+
+auprc_line_df_no0 <- auprc_line_df %>%
+  dplyr::filter(picu_hour != 0)
+
 p_auroc_facet <- ggplot(auroc_plot_df, aes(x = picu_hour, y = metric_value)) +
   geom_ribbon(
     data = auroc_line_df,
@@ -574,7 +587,120 @@ p_auprc_facet <- p_auprc_facet +
     color = "darkblue"
   )
 
-
+# If we want hour 0 plotted
 p_auroc_facet
-
 p_auprc_facet
+
+# Plot the non 0 hour plots
+p_auroc_facet_no0 <- ggplot(auroc_plot_df_no0, aes(x = picu_hour, y = metric_value)) +
+  geom_ribbon(
+    data = auroc_line_df_no0,
+    aes(
+      x = picu_hour,
+      ymin = ci_low,
+      ymax = ci_high,
+      group = facet_label
+    ),
+    inherit.aes = FALSE,
+    fill = "lightblue",
+    alpha = 0.35
+  ) +
+  geom_line(
+    data = auroc_line_df_no0,
+    aes(group = facet_label),
+    linewidth = 1.2,
+    color = "darkblue"
+  ) +
+  geom_point(
+    data = auroc_line_df_no0,
+    size = 2.8,
+    color = "darkblue"
+  ) +
+  geom_text(
+    data = auroc_line_df_no0,
+    aes(label = metric_label),
+    na.rm = TRUE,
+    vjust = -0.8,
+    size = 3.5,
+    color = "darkblue"
+  ) +
+  facet_wrap(~ facet_label, ncol = 1) +
+  scale_x_continuous(breaks = 1:24) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    labels = scales::number_format(accuracy = 0.01)
+  ) +
+  labs(
+    title = "AUROC over PICU time",
+    subtitle = "Shaded ribbons show 95% bootstrap confidence intervals",
+    x = "PICU hour",
+    y = "AUROC"
+  ) +
+  theme_bw(base_size = 16) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(size = 13),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.title.y = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 13),
+    axis.text.y = element_text(size = 13),
+    strip.text = element_text(face = "bold", size = 14)
+  )
+
+p_auprc_facet_no0 <- ggplot(auprc_plot_df_no0, aes(x = picu_hour, y = metric_value)) +
+  geom_ribbon(
+    data = auprc_line_df_no0,
+    aes(
+      x = picu_hour,
+      ymin = ci_low,
+      ymax = ci_high,
+      group = facet_label
+    ),
+    inherit.aes = FALSE,
+    fill = "lightblue",
+    alpha = 0.35
+  ) +
+  geom_line(
+    data = auprc_line_df_no0,
+    aes(group = facet_label),
+    linewidth = 1.2,
+    color = "darkblue"
+  ) +
+  geom_point(
+    data = auprc_line_df_no0,
+    size = 2.8,
+    color = "darkblue"
+  ) +
+  geom_text(
+    data = auprc_line_df_no0,
+    aes(label = metric_label),
+    na.rm = TRUE,
+    vjust = -0.8,
+    size = 3.5,
+    color = "darkblue"
+  ) +
+  facet_wrap(~ facet_label, ncol = 1) +
+  scale_x_continuous(breaks = 1:24) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    labels = scales::number_format(accuracy = 0.01)
+  ) +
+  labs(
+    title = "AUPRC over PICU time",
+    subtitle = "Shaded ribbons show 95% bootstrap confidence intervals",
+    x = "PICU hour",
+    y = "AUPRC"
+  ) +
+  theme_bw(base_size = 16) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(size = 13),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.title.y = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 13),
+    axis.text.y = element_text(size = 13),
+    strip.text = element_text(face = "bold", size = 14)
+  )
+
+p_auroc_facet_no0
+p_auprc_facet_no0

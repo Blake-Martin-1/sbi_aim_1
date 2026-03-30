@@ -5243,7 +5243,7 @@ p_no_abx <- make_testing_plot(
 
 p_joint <- make_testing_plot(
   joint_retro,
-  "Testing over time: all retrospective patients"
+  "Testing over time: All Retrospective Patients"
 )
 
 p_yes_abx
@@ -5261,7 +5261,7 @@ pros_susp_elements_to_plot_no_abx <- pros_susp_elements_to_plot_no_abx %>%
 
 p_no_abx_pros <- make_testing_plot(
   pros_susp_elements_to_plot_no_abx %>% filter(suspected_infection == 1),
-  "Testing over time: Suspected infection, no antibiotic exposure before PICU, prospective"
+  "Testing over time: —Antibiotic exposure before PICU, prospective \n Only those with suspected infection"
 )
 
 p_no_abx_pros
@@ -5277,7 +5277,7 @@ pros_susp_elements_to_plot_yes_abx <- pros_susp_elements_to_plot_yes_abx %>%
 
 p_yes_abx_pros <- make_testing_plot(
   pros_susp_elements_to_plot_yes_abx %>% filter(suspected_infection == 1),
-  "Testing over time: Suspected infection, no antibiotic exposure before PICU, prospective"
+  "Testing over time: +Antibiotic exposure before PICU, prospective \n Patients with Suspected Infection"
 )
 
 p_yes_abx_pros
@@ -5287,7 +5287,7 @@ joint_pros <- bind_rows(pros_susp_elements_to_plot_no_abx, pros_susp_elements_to
 
 p_joint_pros <- make_testing_plot(
   joint_pros,
-  "Testing over time: all prospective patients"
+  "Testing over time: All Prospective Patients with Suspicion of Infection"
 )
 
 p_joint_pros
@@ -6222,3 +6222,409 @@ p_abx_duration_subgroups <- ggplot(
   )
 
 p_abx_duration_subgroups
+
+
+#### Determine p values using Mood's Median test ####
+
+#--------------------------------------------
+# 1. Pairwise Mood's median test helper
+#--------------------------------------------
+run_moods_median_pair <- function(data, group_a, group_b) {
+
+  dat <- data %>%
+    dplyr::filter(subgroup %in% c(group_a, group_b)) %>%
+    dplyr::filter(!is.na(first_course_duration_days)) %>%
+    dplyr::mutate(subgroup = droplevels(subgroup))
+
+  if (nrow(dat) == 0) {
+    stop("No rows found for the requested subgroup comparison.")
+  }
+
+  # Pooled median for the two groups being compared
+  pooled_median <- median(dat$first_course_duration_days, na.rm = TRUE)
+
+  # Mood's median test typically uses above median vs at/below median
+  dat <- dat %>%
+    dplyr::mutate(above_median = ifelse(first_course_duration_days > pooled_median,
+                                        "Above pooled median",
+                                        "At or below pooled median"))
+
+  tab <- table(dat$subgroup, dat$above_median)
+
+  # Expected counts to decide chi-square vs Fisher
+  chisq_obj <- suppressWarnings(chisq.test(tab, correct = FALSE))
+  expected_min <- min(chisq_obj$expected)
+
+  if (expected_min < 5) {
+    test_obj <- fisher.test(tab)
+    test_used <- "Fisher's exact test on Mood's median table"
+    p_value <- test_obj$p.value
+    statistic <- NA_real_
+  } else {
+    test_obj <- chisq.test(tab, correct = FALSE)
+    test_used <- "Chi-square test on Mood's median table"
+    p_value <- test_obj$p.value
+    statistic <- unname(test_obj$statistic)
+  }
+
+  group_summary <- dat %>%
+    dplyr::group_by(subgroup) %>%
+    dplyr::summarise(
+      n = dplyr::n(),
+      median_duration_days = median(first_course_duration_days, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  tibble::tibble(
+    comparison = paste0(group_a, " vs ", group_b),
+    group_1 = group_a,
+    group_2 = group_b,
+    pooled_median_days = pooled_median,
+    n_group_1 = group_summary$n[group_summary$subgroup == group_a],
+    n_group_2 = group_summary$n[group_summary$subgroup == group_b],
+    median_group_1_days = group_summary$median_duration_days[group_summary$subgroup == group_a],
+    median_group_2_days = group_summary$median_duration_days[group_summary$subgroup == group_b],
+    test_used = test_used,
+    statistic = statistic,
+    p_value = p_value
+  )
+}
+
+#--------------------------------------------
+# 2. Define the comparisons you want
+#--------------------------------------------
+comparisons_to_run <- tribble(
+  ~group_a,                       ~group_b,
+  "PCCC = 0",                     "PCCC = 1",
+  "Malignancy = 0",               "Malignancy = 1",
+  "Age >=3 months to <6 months",  "Age >=5 years",
+  "Age >=6 months to <1 year",    "Age >=5 years",
+  "Age >=1 year to <5 years",     "Age >=5 years"
+)
+
+#--------------------------------------------
+# 3. Run the pairwise tests
+#--------------------------------------------
+moods_pairwise_results <- purrr::pmap_dfr(
+  comparisons_to_run,
+  ~ run_moods_median_pair(
+    data = abx_duration_plot_df,
+    group_a = ..1,
+    group_b = ..2
+  )
+)
+
+#--------------------------------------------
+# 4. Add Holm-adjusted p values
+#--------------------------------------------
+moods_pairwise_results <- moods_pairwise_results %>%
+  dplyr::mutate(
+    p_value_holm = p.adjust(p_value, method = "holm")
+  )
+
+moods_pairwise_results
+
+# One more to determine variability in age groups abx duration #
+run_moods_median_omnibus <- function(data, groups) {
+
+  dat <- data %>%
+    dplyr::filter(subgroup %in% groups) %>%
+    dplyr::filter(!is.na(first_course_duration_days)) %>%
+    dplyr::mutate(subgroup = droplevels(subgroup))
+
+  pooled_median <- median(dat$first_course_duration_days, na.rm = TRUE)
+
+  dat <- dat %>%
+    dplyr::mutate(above_median = ifelse(first_course_duration_days > pooled_median,
+                                        "Above pooled median",
+                                        "At or below pooled median"))
+
+  tab <- table(dat$subgroup, dat$above_median)
+
+  chisq_obj <- suppressWarnings(chisq.test(tab, correct = FALSE))
+  expected_min <- min(chisq_obj$expected)
+
+  if (expected_min < 5) {
+    test_obj <- fisher.test(tab)
+    test_used <- "Fisher's exact test"
+    statistic <- NA_real_
+    p_value <- test_obj$p.value
+  } else {
+    test_obj <- chisq.test(tab, correct = FALSE)
+    test_used <- "Chi-square test"
+    statistic <- unname(test_obj$statistic)
+    p_value <- test_obj$p.value
+  }
+
+  tibble::tibble(
+    groups_tested = paste(groups, collapse = " | "),
+    pooled_median_days = pooled_median,
+    test_used = test_used,
+    statistic = statistic,
+    df = ifelse(test_used == "Chi-square test",
+                unname(test_obj$parameter),
+                NA_real_),
+    p_value = p_value
+  )
+}
+
+age_groups <- c(
+  "Age >=3 months to <6 months",
+  "Age >=6 months to <1 year",
+  "Age >=1 year to <5 years",
+  "Age >=5 years"
+)
+
+age_moods_omnibus <- run_moods_median_omnibus(
+  data = abx_duration_plot_df,
+  groups = age_groups
+)
+
+age_moods_omnibus
+
+#### Create table for manuscript ####
+moods_pairwise_pretty <- moods_pairwise_results %>%
+  dplyr::transmute(
+    comparison,
+    `Median 1 (days)` = round(median_group_1_days, 2),
+    `Median 2 (days)` = round(median_group_2_days, 2),
+    `Pooled median (days)` = round(pooled_median_days, 2),
+    `N group 1` = n_group_1,
+    `N group 2` = n_group_2,
+    `Raw p` = signif(p_value, 3),
+    `Holm-adjusted p` = signif(p_value_holm, 3)
+  )
+
+moods_pairwise_pretty
+
+## Perform comparisons of antibiotic use in SBI-negative children
+
+#--------------------------------------------------
+# 1. Start from patient-level SBI-negative data
+#--------------------------------------------------
+abx_subgroup_df <- pros_combined_for_subgroups %>%
+  dplyr::filter(sbi_present == 0) %>%
+  dplyr::mutate(
+    abx_after_2h = as.integer(abx_in_24h_after_2h_flag),
+
+    # Make subgroup variables explicit / stable
+    pccc_grp = factor(as.character(pccc), levels = c("0", "1"),
+                      labels = c("PCCC = 0", "PCCC = 1")),
+
+    malignancy_grp = factor(as.character(malignancy_pccc), levels = c("0", "1"),
+                            labels = c("Malignancy PCCC = 0", "Malignancy PCCC = 1")),
+
+    age_group = dplyr::case_when(
+      age >= (3/12) & age < (6/12) ~ "Age >=3 months to <6 months",
+      age >= (6/12) & age < 1      ~ "Age >=6 months to <1 year",
+      age >= 1 & age < 5           ~ "Age >=1 year to <5 years",
+      age >= 5                     ~ "Age >=5 years",
+      TRUE                         ~ NA_character_
+    ),
+    age_group = factor(
+      age_group,
+      levels = c(
+        "Age >=3 months to <6 months",
+        "Age >=6 months to <1 year",
+        "Age >=1 year to <5 years",
+        "Age >=5 years"
+      )
+    )
+  )
+
+# Optional checks
+table(abx_subgroup_df$pccc_grp, useNA = "ifany")
+table(abx_subgroup_df$malignancy_grp, useNA = "ifany")
+table(abx_subgroup_df$age_group, useNA = "ifany")
+
+#--------------------------------------------------
+# 2. Helper: test difference in proportions
+#    Uses chi-square unless small expected counts
+#--------------------------------------------------
+run_prop_test <- function(data, group_var, outcome_var = "abx_after_2h") {
+
+  dat <- data %>%
+    dplyr::filter(!is.na(.data[[group_var]]), !is.na(.data[[outcome_var]])) %>%
+    dplyr::mutate(
+      .group = factor(.data[[group_var]]),
+      .outcome = factor(.data[[outcome_var]], levels = c(0, 1))
+    )
+
+  tab <- table(dat$.group, dat$.outcome)
+
+  chisq_obj <- suppressWarnings(stats::chisq.test(tab, correct = FALSE))
+  expected_min <- min(chisq_obj$expected)
+
+  if (expected_min < 5) {
+    test_obj <- stats::fisher.test(tab)
+    test_used <- "Fisher's exact test"
+    statistic <- NA_real_
+    df <- NA_real_
+    p_value <- test_obj$p.value
+  } else {
+    test_obj <- stats::chisq.test(tab, correct = FALSE)
+    test_used <- "Chi-square test"
+    statistic <- unname(test_obj$statistic)
+    df <- unname(test_obj$parameter)
+    p_value <- test_obj$p.value
+  }
+
+  # Build per-group counts/proportions
+  group_levels <- rownames(tab)
+
+  group_summary <- tibble::tibble(
+    group = group_levels,
+    n_no_abx = as.integer(tab[, "0"]),
+    n_yes_abx = as.integer(tab[, "1"]),
+    total = n_no_abx + n_yes_abx,
+    prop_yes_abx = n_yes_abx / total
+  )
+
+  list(
+    table = tab,
+    summary = group_summary,
+    result = tibble::tibble(
+      grouping_variable = group_var,
+      test_used = test_used,
+      statistic = statistic,
+      df = df,
+      p_value = p_value
+    )
+  )
+}
+
+#--------------------------------------------------
+# 3. PCCC: 0 vs 1
+#--------------------------------------------------
+pccc_test <- run_prop_test(
+  data = abx_subgroup_df,
+  group_var = "pccc_grp"
+)
+
+pccc_test$table
+pccc_test$summary
+pccc_test$result
+
+#--------------------------------------------------
+# 4. Malignancy PCCC: 0 vs 1
+#--------------------------------------------------
+malignancy_test <- run_prop_test(
+  data = abx_subgroup_df,
+  group_var = "malignancy_grp"
+)
+
+malignancy_test$table
+malignancy_test$summary
+malignancy_test$result
+
+#--------------------------------------------------
+# 5. Age group: omnibus test across all 4 groups
+#--------------------------------------------------
+age_omnibus_test <- run_prop_test(
+  data = abx_subgroup_df %>% dplyr::filter(!is.na(age_group)),
+  group_var = "age_group"
+)
+
+age_omnibus_test$table
+age_omnibus_test$summary
+age_omnibus_test$result
+
+#--------------------------------------------------
+# 6. Age group: pairwise vs reference (Age >=5 years)
+#    with Holm correction
+#--------------------------------------------------
+age_ref <- "Age >=5 years"
+
+age_comparisons <- tibble::tribble(
+  ~comparison_group,
+  "Age >=3 months to <6 months",
+  "Age >=6 months to <1 year",
+  "Age >=1 year to <5 years"
+)
+
+run_age_vs_ref <- function(comp_group, ref_group = age_ref, data = abx_subgroup_df) {
+
+  dat <- data %>%
+    dplyr::filter(age_group %in% c(comp_group, ref_group)) %>%
+    dplyr::mutate(
+      age_group = factor(age_group, levels = c(comp_group, ref_group))
+    )
+
+  test_out <- run_prop_test(dat, "age_group")
+
+  sum_df <- test_out$summary
+
+  tibble::tibble(
+    comparison = paste0(comp_group, " vs ", ref_group),
+
+    n_yes_comp = sum_df$n_yes_abx[sum_df$group == comp_group],
+    total_comp = sum_df$total[sum_df$group == comp_group],
+    prop_yes_comp = sum_df$prop_yes_abx[sum_df$group == comp_group],
+
+    n_yes_ref = sum_df$n_yes_abx[sum_df$group == ref_group],
+    total_ref = sum_df$total[sum_df$group == ref_group],
+    prop_yes_ref = sum_df$prop_yes_abx[sum_df$group == ref_group],
+
+    test_used = test_out$result$test_used,
+    statistic = test_out$result$statistic,
+    df = test_out$result$df,
+    p_value = test_out$result$p_value
+  )
+}
+
+age_pairwise_results <- purrr::map_dfr(
+  age_comparisons$comparison_group,
+  run_age_vs_ref
+) %>%
+  dplyr::mutate(
+    p_value_holm = p.adjust(p_value, method = "holm")
+  )
+
+age_pairwise_results
+
+### Get pretty table for manuscript ###
+pccc_result_pretty <- pccc_test$summary %>%
+  dplyr::mutate(
+    prop_label = paste0(n_yes_abx, "/", total, " (",
+                        scales::percent(prop_yes_abx, accuracy = 0.1), ")")
+  ) %>%
+  dplyr::select(group, prop_label) %>%
+  tidyr::pivot_wider(names_from = group, values_from = prop_label) %>%
+  dplyr::mutate(
+    comparison = "PCCC = 0 vs PCCC = 1",
+    p_value = pccc_test$result$p_value,
+    test_used = pccc_test$result$test_used
+  ) %>%
+  dplyr::select(comparison, everything())
+
+malignancy_result_pretty <- malignancy_test$summary %>%
+  dplyr::mutate(
+    prop_label = paste0(n_yes_abx, "/", total, " (",
+                        scales::percent(prop_yes_abx, accuracy = 0.1), ")")
+  ) %>%
+  dplyr::select(group, prop_label) %>%
+  tidyr::pivot_wider(names_from = group, values_from = prop_label) %>%
+  dplyr::mutate(
+    comparison = "Malignancy PCCC = 0 vs 1",
+    p_value = malignancy_test$result$p_value,
+    test_used = malignancy_test$result$test_used
+  ) %>%
+  dplyr::select(comparison, everything())
+
+age_pairwise_pretty <- age_pairwise_results %>%
+  dplyr::transmute(
+    comparison,
+    `Comparison group` = paste0(n_yes_comp, "/", total_comp, " (",
+                                scales::percent(prop_yes_comp, accuracy = 0.1), ")"),
+    `Age >=5 years` = paste0(n_yes_ref, "/", total_ref, " (",
+                             scales::percent(prop_yes_ref, accuracy = 0.1), ")"),
+    test_used,
+    p_value,
+    p_value_holm
+  )
+
+pccc_result_pretty
+malignancy_result_pretty
+age_omnibus_test$result
+age_pairwise_pretty
+
