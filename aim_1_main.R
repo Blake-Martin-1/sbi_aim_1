@@ -3203,7 +3203,7 @@ quad_df <- quad_df %>%
         "SBI- captured=", percent(x_prop_sbineg_low, 0.1), "\n",
         "low-risk n=", n_low, " (FN=", n_low_sbi1, ")"
       ),
-      TRUE ~ paste0("No patients < thr\nlow-risk n=0")
+      TRUE ~ paste0("No patients < threshold\nlow-risk n=0")
     )
   )
 
@@ -3254,7 +3254,7 @@ p_quadrant <-
 
   ggrepel::geom_text_repel(
     aes(label = note),
-    size = 3.2,
+    size = 4.2,
     show.legend = FALSE,
     box.padding = 0.35,
     point.padding = 0.25,
@@ -3276,9 +3276,15 @@ p_quadrant <-
   ) +
   theme_bw() +
   theme(
-    plot.title = element_text(face = "bold"),
-    strip.text = element_text(face = "bold"),
-    legend.position = "bottom"
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.title = element_text(size = 15, face = "bold"),
+    axis.text = element_text(size = 13),
+    strip.text = element_text(size = 14, face = "bold"),
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 13, face = "bold"),
+    legend.position = "bottom",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
   )
 
 p_quadrant
@@ -3355,32 +3361,56 @@ annot_df <- score_df %>%
 # Plot: histogram + density + vertical threshold line
 # ----------------------------
 p_dist <-
-  ggplot(score_df, aes(x = score)) +
-  geom_histogram(aes(y = after_stat(density)),
-                 bins = 25, alpha = 0.35, linewidth = 0.2) +
-  geom_density(linewidth = 1) +
-  geom_vline(aes(xintercept = threshold),
-             linetype = "dashed", linewidth = 1) +
-  geom_text(
-    data = annot_df,
-    aes(x = 0.98, y = Inf, label = label),
-    inherit.aes = FALSE,
-    hjust = 1, vjust = 1.2,
-    size = 3.3
+  ggplot2::ggplot(score_df, ggplot2::aes(x = score, fill = epoch, color = epoch)) +
+  ggplot2::geom_histogram(
+    ggplot2::aes(y = after_stat(density)),
+    bins = 25,
+    alpha = 0.20,
+    linewidth = 0.2,
+    position = "identity"
   ) +
-  facet_grid(epoch ~ abx) +
-  scale_x_continuous(limits = c(0, 1), labels = percent_format(accuracy = 1)) +
-  scale_y_continuous(labels = label_number(accuracy = 0.1)) +
-  labs(
-    title = "Distribution of predicted SBI probability by epoch and antibiotic exposure",
+  ggplot2::geom_vline(
+    ggplot2::aes(xintercept = threshold),
+    linetype = "dashed",
+    linewidth = 1,
+    color = "black"
+  ) +
+  ggplot2::geom_text(
+    data = annot_df,
+    ggplot2::aes(x = 0.98, y = Inf, label = label),
+    inherit.aes = FALSE,
+    hjust = 1,
+    vjust = 1.2,
+    size = 3.8
+  ) +
+  ggplot2::facet_grid(epoch ~ abx) +
+  ggplot2::scale_fill_manual(
+    values = c("Retro" = "red", "Pros" = "blue")
+  ) +
+  ggplot2::scale_color_manual(
+    values = c("Retro" = "red", "Pros" = "blue")
+  ) +
+  ggplot2::scale_x_continuous(
+    limits = c(0, 1),
+    labels = scales::percent_format(accuracy = 1)
+  ) +
+  ggplot2::scale_y_continuous(
+    labels = scales::label_number(accuracy = 0.1)
+  ) +
+  ggplot2::labs(
+    title = "Distribution of predicted SBI probabilities by epoch and antibiotic exposure",
     subtitle = "Dashed line = fixed rule-out threshold (Abx-: 0.05, Abx+: 0.074)",
     x = "Predicted SBI probability",
     y = "Density"
   ) +
-  theme_bw() +
-  theme(
-    plot.title = element_text(face = "bold"),
-    strip.text = element_text(face = "bold")
+  ggplot2::theme_bw() +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(size = 16, face = "bold"),
+    plot.subtitle = ggplot2::element_text(size = 12),
+    axis.title = ggplot2::element_text(size = 14, face = "bold"),
+    axis.text = ggplot2::element_text(size = 12),
+    strip.text = ggplot2::element_text(size = 13, face = "bold"),
+    legend.position = "none"
   )
 
 p_dist
@@ -3426,32 +3456,41 @@ score_truth_df <- score_truth_df %>%
   ))
 
 p_dist_by_truth <-
-  ggplot(score_truth_df, aes(x = score, fill = truth)) +
-  geom_histogram(
+  ggplot2::ggplot(score_truth_df, ggplot2::aes(x = score, fill = truth)) +
+  ggplot2::geom_histogram(
     position = "identity",
     alpha = 0.4,
     bins = 30
   ) +
-  geom_vline(
-    data = distinct(score_truth_df, panel, threshold),
-    aes(xintercept = threshold),
-    linetype = "dashed", linewidth = 1,
+  ggplot2::geom_vline(
+    data = dplyr::distinct(score_truth_df, panel, threshold),
+    ggplot2::aes(xintercept = threshold),
+    linetype = "dashed",
+    linewidth = 1,
     inherit.aes = FALSE
   ) +
-  facet_wrap(~ panel, ncol = 2, scales = "free_y") +
-  scale_x_continuous(limits = c(0, 1), labels = percent_format(accuracy = 1)) +
-  scale_fill_manual(values = c("SBI-" = "blue", "SBI+" = "red")) +
-  labs(
+  ggplot2::facet_wrap(~ panel, ncol = 2, scales = "free_y") +
+  ggplot2::scale_x_continuous(
+    limits = c(0, 1),
+    labels = scales::percent_format(accuracy = 1)
+  ) +
+  ggplot2::scale_fill_manual(values = c("SBI-" = "#6E6E6E", "SBI+" = "#E69F00")) +
+  ggplot2::labs(
     title = "Distribution of predicted SBI probability by epoch, antibiotic exposure, and true SBI status",
     subtitle = "Dashed line = fixed rule-out threshold (Abx-: 0.05, Abx+: 0.074)",
     x = "Predicted SBI probability",
     y = "Count",
     fill = "True outcome"
   ) +
-  theme_bw() +
-  theme(
-    plot.title = element_text(face = "bold"),
-    strip.text = element_text(face = "bold"),
+  ggplot2::theme_bw() +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(size = 16, face = "bold"),
+    plot.subtitle = ggplot2::element_text(size = 12),
+    axis.title = ggplot2::element_text(size = 14, face = "bold"),
+    axis.text = ggplot2::element_text(size = 12),
+    strip.text = ggplot2::element_text(size = 13, face = "bold"),
+    legend.title = ggplot2::element_text(size = 12, face = "bold"),
+    legend.text = ggplot2::element_text(size = 11),
     legend.position = "bottom"
   )
 
@@ -5419,7 +5458,7 @@ p_no_abx <- make_testing_plot(
 
 p_joint <- make_testing_plot(
   joint_retro,
-  "Testing over time: All Retrospective Patients"
+  "Suspicion of Infection Testing Over Time: Retrospective Epoch"
 )
 
 p_yes_abx
@@ -5463,7 +5502,7 @@ joint_pros <- bind_rows(pros_susp_elements_to_plot_no_abx, pros_susp_elements_to
 
 p_joint_pros <- make_testing_plot(
   joint_pros,
-  "Testing over time: All Prospective Patients with Suspicion of Infection"
+  "Suspicion of Infection Testing Over Time: Prospective Epoch"
 )
 
 p_joint_pros
@@ -6216,7 +6255,7 @@ p_abx_subgroup_stacked <- ggplot(
     name = NULL
   ) +
   labs(
-    title = "SBI-Negative Encounters: Antibiotic Use After PICU+2h by Subgroup",
+    title = "Antibiotic Use Among SBI-Negative Encounters \nBetween 2-26 Hours after PICU Admission by Subgroup",
     x = NULL,
     y = "Percent of SBI-negative encounters"
   ) +
@@ -6801,6 +6840,105 @@ age_pairwise_pretty <- age_pairwise_results %>%
 
 pccc_result_pretty
 malignancy_result_pretty
-age_omnibus_test$result
+# age_omnibus_test$result
 age_pairwise_pretty
 
+### Now combine and make pretty in a single table ###
+library(dplyr)
+library(tibble)
+library(flextable)
+library(officer)
+library(stringr)
+
+## Helper to format p-values for manuscript tables
+fmt_p <- function(x) {
+  dplyr::case_when(
+    is.na(x) ~ "",
+    x < 0.001 ~ "<0.001",
+    TRUE ~ formatC(x, format = "f", digits = 3)
+  )
+}
+
+## -----------------------------
+## 1. Standardize each table
+## -----------------------------
+
+pccc_tbl <- pccc_result_pretty %>%
+  dplyr::transmute(
+    Characteristic = "Pediatric complex chronic condition",
+    Comparison = comparison,
+    `Group 1` = `PCCC = 0`,
+    `Group 2` = `PCCC = 1`,
+    `P value` = fmt_p(p_value),
+    `Adjusted P value` = "",
+    `Statistical test` = test_used
+  )
+
+malignancy_tbl <- malignancy_result_pretty %>%
+  dplyr::transmute(
+    Characteristic = "Malignancy-related pediatric complex chronic condition",
+    Comparison = comparison,
+    `Group 1` = `Malignancy PCCC = 0`,
+    `Group 2` = `Malignancy PCCC = 1`,
+    `P value` = fmt_p(p_value),
+    `Adjusted P value` = "",
+    `Statistical test` = test_used
+  )
+
+age_tbl <- age_pairwise_pretty %>%
+  dplyr::transmute(
+    Characteristic = "Age group",
+    Comparison = comparison,
+    `Group 1` = `Comparison group`,
+    `Group 2` = `Age >=5 years`,
+    `P value` = fmt_p(p_value),
+    `Adjusted P value` = fmt_p(p_value_holm),
+    `Statistical test` = test_used
+  )
+
+## -----------------------------
+## 2. Combine into one table
+## -----------------------------
+
+combined_results_tbl <- dplyr::bind_rows(
+  pccc_tbl,
+  malignancy_tbl,
+  age_tbl
+) %>%
+  dplyr::mutate(
+    Characteristic = factor(
+      Characteristic,
+      levels = c(
+        "Pediatric complex chronic condition",
+        "Malignancy-related pediatric complex chronic condition",
+        "Age group"
+      )
+    )
+  ) %>%
+  dplyr::arrange(Characteristic)
+
+combined_results_tbl
+
+ft_results <- combined_results_tbl %>%
+  flextable::flextable() %>%
+  flextable::set_header_labels(
+    Characteristic = "Characteristic",
+    Comparison = "Comparison",
+    `Group 1` = "Group 1",
+    `Group 2` = "Group 2",
+    `P value` = "P value",
+    `Adjusted P value` = "Holm-adjusted P value",
+    `Statistical test` = "Test"
+  ) %>%
+  flextable::merge_v(j = "Characteristic") %>%
+  flextable::valign(j = "Characteristic", valign = "top") %>%
+  flextable::bold(part = "header") %>%
+  flextable::align(align = "left", part = "all") %>%
+  flextable::autofit() %>%
+  flextable::fontsize(size = 10, part = "all") %>%
+  flextable::theme_booktabs() %>%
+  flextable::set_caption(
+    caption = "Association of patient characteristics with antibiotic exposure after the model prediction timepoint"
+  )
+
+ft_results
