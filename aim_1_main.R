@@ -2489,6 +2489,182 @@ pros_no_abx_1st_infxn <- pros_no_abx_1st_infxn %>%
 pros_yes_abx_1st_infxn <- pros_yes_abx_1st_infxn %>%
   mutate(model_score = rf_pred_prob_pros_abx[, "yes"])
 
+## Create table for suplement with list of predictors ##
+## Load packages
+library(dplyr)
+library(stringr)
+library(tibble)
+library(flextable)
+library(officer)
+
+## Your predictor vectors
+predictors <- c(
+  "age", "is_female", "malignancy_pccc", "pccc", "albumin_mean", "ast_present",
+  "base_excess_present", "bun_mean", "chloride_mean", "crp_mean", "dbp_last",
+  "dbp_max", "dbp_mean", "dbp_median", "dbp_min", "dbp_slope", "fio2_count",
+  "fio2_last", "fio2_max", "fio2_mean", "fio2_median", "fio2_min", "fio2_present",
+  "fio2_slope", "gcs_total_min", "gcs_verbal_min", "hemoglobin_present",
+  "hr_last", "hr_max", "hr_mean", "hr_median", "hr_min", "hr_slope",
+  "lactate_present", "leukocytes_urine_present", "o2sat_count", "o2sat_max",
+  "o2sat_mean", "o2sat_median", "o2sat_min", "o2sat_slope", "ph_urine_mean",
+  "po2_arterial_present", "po2_venous_present", "preicu_9thfloor", "preicu_er",
+  "preicu_nocer", "preicu_nonchco", "preicu_or", "respiratory_support_any_positive",
+  "rr_mean", "rr_median", "rr_min", "rr_slope", "sbp_last", "sbp_max",
+  "sbp_mean", "sbp_median", "sbp_min", "sbp_slope", "scheduled_admit",
+  "sodium_present", "temp_last", "temp_max", "temp_mean", "temp_median",
+  "temp_min", "temp_slope", "weight_present"
+)
+
+predictors_abx <- c(
+  "age", "hematocrit_blood", "lactate_max", "dbp_last", "last_fio2",
+  "hr_last", "sbp_last", "temp_last", "los_before_icu_days", "max_dbp",
+  "hr_max", "sbp_max", "temp_max", "dbp_mean", "fio2_mean",
+  "hr_mean", "rr_mean", "o2sat_mean", "sbp_mean", "temp_mean",
+  "dbp_median", "fio2_median", "hr_median", "rr_median", "sbp_median",
+  "temp_median", "dbp_min", "hr_min", "rr_min", "o2sat_min",
+  "sbp_min", "o2sat_count", "dbp_slope", "hr_slope", "rr_slope",
+  "o2sat_slope", "sbp_slope", "temp_slope", "preicu_6thfloor", "preicu_8thfloor",
+  "preicu_9thfloor", "preicu_er", "preicu_hem_onc_bmt", "preicu_nocer",
+  "preicu_nocinpatient", "preicu_nonchco", "preicu_or", "preicu_othericu",
+  "preicu_outpatient", "preicu_procedure_center"
+)
+
+## ---------------------------------------------------------
+## 1. Standardize variable names across the two models
+## ---------------------------------------------------------
+standardize_predictor_name <- function(x) {
+  dplyr::case_when(
+    x == "last_fio2" ~ "fio2_last",
+    x == "max_dbp" ~ "dbp_max",
+    TRUE ~ x
+  )
+}
+
+predictors_std     <- standardize_predictor_name(predictors)
+predictors_abx_std <- standardize_predictor_name(predictors_abx)
+
+## ---------------------------------------------------------
+## 2. Draft definitions for variables
+##    Edit these as needed for manuscript precision
+## ---------------------------------------------------------
+definition_lookup <- tibble::tribble(
+  ~Predictor, ~Definition,
+  "age", "Age at PICU admission.",
+  "is_female", "Indicator for female sex.",
+  "malignancy_pccc", "Indicator for malignancy-related pediatric complex chronic condition.",
+  "pccc", "Indicator for any pediatric complex chronic condition.",
+  "albumin_mean", "Mean serum albumin value in the predictor window.",
+  "ast_present", "Indicator that aspartate aminotransferase was measured in the predictor window.",
+  "base_excess_present", "Indicator that base excess was measured in the predictor window.",
+  "bun_mean", "Mean blood urea nitrogen value in the predictor window.",
+  "chloride_mean", "Mean serum chloride value in the predictor window.",
+  "crp_mean", "Mean C-reactive protein value in the predictor window.",
+  "dbp_last", "Most recent diastolic blood pressure in the predictor window.",
+  "dbp_max", "Maximum diastolic blood pressure in the predictor window.",
+  "dbp_mean", "Mean diastolic blood pressure in the predictor window.",
+  "dbp_median", "Median diastolic blood pressure in the predictor window.",
+  "dbp_min", "Minimum diastolic blood pressure in the predictor window.",
+  "dbp_slope", "Slope of diastolic blood pressure over time in the predictor window.",
+  "fio2_count", "Number of recorded FiO2 measurements in the predictor window.",
+  "fio2_last", "Most recent FiO2 in the predictor window.",
+  "fio2_max", "Maximum FiO2 in the predictor window.",
+  "fio2_mean", "Mean FiO2 in the predictor window.",
+  "fio2_median", "Median FiO2 in the predictor window.",
+  "fio2_min", "Minimum FiO2 in the predictor window.",
+  "fio2_present", "Indicator that FiO2 was recorded in the predictor window.",
+  "fio2_slope", "Slope of FiO2 over time in the predictor window.",
+  "gcs_total_min", "Minimum total Glasgow Coma Scale score in the predictor window.",
+  "gcs_verbal_min", "Minimum Glasgow Coma Scale verbal subscore in the predictor window.",
+  "hemoglobin_present", "Indicator that hemoglobin was measured in the predictor window.",
+  "hematocrit_blood", "Blood hematocrit value in the predictor window.",
+  "hr_last", "Most recent heart rate in the predictor window.",
+  "hr_max", "Maximum heart rate in the predictor window.",
+  "hr_mean", "Mean heart rate in the predictor window.",
+  "hr_median", "Median heart rate in the predictor window.",
+  "hr_min", "Minimum heart rate in the predictor window.",
+  "hr_slope", "Slope of heart rate over time in the predictor window.",
+  "lactate_present", "Indicator that lactate was measured in the predictor window.",
+  "lactate_max", "Maximum lactate value in the predictor window.",
+  "leukocytes_urine_present", "Indicator that urine leukocytes were measured or present in the predictor window.",
+  "los_before_icu_days", "Hospital length of stay before PICU admission, in days.",
+  "o2sat_count", "Number of recorded oxygen saturation measurements in the predictor window.",
+  "o2sat_max", "Maximum oxygen saturation in the predictor window.",
+  "o2sat_mean", "Mean oxygen saturation in the predictor window.",
+  "o2sat_median", "Median oxygen saturation in the predictor window.",
+  "o2sat_min", "Minimum oxygen saturation in the predictor window.",
+  "o2sat_slope", "Slope of oxygen saturation over time in the predictor window.",
+  "ph_urine_mean", "Mean urine pH in the predictor window.",
+  "po2_arterial_present", "Indicator that arterial PO2 was measured in the predictor window.",
+  "po2_venous_present", "Indicator that venous PO2 was measured in the predictor window.",
+  "preicu_6thfloor", "Indicator that patient location before PICU was the 6th floor.",
+  "preicu_8thfloor", "Indicator that patient location before PICU was the 8th floor.",
+  "preicu_9thfloor", "Indicator that patient location before PICU was the 9th floor.",
+  "preicu_er", "Indicator that patient location before PICU was the emergency department.",
+  "preicu_hem_onc_bmt", "Indicator that patient location before PICU was hematology/oncology/BMT.",
+  "preicu_nocer", "Indicator that patient location before PICU was a non-CHCO emergency room.",
+  "preicu_nocinpatient", "Indicator that patient location before PICU was a non-ICU inpatient unit.",
+  "preicu_nonchco", "Indicator that patient location before PICU was outside the primary institution.",
+  "preicu_or", "Indicator that patient location before PICU was the operating room.",
+  "preicu_othericu", "Indicator that patient location before PICU was another ICU.",
+  "preicu_outpatient", "Indicator that patient location before PICU was an outpatient setting.",
+  "preicu_procedure_center", "Indicator that patient location before PICU was a procedure center.",
+  "respiratory_support_any_positive", "Indicator for any positive-pressure respiratory support in the predictor window.",
+  "rr_mean", "Mean respiratory rate in the predictor window.",
+  "rr_median", "Median respiratory rate in the predictor window.",
+  "rr_min", "Minimum respiratory rate in the predictor window.",
+  "rr_slope", "Slope of respiratory rate over time in the predictor window.",
+  "sbp_last", "Most recent systolic blood pressure in the predictor window.",
+  "sbp_max", "Maximum systolic blood pressure in the predictor window.",
+  "sbp_mean", "Mean systolic blood pressure in the predictor window.",
+  "sbp_median", "Median systolic blood pressure in the predictor window.",
+  "sbp_min", "Minimum systolic blood pressure in the predictor window.",
+  "sbp_slope", "Slope of systolic blood pressure over time in the predictor window.",
+  "scheduled_admit", "Indicator that PICU admission was scheduled/elective.",
+  "sodium_present", "Indicator that sodium was measured in the predictor window.",
+  "temp_last", "Most recent temperature in the predictor window.",
+  "temp_max", "Maximum temperature in the predictor window.",
+  "temp_mean", "Mean temperature in the predictor window.",
+  "temp_median", "Median temperature in the predictor window.",
+  "temp_min", "Minimum temperature in the predictor window.",
+  "temp_slope", "Slope of temperature over time in the predictor window.",
+  "weight_present", "Indicator that weight was recorded in the predictor window."
+)
+
+## ---------------------------------------------------------
+## 3. Build the combined supplement table
+## ---------------------------------------------------------
+all_predictors <- sort(unique(c(predictors_std, predictors_abx_std)))
+
+supp_predictor_table <- tibble(
+  Predictor = all_predictors
+) %>%
+  dplyr::mutate(
+    `Model(s) Used By` = dplyr::case_when(
+      Predictor %in% predictors_std & Predictor %in% predictors_abx_std ~ "Both",
+      Predictor %in% predictors_std ~ "RF Unexposed",
+      Predictor %in% predictors_abx_std ~ "RF Exposed",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  dplyr::left_join(definition_lookup, by = "Predictor") %>%
+  dplyr::rename(`Definition` = Definition) %>%
+  dplyr::arrange(Predictor)
+
+## If any definitions are missing, fill with a placeholder for manual editing
+supp_predictor_table <- supp_predictor_table %>%
+  dplyr::mutate(
+    Definition = dplyr::if_else(
+      is.na(Definition),
+      "Definition to be added.",
+      Definition
+    )
+  )
+
+## Write the predictors to eTable 1
+write.csv(x = supp_predictor_table, file = "/phi/sbi/sbi_blake/aim_1_paper_materials/eTable_1_predictors.csv")
+
+
+
 # =============================================================================
 # 4-panel ROC + 4-panel PRC (retro/pros × abx yes/no) with bootstrap CIs
 # =============================================================================
