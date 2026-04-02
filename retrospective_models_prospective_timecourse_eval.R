@@ -22,11 +22,19 @@ pros_24hr_rf_ue <- pros_24hr_rf_ue %>%
 #Now select only the same input and output columns as present in the retrospective dataset, make sure names and format match, scales match, etc
 thresh_rf_no_abx <- 0.05
 
-pros_rf_same_24 <- pros_24hr_rf_ue %>%
-  dplyr::select(all_of(intersect(colnames(pros_24hr_rf_ue),
-                                 colnames(retro_rf_same))), study_id, picu_hour, picu_adm_date_time, hsp_account_id)
+required_no_abx <- c(
+  "study_id", "picu_hour", "picu_adm_date_time", "hsp_account_id",
+  "sbi_present", "model_score", predictors
+)
 
-pros_rf_same_24 <- pros_rf_same_24 %>% relocate(sbi_present, model_score)
+missing_from_source_no_abx <- setdiff(required_no_abx, colnames(pros_24hr_rf_ue))
+missing_from_source_no_abx
+
+pros_rf_same_24 <- pros_24hr_rf_ue %>%
+  dplyr::select(dplyr::all_of(required_no_abx))
+
+pros_rf_same_24 <- pros_rf_same_24 %>%
+  dplyr::relocate(sbi_present, model_score)
 
 pros_rf_same_24$epoch <- "prospective"
 
@@ -49,13 +57,31 @@ pros_24hr_rf_ae <- pros_24hr_rf_ae %>%
 #Now select only the same input and output columns as present in the retrospective dataset, make sure names and format match, scales match, etc
 thresh_rf_yes_abx <- 0.074 #
 
-pros_rf_same_abx_24 <- pros_24hr_rf_ae %>% rename(last_fio2 = fio2_last, max_dbp = dbp_max) %>%
-  dplyr::select(last_fio2, max_dbp, all_of(intersect(colnames(pros_24hr_rf_ae),
-                                 colnames(retro_rf_same_abx %>% rename(hematocrit_mean = hematocrit_blood)))), study_id, picu_hour, picu_adm_date_time, hsp_account_id)
+pros_24hr_rf_ae_renamed <- pros_24hr_rf_ae %>%
+  dplyr::rename(
+    last_fio2 = fio2_last,
+    max_dbp = dbp_max
+  )
 
-pros_rf_same_abx_24 <- pros_rf_same_abx_24 %>% relocate(sbi_present, model_score)
+retro_rf_same_abx_renamed <- retro_rf_same_abx %>%
+  dplyr::rename(
+    hematocrit_mean = hematocrit_blood
+  )
 
-#Add epoch column
+required_yes_abx <- c(
+  "study_id", "picu_hour", "picu_adm_date_time", "hsp_account_id",
+  "sbi_present", "model_score", predictors_abx
+)
+
+missing_from_source_yes_abx <- setdiff(required_yes_abx, colnames(pros_24hr_rf_ae_renamed))
+missing_from_source_yes_abx
+
+pros_24hr_rf_ae_renamed <- pros_24hr_rf_ae_renamed %>% rename(hematocrit_blood = hematocrit_mean)
+
+pros_rf_same_abx_24 <- pros_24hr_rf_ae_renamed %>%
+  dplyr::select(dplyr::all_of(required_yes_abx)) %>%
+  dplyr::relocate(sbi_present, model_score)
+
 pros_rf_same_abx_24$epoch <- "prospective"
 
 
@@ -89,7 +115,7 @@ pred_df_pros_no_abx_24 <- pros_24_no %>%
 # Now test the yes_abx model on prospective 24hr AE cohort
 # First fix predictors_abx to match names in pros df
 predictors_abx[predictors_abx == "hematocrit_mean"] <- "hematocrit_blood"
-pros_yes_temp_24 <- pros_24_yes %>% rename(hematocrit_blood = hematocrit_mean)
+pros_yes_temp_24 <- pros_24_yes
 
 validate_predictor_schema(pros_yes_temp_24, predictors_abx, "pros_24_yes")
 rf_pred_prob_pros_24_abx <- predict(rf_model_abx, pros_yes_temp_24[, all_of(c(predictors_abx))], type = "prob")
