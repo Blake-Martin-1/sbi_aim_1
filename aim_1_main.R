@@ -2733,6 +2733,85 @@ dat_all <- bind_rows(
 
 dat_list <- split(dat_all, dat_all$scenario)
 
+### Create calibration summary table and plots
+## Combine all four scenario dataframes into one
+calib_df <- purrr::list_rbind(dat_list)
+
+## Create 0.1 probability bins and summarize calibration within each bin
+calib_summary <- calib_df %>%
+  dplyr::mutate(
+    prob_bin = cut(
+      score,
+      breaks = seq(0, 1, by = 0.1),
+      include.lowest = TRUE,
+      right = FALSE
+    )
+  ) %>%
+  dplyr::group_by(scenario, prob_bin) %>%
+  dplyr::summarise(
+    n = dplyr::n(),
+    mean_pred = mean(score, na.rm = TRUE),
+    obs_rate = mean(truth_num, na.rm = TRUE),
+    events = sum(truth_num, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    bin_lower = seq(0, 0.9, by = 0.1)[as.numeric(prob_bin)],
+    bin_upper = bin_lower + 0.1,
+    bin_mid = bin_lower + 0.05
+  )
+
+## View the calibration summary table
+calib_summary
+
+# Make faceted plot
+p_calibration <- ggplot(calib_summary, aes(x = mean_pred, y = obs_rate, color = scenario)) +
+  geom_abline(slope = 1, intercept = 0, linetype = 2, color = "gray50") +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 2.5) +
+  geom_text(
+    aes(label = paste0("n=", n)),
+    vjust = -0.8,
+    size = 3.5,
+    show.legend = FALSE
+  ) +
+  facet_wrap(~ scenario, ncol = 2) +
+  scale_color_manual(
+    values = c(
+      "Retro • Abx+" = "red",
+      "Retro • Abx-" = "red",
+      "Pros • Abx+"  = "blue",
+      "Pros • Abx-"  = "blue"
+    )
+  ) +
+  scale_x_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.1),
+    labels = scales::label_number(accuracy = 0.1)
+  ) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.1),
+    labels = scales::label_number(accuracy = 0.1)
+  ) +
+  labs(
+    title = "Calibration plots by scenario",
+    x = "Mean predicted probability within bin",
+    y = "Observed event rate within bin"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12, face = "bold"),
+    strip.text = element_text(size = 13, face = "bold"),
+    panel.grid.minor = element_blank(),
+    legend.position = "none"
+  )
+
+p_calibration
+
+
 # ----------------------------
 # 2) Curves + metrics
 # ----------------------------
@@ -3237,7 +3316,6 @@ p_quadrant <-
 
   # reference lines
   geom_hline(yintercept = 0.95, linetype = 2, alpha = 0.5) +
-  geom_vline(xintercept = 0.05, linetype = 2, alpha = 0.5) +
 
   # points: hollow + lower alpha when n_low==0
   geom_point(
@@ -3260,6 +3338,7 @@ p_quadrant <-
     point.padding = 0.25,
     min.segment.length = 0,
     segment.alpha = 0.5,
+    nudge_y = -0.005,
     seed = 1
   ) +
 
