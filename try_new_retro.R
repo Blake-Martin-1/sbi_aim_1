@@ -108,31 +108,31 @@ form <- as.formula(
   paste("sbi_present ~", paste(predictors, collapse = " + "))
 )
 #
-rf_model_trial <- train(
-  form,
-  tuneLength = 10,
-  data = train_df,
-  method = "ranger",
-  na.action = na.omit,
-  importance = "impurity",
-  respect.unordered.factors = TRUE,
-  trControl = trainControl(
-    method = "cv", number = 5,
-    summaryFunction = twoClassSummary,
-    classProbs = TRUE,
-    verboseIter = TRUE
-  )
-)
+# rf_model_trial <- train(
+#   form,
+#   tuneLength = 10,
+#   data = train_df,
+#   method = "ranger",
+#   na.action = na.omit,
+#   importance = "impurity",
+#   respect.unordered.factors = TRUE,
+#   trControl = trainControl(
+#     method = "cv", number = 5,
+#     summaryFunction = twoClassSummary,
+#     classProbs = TRUE,
+#     verboseIter = TRUE
+#   )
+# )
 
-new_mtry <- 5; new_split <- "gini";
+# new_mtry <- 5; new_split <- "gini";
 #
-myGrid <- data.frame(.mtry = rep(c((new_mtry - 4):(new_mtry + 5)), times = 4), .splitrule = rep(c(as.character(new_split)), each = 40), .min.node.size = rep(c(1:4), each = 10))
-
-rf_model <- train(form, tuneGrid = myGrid , data = (train_df), method = "ranger", na.action = na.omit, importance = "impurity",
-                                     respect.unordered.factors = TRUE,
-                                     trControl = trainControl(method = "cv", number = 5, summaryFunction = twoClassSummary, classProbs = TRUE, verboseIter = TRUE))
-
-# 3, gini, 1 best parameters with OOF AUROC of 0.715
+# myGrid <- data.frame(.mtry = rep(c((new_mtry - 4):(new_mtry + 5)), times = 4), .splitrule = rep(c(as.character(new_split)), each = 40), .min.node.size = rep(c(1:4), each = 10))
+#
+# rf_model <- train(form, tuneGrid = myGrid , data = (train_df), method = "ranger", na.action = na.omit, importance = "impurity",
+#                                      respect.unordered.factors = TRUE,
+#                                      trControl = trainControl(method = "cv", number = 5, summaryFunction = twoClassSummary, classProbs = TRUE, verboseIter = TRUE))
+#
+# # 3, gini, 1 best parameters with OOF AUROC of 0.715
 
 # Rerun with just these parameters and save out of fold probabilities
 myGrid <- data.frame(.mtry = 3, .splitrule = "gini", .min.node.size = 1)
@@ -232,7 +232,7 @@ find_largest_threshold_for_npv <- function(model, target_npv = 0.95, threshold_g
 }
 
 # Shows out of fold NPV at a given threshold
-npv_at_threshold(rf_model, threshold = 0.050) # 0.958 = NPV
+npv_at_threshold(rf_model, threshold = 0.05) # 0.958 = NPV
 
 
 # Now will apply this model to the test set and compute the AUROC and associated confusion matrix
@@ -543,26 +543,26 @@ formabx <- as.formula(
   paste("sbi_present ~", paste(predictors_abx, collapse = " + "))
 )
 
-rf_model_trial <- train(
-  formabx,
-  tuneLength = 10,
-  data = train_df_abx,
-  method = "ranger",
-  na.action = na.omit,
-  importance = "impurity",
-  respect.unordered.factors = TRUE,
-  trControl = trainControl(
-    method = "cv", number = 5,
-    summaryFunction = twoClassSummary,
-    classProbs = TRUE,
-    verboseIter = TRUE
-  )
-)
+# rf_model_trial <- train(
+#   formabx,
+#   tuneLength = 10,
+#   data = train_df_abx,
+#   method = "ranger",
+#   na.action = na.omit,
+#   importance = "impurity",
+#   respect.unordered.factors = TRUE,
+#   trControl = trainControl(
+#     method = "cv", number = 5,
+#     summaryFunction = twoClassSummary,
+#     classProbs = TRUE,
+#     verboseIter = TRUE
+#   )
+# )
 
-new_mtry <- 18; new_split <- "gini";
-
-myGrid <- data.frame(.mtry = rep(c((new_mtry - 4):(new_mtry + 5)), times = 4), .splitrule = rep(c(as.character(new_split)), each = 40), .min.node.size = rep(c(1:4), each = 10))
-# 23, gini, 3 best parameters with OOF AUROC of 0.76
+# new_mtry <- 18; new_split <- "gini";
+#
+# myGrid <- data.frame(.mtry = rep(c((new_mtry - 4):(new_mtry + 5)), times = 4), .splitrule = rep(c(as.character(new_split)), each = 40), .min.node.size = rep(c(1:4), each = 10))
+# # 23, gini, 3 best parameters with OOF AUROC of 0.76
 
 # Rerun with just these parameters and save out of fold probabilities
 myGrid <- data.frame(.mtry = 23, .splitrule = "gini", .min.node.size = 3)
@@ -606,6 +606,7 @@ oof_threshold_yes_abx <- find_largest_threshold_for_npv(
   rf_model_abx,
   target_npv = 0.95
 )
+
 threshold_yes_abx <- oof_threshold_yes_abx$threshold
 retro_train_npv_yes_abx <- oof_threshold_yes_abx$npv
 
@@ -642,14 +643,6 @@ npv_by_threshold_abx <- purrr::map_dfr(thresholds, function(ocp_rf) {
     n_false_negative = fn
   )
 })
-
-View(npv_by_threshold_abx)
-
-
-
-
-
-
 
 
 # Convert prob -> class using OOF-selected threshold on P(yes)
