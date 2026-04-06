@@ -218,12 +218,23 @@ npv_at_threshold <- function(model, threshold = 0.05) {
 
 # ---- 3) Find largest threshold with OOF NPV meeting target ----
 find_largest_threshold_for_npv <- function(model, target_npv = 0.95, threshold_grid = seq(0, 1, by = 0.001)) {
-  npv_curve <- purrr::map_dfr(threshold_grid, function(t) npv_at_threshold(model, threshold = t))
+  npv_curve <- purrr::map_dfr(threshold_grid, function(t) npv_at_threshold(model, threshold = t)) %>%
+    dplyr::filter(!is.na(npv), n_pred_neg > 0)
 
   eligible <- npv_curve %>%
-    dplyr::filter(!is.na(npv), n_pred_neg > 0, npv >= target_npv) %>%
+    dplyr::filter(npv >= target_npv) %>%
     dplyr::arrange(dplyr::desc(threshold))
-  eligible %>% dplyr::slice(1)
+
+  if (nrow(eligible) > 0) {
+    return(eligible %>% dplyr::slice(1) %>% dplyr::mutate(hit_target_npv = TRUE))
+  }
+
+  # Fallback: if no threshold reaches target NPV, use the threshold with the best observed NPV.
+  # Tie-breaker favors the largest threshold to preserve rule-out coverage.
+  npv_curve %>%
+    dplyr::arrange(dplyr::desc(npv), dplyr::desc(threshold)) %>%
+    dplyr::slice(1) %>%
+    dplyr::mutate(hit_target_npv = FALSE)
 }
 
 # Shows out of fold NPV at a given threshold
@@ -244,7 +255,8 @@ retro_test_auroc_no_abx <- as.numeric(
   )
 )
 
-# Determine the largest OOF threshold that still provides NPV >= 0.95
+# Determine OOF threshold: largest threshold meeting NPV >= 0.95,
+# or fallback to highest observed NPV if target is unattainable.
 oof_threshold_no_abx <- find_largest_threshold_for_npv(
   rf_model,
   target_npv = 0.95
@@ -596,7 +608,8 @@ oof <- rf_model_abx$pred
 oof <- oof %>%
   semi_join(rf_model_abx$bestTune, by = names(rf_model_abx$bestTune))
 
-# Identify largest OOF threshold that still gives NPV >= 0.95
+# Identify OOF threshold: largest threshold meeting NPV >= 0.95,
+# or fallback to highest observed NPV if target is unattainable.
 oof_threshold_yes_abx <- find_largest_threshold_for_npv(
   rf_model_abx,
   target_npv = 0.95
