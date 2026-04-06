@@ -223,11 +223,6 @@ find_largest_threshold_for_npv <- function(model, target_npv = 0.95, threshold_g
   eligible <- npv_curve %>%
     dplyr::filter(!is.na(npv), n_pred_neg > 0, npv >= target_npv) %>%
     dplyr::arrange(dplyr::desc(threshold))
-
-  if (nrow(eligible) == 0) {
-    stop(paste0("No threshold in grid achieved OOF NPV >= ", target_npv))
-  }
-
   eligible %>% dplyr::slice(1)
 }
 
