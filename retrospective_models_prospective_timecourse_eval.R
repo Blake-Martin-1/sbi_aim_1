@@ -261,6 +261,159 @@ p_npv_facet <- ggplot(npv_plot_df, aes(x = picu_hour, y = npv)) +
 
 p_npv_facet
 
+
+#####################################################################################################
+# ----------------------------
+# Match hourly cohorts to the CURRENT p_quadrant cohorts to ensure hourly map works
+# ----------------------------
+
+quad_ids_no_abx <- pros_no_abx_1st_infxn %>%
+  dplyr::distinct(study_id)
+
+# IMPORTANT:
+# Current p_quadrant code appears to use pros_yes_temp for Pros • Abx+
+# not pros_yes_abx_1st_infxn
+quad_ids_yes_abx <- pros_yes_temp %>%
+  dplyr::distinct(study_id)
+
+pros_24_no_matched <- pros_24_no %>%
+  dplyr::semi_join(quad_ids_no_abx, by = "study_id")
+
+pros_24_yes_matched <- pros_24_yes %>%
+  dplyr::semi_join(quad_ids_yes_abx, by = "study_id")
+
+# Recalculate predictions on the matched hourly cohorts
+rf_pred_prob_pros_24_matched <- predict(
+  rf_model,
+  pros_24_no_matched[, dplyr::all_of(predictors)],
+  type = "prob"
+)
+
+rf_pred_prob_pros_24_abx_matched <- predict(
+  rf_model_abx,
+  pros_24_yes_matched[, dplyr::all_of(predictors_abx)],
+  type = "prob"
+)
+
+pred_df_pros_no_abx_24_matched <- pros_24_no_matched %>%
+  dplyr::transmute(
+    rowIndex = dplyr::row_number(),
+    study_id = study_id,
+    picu_hour = picu_hour,
+    sbi_present = sbi_present,
+    pred_prob_yes = rf_pred_prob_pros_24_matched[, "yes"]
+  )
+
+pred_df_pros_yes_abx_24_matched <- pros_24_yes_matched %>%
+  dplyr::transmute(
+    rowIndex = dplyr::row_number(),
+    study_id = study_id,
+    picu_hour = picu_hour,
+    sbi_present = sbi_present,
+    pred_prob_yes = rf_pred_prob_pros_24_abx_matched[, "yes"]
+  )
+
+# Rebuild hourly NPV summaries
+npv_no_abx_matched <- make_npv_by_hour(
+  df = pred_df_pros_no_abx_24_matched,
+  threshold = 0.05,
+  group_label = "No antibiotic exposure before PICU"
+)
+
+npv_yes_abx_matched <- make_npv_by_hour(
+  df = pred_df_pros_yes_abx_24_matched,
+  threshold = 0.074,
+  group_label = "Antibiotic exposure before PICU"
+)
+
+npv_plot_df_matched <- dplyr::bind_rows(
+  npv_no_abx_matched,
+  npv_yes_abx_matched
+) %>%
+  dplyr::mutate(
+    facet_label = paste0(group, "\nThreshold for predicted SBI-negative: ≤ ", threshold),
+    tn_label = dplyr::if_else(
+      n_pred_negative > 0,
+      paste0(n_true_negative, "/", n_pred_negative),
+      NA_character_
+    )
+  )
+
+npv_plot_df_matched <- npv_plot_df_matched %>%
+  dplyr::mutate(
+    npv_plot = dplyr::if_else(is.na(npv), 0, npv),
+    npv_missing = is.na(npv)
+  )
+
+
+
+line_df_matched <- npv_plot_df_matched %>%
+  dplyr::filter(!is.na(npv)) %>%
+  dplyr::arrange(facet_label, picu_hour)
+
+line_df_matched <- npv_plot_df_matched %>%
+  dplyr::filter(!is.na(npv)) %>%
+  dplyr::arrange(facet_label, picu_hour)
+
+p_npv_facet_matched <- ggplot2::ggplot(npv_plot_df_matched, ggplot2::aes(x = picu_hour, y = npv)) +
+  ggplot2::geom_ribbon(
+    data = line_df_matched,
+    ggplot2::aes(x = picu_hour, ymin = ci_low, ymax = ci_high, group = facet_label),
+    inherit.aes = FALSE,
+    fill = "lightblue",
+    alpha = 0.35
+  ) +
+  ggplot2::geom_line(
+    data = line_df_matched,
+    ggplot2::aes(group = facet_label),
+    linewidth = 1.2,
+    color = "darkblue"
+  ) +
+  geom_point(
+    data = npv_plot_df_matched,
+    aes(y = npv_plot, shape = npv_missing),
+    size = 2.8,
+    color = "darkblue",
+    fill = "white"
+  ) +
+  ggplot2::geom_text(
+    data = npv_plot_df_matched %>% dplyr::filter(npv_missing),
+    ggplot2::aes(y = npv_plot, label = "0/0"),
+    vjust = -0.9,
+    size = 3.2,
+    color = "darkblue"
+  ) +
+  scale_shape_manual(
+    values = c(`FALSE` = 16, `TRUE` = 1),
+    guide = "none"
+  ) +
+  ggplot2::geom_text(
+    data = line_df_matched,
+    ggplot2::aes(label = tn_label),
+    na.rm = TRUE,
+    vjust = -0.9,
+    size = 3.5,
+    color = "darkblue"
+  ) +
+  ggplot2::facet_wrap(~ facet_label, ncol = 1) +
+  ggplot2::scale_x_continuous(breaks = 0:24) +
+  ggplot2::scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  ggplot2::coord_cartesian(ylim = c(0, 1.08)) +
+  ggplot2::labs(
+    title = "Negative predictive value over PICU time",
+    x = "PICU hour",
+    y = "Negative predictive value"
+  ) +
+  ggplot2::theme_bw(base_size = 16)
+
+p_npv_facet_matched
+
+##########################################################################################
+
+
+
+
+
 ### Repeat but for AUROC and AUPRC by hour ###
 library(dplyr)
 library(ggplot2)
