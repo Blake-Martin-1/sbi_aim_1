@@ -7021,3 +7021,5 @@ ft_results <- combined_results_tbl %>%
   )
 
 ft_results
+
+source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/create_new_pros_model.R")

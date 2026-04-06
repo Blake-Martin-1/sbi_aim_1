@@ -542,3 +542,173 @@ test_trajectories_with_decision <- rf_test_seq %>%
     test_decisions_best,
     by = c("study_id", "sbi_present")
   )
+
+#### Now create figure for manuscript
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+library(patchwork)
+
+## -----------------------------
+## Prep labels for final states
+## -----------------------------
+plot_decisions <- test_decisions_best %>%
+  dplyr::mutate(
+    truth_label = dplyr::case_when(
+      sbi_present == 0 ~ "SBI-negative",
+      sbi_present == 1 ~ "SBI-positive",
+      TRUE ~ NA_character_
+    ),
+    final_state_label = dplyr::case_when(
+      final_state == "ruled_out" ~ "Ruled out",
+      final_state == "not_eligible" ~ "High-risk / not eligible",
+      final_state == "indeterminate" ~ "Indeterminate",
+      TRUE ~ final_state
+    ),
+    truth_label = factor(truth_label, levels = c("SBI-negative", "SBI-positive")),
+    final_state_label = factor(
+      final_state_label,
+      levels = c("Ruled out", "High-risk / not eligible", "Indeterminate")
+    )
+  )
+
+## -----------------------------
+## Panel A: disposition by truth
+## -----------------------------
+panel_a_df <- plot_decisions %>%
+  dplyr::count(truth_label, final_state_label, name = "n") %>%
+  dplyr::group_by(truth_label) %>%
+  dplyr::mutate(
+    prop = n / sum(n),
+    label = paste0(scales::percent(prop, accuracy = 1), "\n(n=", n, ")")
+  ) %>%
+  dplyr::ungroup()
+
+p_a <- ggplot2::ggplot(
+  panel_a_df,
+  ggplot2::aes(x = truth_label, y = prop, fill = final_state_label)
+) +
+  ggplot2::geom_col(width = 0.7, color = "white", linewidth = 0.6) +
+  ggplot2::geom_text(
+    ggplot2::aes(label = label),
+    position = ggplot2::position_stack(vjust = 0.5),
+    size = 4.2,
+    lineheight = 0.95,
+    fontface = "bold"
+  ) +
+  ggplot2::scale_fill_manual(
+    values = c(
+      "Ruled out" = "forestgreen",
+      "High-risk / not eligible" = "orange",
+      "Indeterminate" = "grey70"
+    )
+  ) +
+  ggplot2::scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    expand = ggplot2::expansion(mult = c(0, 0.02))
+  ) +
+  ggplot2::labs(
+    x = NULL,
+    y = "Patients within SBI-negative group",
+    fill = NULL,
+    title = "Policy disposition by true SBI status"
+  ) +
+  ggplot2::theme_bw(base_size = 14) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold", size = 15),
+    axis.title = ggplot2::element_text(face = "bold", size = 14),
+    axis.text = ggplot2::element_text(size = 12),
+    legend.text = ggplot2::element_text(size = 12),
+    panel.grid.major = ggplot2::element_blank(),
+    panel.grid.minor = ggplot2::element_blank(),
+    legend.position = "bottom"
+  )
+
+## ----------------------------------------
+## Panel B: cumulative rule-out over time
+## ----------------------------------------
+## For ruled_out patients, decision_hour is the hour of rule-out.
+## For others, they contribute 0 to cumulative rule-out.
+
+cum_df <- plot_decisions %>%
+  dplyr::filter(!is.na(truth_label)) %>%
+  dplyr::select(study_id, truth_label, final_state, decision_hour)
+
+hours_df <- tidyr::expand_grid(
+  study_id = unique(cum_df$study_id),
+  hour = 0:24
+) %>%
+  dplyr::left_join(
+    cum_df,
+    by = "study_id"
+  ) %>%
+  dplyr::mutate(
+    cum_ruled_out = dplyr::case_when(
+      final_state == "ruled_out" & !is.na(decision_hour) & decision_hour <= hour ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+panel_b_df <- hours_df %>%
+  dplyr::group_by(truth_label, hour) %>%
+  dplyr::summarise(
+    prop_cum_ruled_out = mean(cum_ruled_out, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+p_b <- ggplot2::ggplot(
+  panel_b_df,
+  ggplot2::aes(x = hour, y = prop_cum_ruled_out)
+) +
+  ggplot2::geom_area(
+    data = panel_b_df %>% dplyr::filter(truth_label == "SBI-negative"),
+    fill = "blue",
+    alpha = 0.18
+  ) +
+  ggplot2::geom_area(
+    data = panel_b_df %>% dplyr::filter(truth_label == "SBI-positive"),
+    fill = "red",
+    alpha = 0.22
+  ) +
+  ggplot2::geom_line(
+    ggplot2::aes(color = truth_label),
+    linewidth = 1.2
+  ) +
+  ggplot2::geom_point(
+    ggplot2::aes(color = truth_label),
+    size = 2.2
+  ) +
+  ggplot2::scale_color_manual(
+    values = c("SBI-negative" = "blue", "SBI-positive" = "red")
+  ) +
+  ggplot2::scale_x_continuous(breaks = 0:24) +
+  ggplot2::scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1),
+    expand = ggplot2::expansion(mult = c(0, 0.02))
+  ) +
+  ggplot2::labs(
+    x = "Hours since PICU admission",
+    y = "Cumulative proportion ruled out",
+    color = NULL,
+    title = "Cumulative rule-out over time"
+  ) +
+  ggplot2::theme_bw(base_size = 14) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold", size = 15),
+    axis.title = ggplot2::element_text(face = "bold", size = 14),
+    axis.text = ggplot2::element_text(size = 11),
+    legend.text = ggplot2::element_text(size = 12),
+    panel.grid.major = ggplot2::element_blank(),
+    panel.grid.minor = ggplot2::element_blank(),
+    legend.position = "bottom"
+  )
+
+## ----------------------------------------
+## Combine panels
+## ----------------------------------------
+policy_figure <- p_a + p_b + patchwork::plot_layout(widths = c(1, 1.15))
+
+policy_figure
+

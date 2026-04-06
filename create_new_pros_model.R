@@ -1,0 +1,744 @@
+### Code to create new model from prospective data ###
+
+
+pros_one_model <- read_csv(file = "/phi/sbi/sbi_blake/pros_all_just_b4_modeling_10_14_25.csv")
+# pros_all <- read_csv(file = "/phi/sbi/sbi_blake/pros_all_just_b4_modeling_1_15_26_all_models.csv")
+
+### Train new models using prospective data ###
+# slim down to just the study_id, predictor info, and sbi outcome for model training
+
+
+model_slim <- pros_one_model %>% dplyr::select(-pat_enc_csn_id, -picu_adm_date_time, -intime, -outtime,
+                                               -contact_creation_to_admission_delta, -height, -height_date, -origin, -valid_start_instant, -valid_end_instant, -cx_neg_sepsis,
+                                               -pna_1_0, -bcx_sent, -micro_sbi_1_0, -cnss_true, -ever_cx_neg_sepsis, -hsp_account_id, -pat_mrn_id, -race, -ethnicity,
+                                               -language, -insurance_type, -icu_start_instant, -old_race, -prior_unit, -weight, -weight_date, -is_interventional_radiology,
+                                               -abx_duration_after_score
+)
+
+raw_names <- colnames(model_slim)[str_ends(colnames(model_slim), "_raw")]
+
+model_slim <- model_slim %>% dplyr::select(-all_of(raw_names))
+
+# Re-order
+model_slim <- model_slim %>% relocate(study_id, sbi_present, everything())
+
+# Remove duplicate rows
+model_slim <- model_slim %>% distinct() #62,814
+
+
+# Now some QC to see IDs where SBI-present changes:
+# IDs with mixed SBI labels
+mixed_ids <- model_slim %>%
+  group_by(study_id) %>%
+  filter(n_distinct(sbi_present) > 1) %>%      # TRUE if both 0 and 1 seen
+  ungroup() # currently no rows
+
+## Remove bad columns
+predictors <- setdiff(names(model_slim), c("study_id", "sbi_present", "SBI", "abx_exp", "rowid", "hours_since_picu_adm"))
+
+nzv <- nearZeroVar(model_slim[ , predictors])
+if(length(nzv) > 0) {
+  predictors <- predictors[-nzv]
+} # gets rid of 28 predictors
+
+bad_cols <- names(model_slim)[
+  sapply(model_slim[ , predictors], function(x) any(is.na(x) | is.infinite(x)))
+] # no bad columns
+
+# At this point there are 69 predictors
+
+#Set seed for reproducibility
+set.seed(2025)
+
+# Collapse to one row per admission to obtain PICU encounter-level labels
+admission_df <- model_slim %>%
+  group_by(study_id) %>% slice(1) %>% ungroup() %>%
+  mutate(SBI_enc = ifelse(sbi_present == 1, "pos", "neg"))
+
+# Shuffle IDs
+all_ids <- unique(admission_df$study_id)
+shuffled_ids <- sample(all_ids)
+
+# 60/20/20 split fir train, validation, and test sets
+n_total <- length(shuffled_ids)
+n_train <- floor(0.60 * n_total)
+n_valid <- floor(0.20 * n_total)
+
+train_ids <- shuffled_ids[1:n_train]
+valid_ids <- shuffled_ids[(n_train + 1):(n_train + n_valid)]
+test_ids  <- shuffled_ids[(n_train + n_valid + 1):n_total]
+
+# Save splits to enable ability to rebuild model in Epic python environment
+splits_list <- list(
+  seed = 2025L,
+  train_ids = as.character(train_ids),
+  valid_ids = as.character(valid_ids),
+  test_ids  = as.character(test_ids)
+)
+
+# Build dataframes with all the predictors and SBI outcome label using the appropriate study_id values
+train_df <- model_slim %>% filter(study_id %in% train_ids)
+valid_df <- model_slim %>% filter(study_id %in% valid_ids)
+test_df  <- model_slim %>% filter(study_id %in% test_ids)
+
+# Set seed again
+set.seed(2025)
+
+# Ensure levels of sbi outcome are defined appropriately as factors
+train_df$SBI <- factor(ifelse(train_df$sbi_present == 1, "pos", "neg"), levels = c("pos","neg"))
+valid_df$SBI <- factor(ifelse(valid_df$sbi_present == 1, "pos", "neg"), levels = c("pos","neg"))
+test_df$SBI <- factor(ifelse(test_df$sbi_present == 1, "pos", "neg"), levels = c("pos","neg"))
+
+# Make sure character inputs are changed to factors
+train_df  <- train_df  %>% mutate(across(where(is.character), as.factor))
+valid_df <- valid_df%>% mutate(across(where(is.character), as.factor))
+test_df<- test_df%>% mutate(across(where(is.character), as.factor))
+
+
+
+# Train model
+set.seed(2025)
+
+library(doParallel)
+registerDoParallel(cores = parallel::detectCores() - 1)  # leave 1 core free
+
+# Work at encounter level to assign folds for 5-fold cross validation within training set
+encounter_tbl <- admission_df %>% dplyr::select(study_id, SBI_enc)
+
+# Grouped + stratified 5-fold CV (stratified by sbi outcome)
+v <- 5
+cv <- rsample::group_vfold_cv(encounter_tbl, v = v, group = study_id, strata = SBI_enc)
+
+# Convert to a simple mapping: study_id -> fold_id (1..v) for the assessment (held-out) side
+fold_map <- map2_df(seq_len(v), cv$splits, ~{
+  tibble(study_id = assessment(.y)$study_id, fold = .x)
+})
+
+# # Save the fold map
+# write.csv(fold_map, "/phi/sbi/sbi_blake/cv_fold_map_by_studyid_10_7_25.csv", row.names = FALSE)
+# write.csv(fold_map, "/phi/sbi/sbi_blake/cv_fold_map_by_studyid_10_15_25.csv", row.names = FALSE)
+
+# Build caret-style indices from the mapping (for the training set only)
+train_fold_map <- fold_map %>%
+  filter(study_id %in% train_ids)
+
+# For caret::trainControl(index=...), each element is the row indices used for *training* in that fold.
+# We'll include only rows from train_df whose study_id is NOT in that fold's assessment set.
+folds <- vector("list", v)
+names(folds) <- paste0("Fold", seq_len(v))
+
+for (k in seq_len(v)) {
+  heldout_ids <- train_fold_map %>% filter(fold == k) %>% pull(study_id)
+  train_rows_k <- which(!train_df$study_id %in% heldout_ids)
+  folds[[k]] <- train_rows_k
+}
+
+# provide indexOut = held-out rows per fold for transparency
+folds_out <- vector("list", v)
+names(folds_out) <- paste0("Fold", seq_len(v))
+for (k in seq_len(v)) {
+  heldout_ids <- train_fold_map %>% filter(fold == k) %>% pull(study_id)
+  folds_out[[k]] <- which(train_df$study_id %in% heldout_ids)
+}
+
+# Instruct caret to use these folds
+ctrl <- trainControl(
+  method          = "cv",
+  number          = v,              # ignored when index provided
+  classProbs      = TRUE,
+  summaryFunction = twoClassSummary,
+  verboseIter     = TRUE,
+  index           = folds,
+  indexOut        = folds_out,      # optional but still nice to keep
+  savePredictions = "final"         # gives out-of-fold preds in rf_tune$pred
+)
+
+# Encounter-level split ledger to enable reproducibility
+split_ledger <- tibble(
+  study_id = all_ids,
+  split = case_when(
+    study_id %in% train_ids ~ "train",
+    study_id %in% valid_ids ~ "valid",
+    study_id %in% test_ids  ~ "test",
+    TRUE ~ "unknown"
+  )
+) %>%
+  left_join(train_fold_map, by = "study_id") %>%
+  mutate(fold = if_else(split == "train", fold, NA_integer_))
+
+# # Store csv file with train, test, and validation labels as well as fold labels for training set rows
+# write.csv(split_ledger, "/phi/sbi/sbi_blake/split_ledger_studyid_10_7_25.csv", row.names = FALSE)
+# write.csv(split_ledger, "/phi/sbi/sbi_blake/split_ledger_studyid_10_15_25.csv", row.names = FALSE)
+
+# Only using the previously identified optimal values for the random forest hyperparameters
+rf_grid <- expand.grid(
+  mtry            = c(23),
+  splitrule       = c("extratrees"),
+  min.node.size   = c(3)
+)
+
+# Train the model
+rf_tune <- train(SBI ~ ., tuneGrid = rf_grid, data = train_df[, c(predictors, "SBI")] , method = "ranger", na.action = na.omit, importance = 'impurity',
+                 verbose = TRUE,
+                 respect.unordered.factors = TRUE, num.trees = 1000,
+                 trControl = ctrl)
+
+# # Extra code to explore hyperparameters
+# other_rf <- train(SBI ~ ., data = train_df[, c(predictors, "SBI")] , method = "ranger", na.action = na.omit, importance = 'none',
+#                  respect.unordered.factors = TRUE, num.trees = 1000,
+#                  trControl = ctrl)
+# # Only using the previously identified optimal values for the random forest hyperparameters
+# other_grid <- expand.grid(
+#   mtry            = c(17:28),
+#   splitrule       = c("extratrees", "gini"),
+#   min.node.size   = c(1, 3, 5, 10)
+# )
+#
+# other_tune_rf <- train(SBI ~ ., tuneGrid = other_grid, data = train_df[, c(predictors, "SBI")] , method = "ranger", na.action = na.omit, importance = 'impurity',
+#                        respect.unordered.factors = TRUE, num.trees = 1000,
+#                        trControl = ctrl)
+
+
+
+
+### Optional code to plot top 40 predictors with scaled variable importance
+# 1. pull raw importance from the caret model
+imp_tbl <- varImp(rf_tune, scale = FALSE)$importance %>%
+  tibble::rownames_to_column("predictor") %>%   # keep predictor names
+  rename(raw_imp = Overall)
+
+# 2. linearly rescale to 0–100 (100 = most important)
+imp_tbl <- imp_tbl %>%
+  mutate(scaled_imp = 100 * raw_imp / max(raw_imp, na.rm = TRUE))
+
+# 3. select the top 40 predictors
+top40 <- imp_tbl %>%
+  arrange(desc(scaled_imp)) %>%
+  slice_head(n = 10)
+
+# Change names
+top40 %>%
+  mutate(predictor = predictor %>%
+           str_replace_all("_", " ") %>%    # replace underscores with spaces
+           str_to_upper()) %>%              # make all uppercase
+  ggplot(aes(x = reorder(predictor, scaled_imp), y = scaled_imp)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Random-Forest Variable Importance (Top 10 Features)",
+    x = NULL,
+    y = "Scaled Importance (0–100)"
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(size = 18, face = "bold"),   # larger, bold title
+    axis.title.x = element_text(size = 14, face = "bold"), # larger, bold x-axis title
+    axis.title.y = element_text(size = 14, face = "bold"), # larger, bold y-axis title
+    axis.text = element_text(size = 11)                    # slightly larger tick labels
+  )
+
+
+
+# Apply to training and test sets
+rf_pred_prob_train <- predict(rf_tune, train_df %>% dplyr::select(-study_id, -sbi_present, -abx_exp, -rowid, -SBI), type = "prob")[, "pos"]
+rf_pred_prob_val <- predict(rf_tune, valid_df %>% dplyr::select(-study_id, -sbi_present), type = "prob")[, "pos"]
+rf_pred_prob_test <- predict(rf_tune, test_df %>% dplyr::select(-study_id, -sbi_present), type = "prob")[, "pos"]
+
+colAUC(rf_pred_prob_val, valid_df$SBI, plotROC = TRUE) # determine AUROC in validation set = 0.82
+colAUC(rf_pred_prob_test, test_df$SBI, plotROC = TRUE) # determine AUROC in test set = 0.85
+
+# Store these datasets for train, validate, test, along with model predictions
+## --- 1) Build data frame for TRAIN set ---
+
+rf_train_df <- train_df %>%
+  dplyr::select(study_id, sbi_present, SBI, dplyr::all_of(predictors)) %>%
+  dplyr::mutate(rf_prob = rf_pred_prob_train)
+
+## --- 2) Build data frame for VALIDATION set ---
+
+rf_valid_df <- valid_df %>%
+  dplyr::select(study_id, sbi_present, SBI, hours_since_picu_adm, dplyr::all_of(predictors)) %>%
+  dplyr::mutate(rf_prob = rf_pred_prob_val)
+
+## --- 3) Build data frame for TEST set ---
+
+rf_test_df <- test_df %>%
+  dplyr::select(study_id, sbi_present, SBI, hours_since_picu_adm, dplyr::all_of(predictors)) %>%
+  dplyr::mutate(rf_prob = rf_pred_prob_test)
+
+
+######### Now plot NPV, AUROC, and AUPRC by hour #############
+# Packages
+library(dplyr)
+library(ggplot2)
+library(purrr)
+library(tibble)
+library(pROC)
+library(PRROC)
+
+# -----------------------------
+# Settings
+# -----------------------------
+threshold <- 0.12
+n_boot <- 1000
+set.seed(123)
+
+# -----------------------------
+# Optional preprocessing / duplicate check
+# -----------------------------
+rf_hour_df <- rf_test_df %>%
+  dplyr::filter(hours_since_picu_adm %in% 1:24)
+
+dup_check <- rf_hour_df %>%
+  dplyr::count(study_id, hours_since_picu_adm, name = "n_rows") %>%
+  dplyr::filter(n_rows > 1)
+
+if (nrow(dup_check) > 0) {
+  warning("Some study_id + hours_since_picu_adm combinations had >1 row. Keeping the first row per patient-hour.")
+
+  rf_hour_df <- rf_hour_df %>%
+    dplyr::group_by(study_id, hours_since_picu_adm) %>%
+    dplyr::slice(1) %>%
+    dplyr::ungroup()
+}
+
+# -----------------------------
+# Metric calculation for one dataset
+# -----------------------------
+calc_metrics_once <- function(dat, threshold = 0.12) {
+
+  dat <- dat %>%
+    dplyr::filter(!is.na(sbi_present), !is.na(rf_prob))
+
+  if (nrow(dat) == 0) {
+    return(
+      tibble::tibble(
+        tn = NA_integer_,
+        fn = NA_integer_,
+        n_negative_pred = NA_integer_,
+        n_actual_negative = NA_integer_,
+        pct_sbi_neg_identified = NA_real_,
+        npv = NA_real_,
+        auroc = NA_real_,
+        auprc = NA_real_
+      )
+    )
+  }
+
+  y <- dat$sbi_present
+  p <- dat$rf_prob
+
+  pred_negative <- p <= threshold
+
+  tn <- sum(pred_negative & y == 0, na.rm = TRUE)
+  fn <- sum(pred_negative & y == 1, na.rm = TRUE)
+  n_negative_pred <- sum(pred_negative, na.rm = TRUE)
+
+  n_actual_negative <- sum(y == 0, na.rm = TRUE)
+
+  pct_sbi_neg_identified <- if (n_actual_negative > 0) {
+    tn / n_actual_negative
+  } else {
+    NA_real_
+  }
+
+  npv <- if (n_negative_pred > 0) {
+    tn / n_negative_pred
+  } else {
+    NA_real_
+  }
+
+  auroc <- if (length(unique(y)) < 2) {
+    NA_real_
+  } else {
+    as.numeric(
+      pROC::auc(
+        pROC::roc(
+          response = y,
+          predictor = p,
+          levels = c(0, 1),
+          direction = "<",
+          quiet = TRUE
+        )
+      )
+    )
+  }
+
+  auprc <- if (sum(y == 1, na.rm = TRUE) == 0 || sum(y == 0, na.rm = TRUE) == 0) {
+    NA_real_
+  } else {
+    PRROC::pr.curve(
+      scores.class0 = p[y == 1],
+      scores.class1 = p[y == 0],
+      curve = FALSE
+    )$auc.integral
+  }
+
+  tibble::tibble(
+    tn = tn,
+    fn = fn,
+    n_negative_pred = n_negative_pred,
+    n_actual_negative = n_actual_negative,
+    pct_sbi_neg_identified = pct_sbi_neg_identified,
+    npv = npv,
+    auroc = auroc,
+    auprc = auprc
+  )
+}
+
+# -----------------------------
+# Bootstrap CI helper
+# -----------------------------
+get_boot_ci <- function(x) {
+  x <- x[!is.na(x)]
+
+  if (length(x) < 2) {
+    return(c(NA_real_, NA_real_))
+  }
+
+  as.numeric(stats::quantile(x, probs = c(0.025, 0.975), na.rm = TRUE, names = FALSE))
+}
+
+# -----------------------------
+# Compute point estimates + bootstrap CIs for one hour
+# -----------------------------
+calc_hour_metrics_boot <- function(dat, threshold = 0.12, n_boot = 1000) {
+
+  dat <- dat %>%
+    dplyr::filter(!is.na(sbi_present), !is.na(rf_prob))
+
+  if (nrow(dat) == 0) {
+    return(
+      tibble::tibble(
+        n_obs = 0,
+        n_patients = 0,
+        tn = NA_integer_,
+        fn = NA_integer_,
+        n_negative_pred = NA_integer_,
+        n_actual_negative = NA_integer_,
+        pct_sbi_neg_identified = NA_real_,
+        npv = NA_real_,
+        npv_lower = NA_real_,
+        npv_upper = NA_real_,
+        auroc = NA_real_,
+        auroc_lower = NA_real_,
+        auroc_upper = NA_real_,
+        auprc = NA_real_,
+        auprc_lower = NA_real_,
+        auprc_upper = NA_real_
+      )
+    )
+  }
+
+  point_est <- calc_metrics_once(dat, threshold = threshold)
+
+  boot_res <- replicate(
+    n = n_boot,
+    expr = {
+      boot_idx <- sample.int(n = nrow(dat), size = nrow(dat), replace = TRUE)
+      boot_dat <- dat[boot_idx, , drop = FALSE]
+      boot_met <- calc_metrics_once(boot_dat, threshold = threshold)
+      c(
+        npv = boot_met$npv,
+        auroc = boot_met$auroc,
+        auprc = boot_met$auprc
+      )
+    },
+    simplify = "matrix"
+  )
+
+  npv_ci <- get_boot_ci(boot_res["npv", ])
+  auroc_ci <- get_boot_ci(boot_res["auroc", ])
+  auprc_ci <- get_boot_ci(boot_res["auprc", ])
+
+  tibble::tibble(
+    n_obs = nrow(dat),
+    n_patients = dplyr::n_distinct(dat$study_id),
+    tn = point_est$tn,
+    fn = point_est$fn,
+    n_negative_pred = point_est$n_negative_pred,
+    n_actual_negative = point_est$n_actual_negative,
+    pct_sbi_neg_identified = point_est$pct_sbi_neg_identified,
+    npv = point_est$npv,
+    npv_lower = npv_ci[1],
+    npv_upper = npv_ci[2],
+    auroc = point_est$auroc,
+    auroc_lower = auroc_ci[1],
+    auroc_upper = auroc_ci[2],
+    auprc = point_est$auprc,
+    auprc_lower = auprc_ci[1],
+    auprc_upper = auprc_ci[2]
+  )
+}
+
+# -----------------------------
+# Run for each hour 1 through 24
+# -----------------------------
+rf_hourly_metrics_boot <- purrr::map_dfr(
+  1:24,
+  function(hr) {
+    dat_hr <- rf_hour_df %>%
+      dplyr::filter(hours_since_picu_adm == hr)
+
+    calc_hour_metrics_boot(
+      dat = dat_hr,
+      threshold = threshold,
+      n_boot = n_boot
+    ) %>%
+      dplyr::mutate(hours_since_picu_adm = hr, .before = 1)
+  }
+) %>%
+  dplyr::mutate(
+    npv_label = dplyr::if_else(
+      !is.na(n_negative_pred) & n_negative_pred > 0,
+      paste0(tn, "/", n_negative_pred),
+      NA_character_
+    ),
+    pct_sbi_neg_identified_label = dplyr::if_else(
+      !is.na(pct_sbi_neg_identified),
+      paste0(round(100 * pct_sbi_neg_identified), "%"),
+      NA_character_
+    ),
+    auroc_label = dplyr::if_else(
+      !is.na(auroc),
+      sprintf("%.2f", auroc),
+      NA_character_
+    ),
+    auprc_label = dplyr::if_else(
+      !is.na(auprc),
+      sprintf("%.2f", auprc),
+      NA_character_
+    )
+  )
+
+# View results table
+rf_hourly_metrics_boot
+
+# Compute prevalence for AUPRC plot #
+# Check that sbi_present is constant within each patient
+sbi_consistency_check <- rf_hour_df %>%
+  dplyr::group_by(study_id) %>%
+  dplyr::summarise(
+    n_outcome_values = dplyr::n_distinct(sbi_present[!is.na(sbi_present)]),
+    .groups = "drop"
+  )
+
+if (any(sbi_consistency_check$n_outcome_values > 1)) {
+  warning("Some study_id values have more than one sbi_present value across hours.")
+}
+
+# One row per patient for prevalence calculation
+patient_level_outcome <- rf_hour_df %>%
+  dplyr::group_by(study_id) %>%
+  dplyr::summarise(
+    sbi_present = dplyr::first(sbi_present),
+    .groups = "drop"
+  )
+
+sbi_prevalence <- mean(patient_level_outcome$sbi_present, na.rm = TRUE)
+
+sbi_prevalence_label <- paste0(
+  "SBI Prevalence = ",
+  sprintf("%.2f", sbi_prevalence)
+)
+
+
+
+## Plot NPV ##
+p_npv <- ggplot2::ggplot(
+  rf_hourly_metrics_boot,
+  ggplot2::aes(x = hours_since_picu_adm)
+) +
+  ggplot2::geom_ribbon(
+    ggplot2::aes(ymin = npv_lower, ymax = npv_upper),
+    fill = "lightblue",
+    alpha = 0.4,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_line(
+    ggplot2::aes(y = npv),
+    color = "blue3",
+    linewidth = 0.9,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_point(
+    ggplot2::aes(y = npv),
+    color = "blue3",
+    size = 2.5,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_text(
+    ggplot2::aes(y = npv, label = npv_label),
+    color = "blue3",
+    vjust = -0.8,
+    size = 3.5,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_line(
+    ggplot2::aes(y = pct_sbi_neg_identified),
+    color = "firebrick3",
+    linewidth = 0.9,
+    linetype = "dashed",
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_point(
+    ggplot2::aes(y = pct_sbi_neg_identified),
+    color = "firebrick3",
+    size = 2.3,
+    shape = 17,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_text(
+    ggplot2::aes(
+      y = pct_sbi_neg_identified,
+      label = pct_sbi_neg_identified_label
+    ),
+    color = "firebrick3",
+    vjust = 1.5,
+    size = 3.5,
+    na.rm = TRUE
+  ) +
+  ggplot2::scale_x_continuous(breaks = 1:24) +
+  ggplot2::scale_y_continuous(
+    limits = c(0, 1.05),
+    breaks = seq(0, 1, by = 0.1),
+    expand = ggplot2::expansion(mult = c(0.01, 0.10)),
+    name = "NPV",
+    sec.axis = ggplot2::sec_axis(
+      transform = ~ . * 100,
+      name = "% of SBI-negative patients correctly identified"
+    )
+  ) +
+  ggplot2::labs(
+    title = "Negative Predictive Value by PICU Hour",
+    x = "Hours Since PICU Admission"
+  ) +
+  ggplot2::theme_minimal(base_size = 14) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
+    axis.title.x = ggplot2::element_text(face = "bold"),
+    axis.title.y.left = ggplot2::element_text(face = "bold", color = "blue3"),
+    axis.title.y.right = ggplot2::element_text(face = "bold", color = "firebrick3"),
+    axis.text.y.left = ggplot2::element_text(color = "blue3"),
+    axis.text.y.right = ggplot2::element_text(color = "firebrick3"),
+    panel.grid.minor = ggplot2::element_blank()
+  )
+
+p_npv
+
+## Plot AUROC ##
+p_auroc <- ggplot2::ggplot(
+  rf_hourly_metrics_boot,
+  ggplot2::aes(x = hours_since_picu_adm, y = auroc)
+) +
+  ggplot2::geom_ribbon(
+    ggplot2::aes(ymin = auroc_lower, ymax = auroc_upper),
+    fill = "lightblue",
+    alpha = 0.4,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_line(
+    color = "blue3",
+    linewidth = 0.9,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_point(
+    color = "blue3",
+    size = 2.5,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_text(
+    ggplot2::aes(label = auroc_label),
+    color = "blue3",
+    vjust = -0.8,
+    size = 3.5,
+    na.rm = TRUE
+  ) +
+  ggplot2::scale_x_continuous(breaks = 1:24) +
+  ggplot2::scale_y_continuous(
+    limits = c(0, 1.05),
+    breaks = seq(0, 1, by = 0.1),
+    expand = ggplot2::expansion(mult = c(0.01, 0.08))
+  ) +
+  ggplot2::labs(
+    title = "AUROC by PICU Hour",
+    x = "Hours Since PICU Admission",
+    y = "AUROC"
+  ) +
+  ggplot2::theme_minimal(base_size = 14) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
+    axis.title = ggplot2::element_text(face = "bold"),
+    panel.grid.minor = ggplot2::element_blank()
+  )
+
+p_auroc
+
+
+## AUPRC plot ##
+p_auprc <- ggplot2::ggplot(
+  rf_hourly_metrics_boot,
+  ggplot2::aes(x = hours_since_picu_adm, y = auprc)
+) +
+  ggplot2::geom_ribbon(
+    ggplot2::aes(ymin = auprc_lower, ymax = auprc_upper),
+    fill = "lightblue",
+    alpha = 0.4,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_line(
+    color = "blue3",
+    linewidth = 0.9,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_point(
+    color = "blue3",
+    size = 2.5,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_text(
+    ggplot2::aes(label = auprc_label),
+    color = "blue3",
+    vjust = -0.8,
+    size = 3.5,
+    na.rm = TRUE
+  ) +
+  ggplot2::scale_x_continuous(breaks = 1:24) +
+  ggplot2::scale_y_continuous(
+    limits = c(0, 1.05),
+    breaks = seq(0, 1, by = 0.1),
+    expand = ggplot2::expansion(mult = c(0.01, 0.08))
+  ) +
+  ggplot2::labs(
+    title = "AUPRC by PICU Hour",
+    x = "Hours Since PICU Admission",
+    y = "AUPRC"
+  ) +
+
+  ggplot2::geom_hline(
+    yintercept = sbi_prevalence,
+    linetype = "dashed",
+    color = "black",
+    linewidth = 0.8
+  ) +
+  ggplot2::annotate(
+    "text",
+    x = 24,
+    y = sbi_prevalence,
+    label = sbi_prevalence_label,
+    hjust = 1,
+    vjust = -0.6,
+    size = 3.8,
+    color = "black",
+    fontface = "bold"
+  ) +
+
+  ggplot2::theme_minimal(base_size = 14) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
+    axis.title = ggplot2::element_text(face = "bold"),
+    panel.grid.minor = ggplot2::element_blank()
+  )
+
+p_auprc
