@@ -216,6 +216,21 @@ npv_at_threshold <- function(model, threshold = 0.05) {
   )
 }
 
+# ---- 3) Find largest threshold with OOF NPV meeting target ----
+find_largest_threshold_for_npv <- function(model, target_npv = 0.95, threshold_grid = seq(0, 1, by = 0.001)) {
+  npv_curve <- purrr::map_dfr(threshold_grid, function(t) npv_at_threshold(model, threshold = t))
+
+  eligible <- npv_curve %>%
+    dplyr::filter(!is.na(npv), n_pred_neg > 0, npv >= target_npv) %>%
+    dplyr::arrange(dplyr::desc(threshold))
+
+  if (nrow(eligible) == 0) {
+    stop(paste0("No threshold in grid achieved OOF NPV >= ", target_npv))
+  }
+
+  eligible %>% dplyr::slice(1)
+}
+
 # Shows out of fold NPV at a given threshold
 npv_at_threshold(rf_model, threshold = 0.050) # 0.958 = NPV
 
@@ -234,21 +249,25 @@ retro_test_auroc_no_abx <- as.numeric(
   )
 )
 
-# Determine NPV
-# Recalculate confusion matrix based on optimal cut-point
-## Single-threshold confusion matrix
-ocp_rf <- 0.042 # yields NPV 0.952 with 20/21 neg predictions correct.
+# Determine the largest OOF threshold that still provides NPV >= 0.95
+oof_threshold_no_abx <- find_largest_threshold_for_npv(
+  rf_model,
+  target_npv = 0.95
+)
+threshold_no_abx <- oof_threshold_no_abx$threshold
+retro_train_npv_no_abx <- oof_threshold_no_abx$npv
 
-pred_no_abx <- ifelse(rf_pred_prob[["yes"]] >= ocp_rf, "yes", "no")
+# Apply this threshold to the holdout test set
+pred_no_abx <- ifelse(rf_pred_prob[["yes"]] <= threshold_no_abx, "no", "yes")
 
-rf_cm_no_abx <- caret::confusionMatrix(
+rf_cm_no_abx_test <- caret::confusionMatrix(
   data = factor(pred_no_abx, levels = c("no", "yes")),
   reference = factor(as.character(test_df$sbi_present), levels = c("no", "yes")),
   mode = "everything",
   positive = "yes"
 )
 
-rf_cm_no_abx
+npv_retro_no_abx_test <- unname(rf_cm_no_abx_test$byClass["Neg Pred Value"])
 
 
 ###### Exrta code to look at NPV by threshold #######
@@ -344,12 +363,7 @@ roc_obj <- roc(
 
 auc(roc_obj) # AUROC 0.745 in test set
 
-# Now calculate NPV at prior threshold
-
-
-
-
-threshold_no_abx <- 0.05
+# Now calculate NPV at OOF-selected threshold
 
 test_preds_npv <- test_preds %>%
   mutate(
@@ -587,14 +601,13 @@ oof <- rf_model_abx$pred
 oof <- oof %>%
   semi_join(rf_model_abx$bestTune, by = names(rf_model_abx$bestTune))
 
-# Plot NPV by threshold
-thr_grid <- seq(0.005, 0.25, by = 0.001)
-npv_curve <- dplyr::bind_rows(lapply(thr_grid, function(t) npv_at_threshold(rf_model_abx, threshold = t)))
-
-View(npv_curve) #0.074 from original paper close to best threshold is best with NPV of 0.91
-
-# Shows out of fold NPV at a given threshold
-npv_at_threshold(rf_model_abx, threshold = 0.074) # 0.909 = NPV
+# Identify largest OOF threshold that still gives NPV >= 0.95
+oof_threshold_yes_abx <- find_largest_threshold_for_npv(
+  rf_model_abx,
+  target_npv = 0.95
+)
+threshold_yes_abx <- oof_threshold_yes_abx$threshold
+retro_train_npv_yes_abx <- oof_threshold_yes_abx$npv
 
 
 # Now will apply this model to the training set and compute the AUROC and associated confusion matrix
@@ -639,20 +652,18 @@ View(npv_by_threshold_abx)
 
 
 
-thr_abx <- 0.074  # change as needed
-
-# Convert prob -> class using your threshold on P(yes)
-rf_pred_class_thr <- ifelse(rf_pred_prob_abx[["yes"]] >= thr_abx, "yes", "no")
+# Convert prob -> class using OOF-selected threshold on P(yes)
+rf_pred_class_thr <- ifelse(rf_pred_prob_abx[["yes"]] <= threshold_yes_abx, "no", "yes")
 rf_pred_class_thr <- factor(rf_pred_class_thr, levels = levels(test_df_abx$sbi_present))
 
-rf_cm_thr <- confusionMatrix(
+rf_cm_yes_abx_test <- confusionMatrix(
   data      = rf_pred_class_thr,
   reference = test_df_abx$sbi_present,
   mode      = "everything",
   positive  = "yes"
 )
 
-rf_cm_thr #NPV 0.8333
+npv_retro_yes_abx_test <- unname(rf_cm_yes_abx_test$byClass["Neg Pred Value"])
 
 
 
@@ -728,8 +739,7 @@ roc_obj_abx <- roc(
 
 auc(roc_obj_abx) # AUROC 0.77
 
-# Now calculate NPV at prior threshold
-threshold_yes_abx <- 0.074
+# Now calculate NPV at OOF-selected threshold
 
 test_preds_npv_abx <- test_preds_abx %>%
   mutate(
@@ -757,4 +767,3 @@ stopifnot(nrow(test_df_with_pred_abx) == nrow(test_df_abx))
 stopifnot(!anyNA(test_df_with_pred_abx$model_score))
 
 rf_df_abx <- test_df_with_pred_abx
-
