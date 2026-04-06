@@ -225,10 +225,18 @@ find_largest_threshold_for_npv <- function(model, target_npv = 0.95, threshold_g
     dplyr::arrange(dplyr::desc(threshold))
 
   if (nrow(eligible) == 0) {
-    stop(paste0("No threshold in grid achieved OOF NPV >= ", target_npv))
+    best_available <- npv_curve %>%
+      dplyr::filter(!is.na(npv), n_pred_neg > 0) %>%
+      dplyr::arrange(dplyr::desc(npv), dplyr::desc(n_pred_neg), threshold) %>%
+      dplyr::slice(1) %>%
+      dplyr::mutate(selection_rule = "max_npv_fallback")
+
+    return(best_available)
   }
 
-  eligible %>% dplyr::slice(1)
+  eligible %>%
+    dplyr::slice(1) %>%
+    dplyr::mutate(selection_rule = "largest_threshold_meeting_target_npv")
 }
 
 # Shows out of fold NPV at a given threshold
@@ -257,7 +265,7 @@ oof_threshold_no_abx <- find_largest_threshold_for_npv(
 threshold_no_abx <- oof_threshold_no_abx$threshold
 retro_train_npv_no_abx <- oof_threshold_no_abx$npv
 
-# Apply this threshold to the holdout test set
+# Apply the selected OOF-derived threshold to the holdout test set
 pred_no_abx <- ifelse(rf_pred_prob[["yes"]] <= threshold_no_abx, "no", "yes")
 
 rf_cm_no_abx_test <- caret::confusionMatrix(
@@ -269,6 +277,13 @@ rf_cm_no_abx_test <- caret::confusionMatrix(
 
 npv_retro_no_abx_test <- unname(rf_cm_no_abx_test$byClass["Neg Pred Value"])
 
+# Store selected test performance summary
+retro_test_threshold_selection_no_abx <- tibble::tibble(
+  threshold_source = as.character(oof_threshold_no_abx$selection_rule),
+  selected_threshold = threshold_no_abx,
+  selected_npv_test = npv_retro_no_abx_test
+)
+
 
 ###### Exrta code to look at NPV by threshold #######
 ## NPV by threshold
@@ -276,7 +291,6 @@ pred_prob_no_abx <- rf_pred_prob[["yes"]]
 truth_no_abx <- as.character(test_df$sbi_present)
 
 thresholds <- seq(0.01, 0.15, by = 0.001)
-
 npv_by_threshold <- purrr::map_dfr(thresholds, function(ocp_rf) {
 
   pred_class <- ifelse(pred_prob_no_abx >= ocp_rf, "yes", "no")
