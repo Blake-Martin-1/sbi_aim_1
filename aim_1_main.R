@@ -2992,7 +2992,7 @@ roc_plot <- ggplot(roc_df, aes(x = fpr, y = tpr, color = cohort_type)) +
   ) +
   geom_text(
     data = metrics_df,
-    aes(x = 0.35, y = 0.15, label = roc_label),
+    aes(x = 0.22, y = 0.10, label = roc_label),
     inherit.aes = FALSE,
     hjust = 0,
     size = 4
@@ -3146,7 +3146,7 @@ metrics_df_susp <- purrr::map_dfr(dat_list_susp, ~ {
       list(AUPRC, AUPRC_low, AUPRC_high),
       ~ format_metric_ci(..1, ..2, ..3, "AUPRC")
     ),
-    prev_neg_label = paste0("SBI-negative prevalence = ", sprintf("%.2f", prevalence_neg))
+    prev_neg_label = paste0("SBI- prevalence = ", sprintf("%.2f", prevalence_neg))
   )
 
 roc_df_susp <- roc_df_susp %>%
@@ -3180,7 +3180,7 @@ roc_plot_susp <- ggplot(roc_df_susp, aes(x = fpr, y = tpr, color = cohort_type))
   ) +
   geom_text(
     data = metrics_df_susp,
-    aes(x = 0.35, y = 0.15, label = roc_label),
+    aes(x = 0.22, y = 0.10, label = roc_label),
     inherit.aes = FALSE,
     hjust = 0,
     size = 4
