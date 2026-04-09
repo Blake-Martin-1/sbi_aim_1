@@ -492,6 +492,12 @@ rf_hourly_metrics_boot <- purrr::map_dfr(
   }
 ) %>%
   dplyr::mutate(
+    auroc = round(auroc, 2),
+    auroc_lower = round(auroc_lower, 2),
+    auroc_upper = round(auroc_upper, 2),
+    auprc = round(auprc, 2),
+    auprc_lower = round(auprc_lower, 2),
+    auprc_upper = round(auprc_upper, 2),
     npv_label = dplyr::if_else(
       !is.na(n_negative_pred) & n_negative_pred > 0,
       paste0(tn, "/", n_negative_pred),
