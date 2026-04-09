@@ -2704,17 +2704,17 @@ retro_yes_abx <- test_pr_df_abx %>%
 # Prospective: unexposed
 pros_no_abx <- tibble(
   scenario  = "Pros • Abx-",
-  truth_num = as.integer(pros_no_abx_1st_infxn$sbi_present),
+  truth_num = as.integer(pros_no_abx_1st_infxn$sbi_present == 0L),
   truth     = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes","no")),
-  score     = to_prob01(rf_pred_prob_pros[, "yes"])
+  score     = 1 - to_prob01(rf_pred_prob_pros[, "yes"])
 )
 
 # Prospective: exposed
 pros_yes_abx <- tibble(
   scenario  = "Pros • Abx+",
-  truth_num = as.integer(pros_yes_temp$sbi_present),
+  truth_num = as.integer(pros_yes_temp$sbi_present == 0L),
   truth     = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes","no")),
-  score     = to_prob01(rf_pred_prob_pros_abx[, "yes"])
+  score     = 1 - to_prob01(rf_pred_prob_pros_abx[, "yes"])
 )
 
 dat_all <- bind_rows(
@@ -2865,13 +2865,13 @@ pr_df  <- map_dfr(dat_list, pr_curve_df)
 metrics_df <- map_dfr(dat_list, ~ tibble(
   scenario   = .x$scenario[1],
   n          = nrow(.x),
-  prevalence = mean(.x$truth_num == 1L),
+  prevalence_sbi_negative = mean(.x$truth_num == 1L),
   AUROC      = auroc_one(.x),
   AUPRC      = auprc_one(.x)
 )) %>%
   mutate(
     scenario = factor(scenario, levels = levels(dat_all$scenario)),
-    auprc_prev_ratio = AUPRC / prevalence,
+    auprc_prev_ratio = AUPRC / prevalence_sbi_negative,
     roc_label = paste0(
       "AUROC = ", sprintf("%.3f", AUROC)
     ),
@@ -2879,7 +2879,7 @@ metrics_df <- map_dfr(dat_list, ~ tibble(
       "AUPRC = ", sprintf("%.3f", AUPRC), "\n",
       "AUPRC / Prev = ",
       sprintf("%.3f", AUPRC), " / ",
-      sprintf("%.3f", prevalence), " = ",
+      sprintf("%.3f", prevalence_sbi_negative), " = ",
       sprintf("%.1f", auprc_prev_ratio)
     )
   )
@@ -2975,9 +2975,9 @@ pros_no_abx_susp <- tibble(
   filter(suspected_infection == 1L) %>%
   transmute(
     scenario  = "Pros • Abx-",
-    truth_num = as.integer(sbi_present),
+    truth_num = as.integer(sbi_present == 0L),
     truth     = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes", "no")),
-    score     = to_prob01(score_raw)
+    score     = 1 - to_prob01(score_raw)
   )
 
 pros_yes_abx_susp <- tibble(
@@ -2988,9 +2988,9 @@ pros_yes_abx_susp <- tibble(
   filter(suspected_infection == 1L) %>%
   transmute(
     scenario  = "Pros • Abx+",
-    truth_num = as.integer(sbi_present),
+    truth_num = as.integer(sbi_present == 0L),
     truth     = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes", "no")),
-    score     = to_prob01(score_raw)
+    score     = 1 - to_prob01(score_raw)
   )
 
 dat_all_susp <- bind_rows(
@@ -3015,13 +3015,13 @@ pr_df_susp  <- map_dfr(dat_list_susp, pr_curve_df)
 metrics_df_susp <- map_dfr(dat_list_susp, ~ tibble(
   scenario   = .x$scenario[1],
   n          = nrow(.x),
-  prevalence = mean(.x$truth_num == 1L),
+  prevalence_sbi_negative = mean(.x$truth_num == 1L),
   AUROC      = auroc_one(.x),
   AUPRC      = auprc_one(.x)
 )) %>%
   mutate(
     scenario = factor(scenario, levels = levels(dat_all_susp$scenario)),
-    auprc_prev_ratio = AUPRC / prevalence,
+    auprc_prev_ratio = AUPRC / prevalence_sbi_negative,
     roc_label = paste0(
       "AUROC = ", sprintf("%.3f", AUROC)
     ),
@@ -3029,7 +3029,7 @@ metrics_df_susp <- map_dfr(dat_list_susp, ~ tibble(
       "AUPRC = ", sprintf("%.3f", AUPRC), "\n",
       "AUPRC / Prev = ",
       sprintf("%.3f", AUPRC), " / ",
-      sprintf("%.3f", prevalence), " = ",
+      sprintf("%.3f", prevalence_sbi_negative), " = ",
       sprintf("%.1f", auprc_prev_ratio)
     )
   )
@@ -3223,6 +3223,7 @@ ruleout_stats_one <- function(df, scenario, score_col, y_col, threshold,
   n_low_sbi1   <- sum(low & dat$truth == 1L)
 
   prop_sbineg_low <- if (n_sbi0 > 0) n_low_sbi0 / n_sbi0 else NA_real_
+  # NPV here remains a rule-out SBI metric: among low-risk predictions, the fraction truly SBI-negative.
   npv             <- if (n_low > 0) n_low_sbi0 / n_low else NA_real_
 
   tibble(
