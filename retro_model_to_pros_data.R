@@ -16,6 +16,37 @@ validate_predictor_schema <- function(df, required_predictors, dataset_label) {
   list(missing = missing_predictors, extra = extra_predictors)
 }
 
+bootstrap_metric_ci <- function(truth_case, score_case, metric = c("auroc", "auprc"), n_boot = 1000) {
+  metric <- match.arg(metric)
+  eval_df <- tibble::tibble(truth_case = truth_case, score_case = score_case)
+
+  if (nrow(eval_df) == 0 || dplyr::n_distinct(eval_df$truth_case) < 2) {
+    return(c(NA_real_, NA_real_))
+  }
+
+  boot_vals <- replicate(n_boot, {
+    idx <- sample.int(nrow(eval_df), size = nrow(eval_df), replace = TRUE)
+    b <- eval_df[idx, , drop = FALSE]
+    if (dplyr::n_distinct(b$truth_case) < 2) return(NA_real_)
+
+    if (metric == "auroc") {
+      as.numeric(pROC::auc(pROC::roc(b$truth_case, b$score_case, quiet = TRUE, direction = "<")))
+    } else {
+      PRROC::pr.curve(
+        scores.class0 = b$score_case[b$truth_case == 1],
+        scores.class1 = b$score_case[b$truth_case == 0],
+        curve = FALSE
+      )$auc.integral
+    }
+  })
+
+  boot_vals <- boot_vals[is.finite(boot_vals)]
+  if (length(boot_vals) < 20) return(c(NA_real_, NA_real_))
+  as.numeric(stats::quantile(boot_vals, c(0.025, 0.975), na.rm = TRUE))
+}
+
+fmt_ci <- function(est, ci) sprintf("%.2f (%.2f - %.2f)", round(est, 2), round(ci[1], 2), round(ci[2], 2))
+
 # Now test the no_abx model on prospective 2hr AU cohort
 validate_predictor_schema(pros_no_abx_1st_infxn, predictors, "pros_no_abx_1st_infxn")
 rf_pred_prob_pros <- predict(rf_model, pros_no_abx_1st_infxn[, all_of(c(predictors))], type = "prob")
@@ -30,6 +61,24 @@ pred_df_pros_no_abx <- pros_no_abx_1st_infxn %>%
     sbi_present = sbi_present,
     pred_prob_yes = rf_pred_prob_pros[, "yes"]
   )
+
+pros_auroc_no_abx_est <- as.numeric(
+  pROC::auc(
+    pROC::roc(
+      response = as.integer(pred_df_pros_no_abx$sbi_present == 0L),
+      predictor = 1 - pred_df_pros_no_abx$pred_prob_yes,
+      quiet = TRUE,
+      direction = "<"
+    )
+  )
+)
+pros_auroc_no_abx_ci <- bootstrap_metric_ci(
+  truth_case = as.integer(pred_df_pros_no_abx$sbi_present == 0L),
+  score_case = 1 - pred_df_pros_no_abx$pred_prob_yes,
+  metric = "auroc",
+  n_boot = 1000
+)
+print(paste0("Prospective no-abx AUROC (95% CI) = ", fmt_ci(pros_auroc_no_abx_est, pros_auroc_no_abx_ci)))
 
 
 
@@ -61,7 +110,14 @@ roc_obj_pros_yes_abx <- roc(
   direction = "<"
 )
 
-auc(roc_obj_pros_yes_abx)
+pros_auroc_yes_abx <- as.numeric(auc(roc_obj_pros_yes_abx))
+pros_auroc_yes_abx_ci <- bootstrap_metric_ci(
+  truth_case = as.integer(pred_df_pros_abx$sbi_present == 0L),
+  score_case = 1 - pred_df_pros_abx$pred_prob_yes,
+  metric = "auroc",
+  n_boot = 1000
+)
+print(paste0("Prospective yes-abx AUROC (95% CI) = ", fmt_ci(pros_auroc_yes_abx, pros_auroc_yes_abx_ci)))
 
 
 # =========================
@@ -84,8 +140,14 @@ pros_noabx_pr_df <- tibble(
 
 pros_auprc_no_abx <- pr_auc(pros_noabx_pr_df, truth = truth, p_yes) %>%
   pull(.estimate)
+pros_auprc_no_abx_ci <- bootstrap_metric_ci(
+  truth_case = as.integer(pros_no_abx_1st_infxn$sbi_present == 0L),
+  score_case = 1 - rf_pred_prob_pros[, "yes"],
+  metric = "auprc",
+  n_boot = 1000
+)
 
-print(paste0("Prospective no-abx AUPRC = ", signif(pros_auprc_no_abx, 4)))
+print(paste0("Prospective no-abx AUPRC (95% CI) = ", fmt_ci(pros_auprc_no_abx, pros_auprc_no_abx_ci)))
 
 
 # ---- Yes-abx prospective AUPRC ----
@@ -100,5 +162,11 @@ pros_yesabx_pr_df <- tibble(
 
 pros_auprc_yes_abx <- pr_auc(pros_yesabx_pr_df, truth = truth, p_yes) %>%
   pull(.estimate)
+pros_auprc_yes_abx_ci <- bootstrap_metric_ci(
+  truth_case = as.integer(pros_yes_temp$sbi_present == 0L),
+  score_case = 1 - rf_pred_prob_pros_abx[, "yes"],
+  metric = "auprc",
+  n_boot = 1000
+)
 
-print(paste0("Prospective yes-abx AUPRC = ", signif(pros_auprc_yes_abx, 4)))
+print(paste0("Prospective yes-abx AUPRC (95% CI) = ", fmt_ci(pros_auprc_yes_abx, pros_auprc_yes_abx_ci)))

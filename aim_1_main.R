@@ -2677,6 +2677,50 @@ to_prob01 <- function(x) {
   x
 }
 
+format_metric_ci <- function(est, low, high, metric_name) {
+  if (any(is.na(c(est, low, high)))) {
+    return(paste0(metric_name, " = NA"))
+  }
+  sprintf("%s = %.2f (%.2f - %.2f)", metric_name, est, low, high)
+}
+
+bootstrap_auc_ci <- function(df_one, n_boot = 1000) {
+  if (dplyr::n_distinct(df_one$case_num) < 2) {
+    return(c(NA_real_, NA_real_))
+  }
+
+  boot_vals <- replicate(n_boot, {
+    idx <- sample.int(nrow(df_one), size = nrow(df_one), replace = TRUE)
+    boot_df <- df_one[idx, , drop = FALSE]
+    if (dplyr::n_distinct(boot_df$case_num) < 2) return(NA_real_)
+    roc_obj <- pROC::roc(boot_df$case_num, boot_df$score_case, quiet = TRUE, direction = "<")
+    as.numeric(pROC::auc(roc_obj))
+  })
+
+  boot_vals <- boot_vals[is.finite(boot_vals)]
+  if (length(boot_vals) < 20) return(c(NA_real_, NA_real_))
+  as.numeric(stats::quantile(boot_vals, c(0.025, 0.975), na.rm = TRUE))
+}
+
+bootstrap_pr_auc_ci <- function(df_one, n_boot = 1000) {
+  if (dplyr::n_distinct(df_one$case_num) < 2) {
+    return(c(NA_real_, NA_real_))
+  }
+
+  boot_vals <- replicate(n_boot, {
+    idx <- sample.int(nrow(df_one), size = nrow(df_one), replace = TRUE)
+    boot_df <- df_one[idx, , drop = FALSE]
+    if (dplyr::n_distinct(boot_df$case_num) < 2) return(NA_real_)
+    yardstick::pr_auc(boot_df, case, score_case, event_level = "first") %>%
+      dplyr::pull(.estimate) %>%
+      as.numeric()
+  })
+
+  boot_vals <- boot_vals[is.finite(boot_vals)]
+  if (length(boot_vals) < 20) return(c(NA_real_, NA_real_))
+  as.numeric(stats::quantile(boot_vals, c(0.025, 0.975), na.rm = TRUE))
+}
+
 # ----------------------------
 # 1) Build the 4 scenario tables
 #    (THIS is the only part you should need to “wire”)
@@ -2884,18 +2928,33 @@ auprc_one <- function(df_one) {
 roc_df <- map_dfr(dat_list, roc_curve_df)
 pr_df  <- map_dfr(dat_list, pr_curve_df)
 
-metrics_df <- purrr::map_dfr(dat_list, ~ tibble::tibble(
-  scenario       = .x$scenario[1],
-  n              = nrow(.x),
-  prevalence_pos = mean(.x$case_num == 1L),
-  prevalence_neg = mean(.x$case_num == 0L),
-  AUROC          = auroc_one(.x),
-  AUPRC          = auprc_one(.x)
-)) %>%
+metrics_df <- purrr::map_dfr(dat_list, ~ {
+  auroc_ci <- bootstrap_auc_ci(.x, n_boot = 1000)
+  auprc_ci <- bootstrap_pr_auc_ci(.x, n_boot = 1000)
+
+  tibble::tibble(
+    scenario       = .x$scenario[1],
+    n              = nrow(.x),
+    prevalence_pos = mean(.x$case_num == 1L),
+    prevalence_neg = mean(.x$case_num == 0L),
+    AUROC          = auroc_one(.x),
+    AUROC_low      = auroc_ci[1],
+    AUROC_high     = auroc_ci[2],
+    AUPRC          = auprc_one(.x),
+    AUPRC_low      = auprc_ci[1],
+    AUPRC_high     = auprc_ci[2]
+  )
+}) %>%
   dplyr::mutate(
     scenario = factor(scenario, levels = levels(dat_all$scenario)),
-    roc_label = paste0("AUROC = ", sprintf("%.3f", AUROC)),
-    pr_label  = paste0("AUPRC = ", sprintf("%.3f", AUPRC)),
+    roc_label = purrr::pmap_chr(
+      list(AUROC, AUROC_low, AUROC_high),
+      ~ format_metric_ci(..1, ..2, ..3, "AUROC")
+    ),
+    pr_label = purrr::pmap_chr(
+      list(AUPRC, AUPRC_low, AUPRC_high),
+      ~ format_metric_ci(..1, ..2, ..3, "AUPRC")
+    ),
     prev_neg_label = paste0("SBI- prevalence = ", sprintf("%.2f", prevalence_neg))
   )
 # ----------------------------
@@ -3060,18 +3119,33 @@ dat_list_susp <- split(dat_all_susp, dat_all_susp$scenario)
 roc_df_susp <- map_dfr(dat_list_susp, roc_curve_df)
 pr_df_susp  <- map_dfr(dat_list_susp, pr_curve_df)
 
-metrics_df_susp <- purrr::map_dfr(dat_list_susp, ~ tibble::tibble(
-  scenario       = .x$scenario[1],
-  n              = nrow(.x),
-  prevalence_pos = mean(.x$case_num == 1L),
-  prevalence_neg = mean(.x$case_num == 0L),
-  AUROC          = auroc_one(.x),
-  AUPRC          = auprc_one(.x)
-)) %>%
+metrics_df_susp <- purrr::map_dfr(dat_list_susp, ~ {
+  auroc_ci <- bootstrap_auc_ci(.x, n_boot = 1000)
+  auprc_ci <- bootstrap_pr_auc_ci(.x, n_boot = 1000)
+
+  tibble::tibble(
+    scenario       = .x$scenario[1],
+    n              = nrow(.x),
+    prevalence_pos = mean(.x$case_num == 1L),
+    prevalence_neg = mean(.x$case_num == 0L),
+    AUROC          = auroc_one(.x),
+    AUROC_low      = auroc_ci[1],
+    AUROC_high     = auroc_ci[2],
+    AUPRC          = auprc_one(.x),
+    AUPRC_low      = auprc_ci[1],
+    AUPRC_high     = auprc_ci[2]
+  )
+}) %>%
   dplyr::mutate(
     scenario = factor(scenario, levels = levels(dat_all_susp$scenario)),
-    roc_label = paste0("AUROC = ", sprintf("%.3f", AUROC)),
-    pr_label  = paste0("AUPRC = ", sprintf("%.3f", AUPRC)),
+    roc_label = purrr::pmap_chr(
+      list(AUROC, AUROC_low, AUROC_high),
+      ~ format_metric_ci(..1, ..2, ..3, "AUROC")
+    ),
+    pr_label = purrr::pmap_chr(
+      list(AUPRC, AUPRC_low, AUPRC_high),
+      ~ format_metric_ci(..1, ..2, ..3, "AUPRC")
+    ),
     prev_neg_label = paste0("SBI-negative prevalence = ", sprintf("%.2f", prevalence_neg))
   )
 
@@ -4348,6 +4422,52 @@ curve_prevalence <- function(df,
   }
 }
 
+weighted_metric_ci <- function(df,
+                               metric = c("auroc", "auprc"),
+                               truth_col = "sbi_present",
+                               score_col = "model_prob",
+                               w_col = NULL,
+                               n_boot = 1000) {
+  metric <- match.arg(metric)
+
+  d <- df %>%
+    filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]])) %>%
+    mutate(
+      y = as.integer(.data[[truth_col]]),
+      s = as.numeric(.data[[score_col]]),
+      w = if (is.null(w_col)) 1 else as.numeric(.data[[w_col]])
+    ) %>%
+    filter(is.finite(s), !is.na(w), w > 0)
+
+  if (nrow(d) == 0 || dplyr::n_distinct(d$y) < 2) {
+    return(c(NA_real_, NA_real_))
+  }
+
+  boot_vals <- replicate(n_boot, {
+    idx <- sample.int(nrow(d), size = nrow(d), replace = TRUE)
+    b <- d[idx, , drop = FALSE]
+    if (dplyr::n_distinct(b$y) < 2) return(NA_real_)
+
+    if (metric == "auroc") {
+      roc_obj <- WeightedROC::WeightedROC(guess = b$s, label = b$y, weight = b$w)
+      as.numeric(WeightedROC::WeightedAUC(roc_obj))
+    } else {
+      pr_obj <- PRROC::pr.curve(
+        scores.class0 = b$s[b$y == 1],
+        scores.class1 = b$s[b$y == 0],
+        weights.class0 = b$w[b$y == 1],
+        weights.class1 = b$w[b$y == 0],
+        curve = FALSE
+      )
+      as.numeric(pr_obj$auc.integral)
+    }
+  })
+
+  boot_vals <- boot_vals[is.finite(boot_vals)]
+  if (length(boot_vals) < 20) return(c(NA_real_, NA_real_))
+  as.numeric(stats::quantile(boot_vals, probs = c(0.025, 0.975), na.rm = TRUE))
+}
+
 
 # ----------------------------
 # One run -> ROC + PR plot
@@ -4394,33 +4514,47 @@ plot_ps_curves_one_run <- function(run_obj, title_suffix = "") {
     )
 
   # Labels
+  roc_ci_retro <- weighted_metric_ci(retro_df, metric = "auroc", w_col = NULL, n_boot = 1000)
+  roc_ci_pros_unw <- weighted_metric_ci(pros_df, metric = "auroc", w_col = NULL, n_boot = 1000)
+  roc_ci_pros_w <- weighted_metric_ci(pros_df, metric = "auroc", w_col = "w", n_boot = 1000)
+
   roc_lab <- bind_rows(
-    roc_retro %>% summarise(auc = first(auc)) %>% mutate(curve = "Retro (unweighted)"),
-    roc_pros_unw %>% summarise(auc = first(auc)) %>% mutate(curve = "Pros (unweighted)"),
-    roc_pros_w %>% summarise(auc = first(auc)) %>% mutate(curve = "Pros (weighted to Retro)")
+    roc_retro %>% summarise(auc = first(auc)) %>% mutate(curve = "Retro (unweighted)", ci_low = roc_ci_retro[1], ci_high = roc_ci_retro[2]),
+    roc_pros_unw %>% summarise(auc = first(auc)) %>% mutate(curve = "Pros (unweighted)", ci_low = roc_ci_pros_unw[1], ci_high = roc_ci_pros_unw[2]),
+    roc_pros_w %>% summarise(auc = first(auc)) %>% mutate(curve = "Pros (weighted to Retro)", ci_low = roc_ci_pros_w[1], ci_high = roc_ci_pros_w[2])
   ) %>%
     mutate(
       curve = factor(curve, levels = c("Retro (unweighted)", "Pros (unweighted)", "Pros (weighted to Retro)")),
       x = 0.25,
       y = c(0.16, 0.10, 0.04),
-      label = sprintf("%s AUROC = %.3f", curve, auc)
+      label = sprintf("%s AUROC = %.2f (%.2f - %.2f)", curve, auc, ci_low, ci_high)
     )
+
+  pr_ci_retro <- weighted_metric_ci(retro_df, metric = "auprc", w_col = NULL, n_boot = 1000)
+  pr_ci_pros_unw <- weighted_metric_ci(pros_df, metric = "auprc", w_col = NULL, n_boot = 1000)
+  pr_ci_pros_w <- weighted_metric_ci(pros_df, metric = "auprc", w_col = "w", n_boot = 1000)
 
   pr_lab <- bind_rows(
     tibble(
       curve = "Retro (unweighted)",
       auc = dplyr::first(pr_retro$auc),
-      prev = curve_prevalence(retro_df, w_col = NULL)
+      prev = curve_prevalence(retro_df, w_col = NULL),
+      ci_low = pr_ci_retro[1],
+      ci_high = pr_ci_retro[2]
     ),
     tibble(
       curve = "Pros (unweighted)",
       auc = dplyr::first(pr_pros_unw$auc),
-      prev = curve_prevalence(pros_df, w_col = NULL)
+      prev = curve_prevalence(pros_df, w_col = NULL),
+      ci_low = pr_ci_pros_unw[1],
+      ci_high = pr_ci_pros_unw[2]
     ),
     tibble(
       curve = "Pros (weighted to Retro)",
       auc = dplyr::first(pr_pros_w$auc),
-      prev = curve_prevalence(pros_df, w_col = "w")
+      prev = curve_prevalence(pros_df, w_col = "w"),
+      ci_low = pr_ci_pros_w[1],
+      ci_high = pr_ci_pros_w[2]
     )
   ) %>%
     mutate(
@@ -4431,7 +4565,8 @@ plot_ps_curves_one_run <- function(run_obj, title_suffix = "") {
       x = 0.2,
       y = c(0.18, 0.12, 0.06),
       label = paste0(
-        "AUPRC = ", sprintf("%.3f", auc),
+        "AUPRC = ", sprintf("%.2f", auc),
+        " (", sprintf("%.2f", ci_low), " - ", sprintf("%.2f", ci_high), ")",
         " (prev = ", sprintf("%.2f", prev), ")"
       )
   ) %>%
@@ -4443,7 +4578,8 @@ plot_ps_curves_one_run <- function(run_obj, title_suffix = "") {
       legend_label = paste0(
         as.character(curve),
         ": AUPRC = ",
-        sprintf("%.3f", auc),
+        sprintf("%.2f", auc),
+        " (", sprintf("%.2f", ci_low), " - ", sprintf("%.2f", ci_high), ")",
         " (prev = ",
         sprintf("%.2f", prev),
         ")"

@@ -96,6 +96,35 @@ pros_yes_eval <- tibble(
 # 3) Metrics helper (AUROC, AUPRC, NPV, false negatives)
 # -----------------------------------------------------------------------------
 
+metric_boot_ci <- function(eval_df, metric = c("auroc", "auprc"), n_boot = 1000) {
+  metric <- match.arg(metric)
+
+  if (nrow(eval_df) == 0 || dplyr::n_distinct(eval_df$truth_case) < 2) {
+    return(c(NA_real_, NA_real_))
+  }
+
+  boot_vals <- replicate(n_boot, {
+    idx <- sample.int(nrow(eval_df), size = nrow(eval_df), replace = TRUE)
+    b <- eval_df[idx, , drop = FALSE]
+    if (dplyr::n_distinct(b$truth_case) < 2) return(NA_real_)
+
+    if (metric == "auroc") {
+      as.numeric(pROC::auc(pROC::roc(b$truth_case, b$p_case, quiet = TRUE, direction = "<")))
+    } else {
+      yardstick::pr_auc(b, truth = case, p_case) %>% dplyr::pull(.estimate) %>% as.numeric()
+    }
+  })
+
+  boot_vals <- boot_vals[is.finite(boot_vals)]
+  if (length(boot_vals) < 20) return(c(NA_real_, NA_real_))
+  as.numeric(stats::quantile(boot_vals, probs = c(0.025, 0.975), na.rm = TRUE))
+}
+
+format_metric_with_ci <- function(est, ci_low, ci_high) {
+  if (any(is.na(c(est, ci_low, ci_high)))) return(NA_character_)
+  sprintf("%.2f (%.2f - %.2f)", est, ci_low, ci_high)
+}
+
 metric_summary <- function(eval_df, threshold) {
   pred_neg <- eval_df$p_yes < threshold
   actual_pos <- eval_df$truth_num == 1L
@@ -104,11 +133,22 @@ metric_summary <- function(eval_df, threshold) {
   tn <- sum(pred_neg & actual_neg, na.rm = TRUE)
   fn <- sum(pred_neg & actual_pos, na.rm = TRUE)
 
+  auroc <- as.numeric(pROC::auc(pROC::roc(eval_df$truth_case, eval_df$p_case, quiet = TRUE, direction = "<")))
+  auprc <- yardstick::pr_auc(eval_df, truth = case, p_case) %>% pull(.estimate)
+  auroc_ci <- metric_boot_ci(eval_df, metric = "auroc", n_boot = 1000)
+  auprc_ci <- metric_boot_ci(eval_df, metric = "auprc", n_boot = 1000)
+
   tibble(
     n = nrow(eval_df),
     prevalence = mean(actual_pos, na.rm = TRUE),
-    auroc = as.numeric(pROC::auc(pROC::roc(eval_df$truth_case, eval_df$p_case, quiet = TRUE, direction = "<"))),
-    auprc = yardstick::pr_auc(eval_df, truth = case, p_case) %>% pull(.estimate),
+    auroc = round(auroc, 2),
+    auroc_ci_low = round(auroc_ci[1], 2),
+    auroc_ci_high = round(auroc_ci[2], 2),
+    auroc_with_ci = format_metric_with_ci(round(auroc, 2), round(auroc_ci[1], 2), round(auroc_ci[2], 2)),
+    auprc = round(auprc, 2),
+    auprc_ci_low = round(auprc_ci[1], 2),
+    auprc_ci_high = round(auprc_ci[2], 2),
+    auprc_with_ci = format_metric_with_ci(round(auprc, 2), round(auprc_ci[1], 2), round(auprc_ci[2], 2)),
     threshold = threshold,
     npv = if_else((tn + fn) > 0, tn / (tn + fn), as.numeric(NA)),
     false_negative_n = fn,
@@ -173,11 +213,20 @@ pr_df <- function(df, cohort_name) {
 }
 
 cohort_perf <- function(df, cohort_name) {
+  auroc <- as.numeric(pROC::auc(pROC::roc(df$truth_case, df$p_case, quiet = TRUE, direction = "<")))
+  auprc <- yardstick::pr_auc(df, truth = case, p_case) %>% pull(.estimate)
+  auroc_ci <- metric_boot_ci(df, metric = "auroc", n_boot = 1000)
+  auprc_ci <- metric_boot_ci(df, metric = "auprc", n_boot = 1000)
+
   tibble(
     cohort = cohort_name,
     prevalence = mean(df$truth_case == 1L, na.rm = TRUE),
-    auroc = as.numeric(pROC::auc(pROC::roc(df$truth_case, df$p_case, quiet = TRUE, direction = "<"))),
-    auprc = yardstick::pr_auc(df, truth = case, p_case) %>% pull(.estimate)
+    auroc = round(auroc, 2),
+    auroc_ci_low = round(auroc_ci[1], 2),
+    auroc_ci_high = round(auroc_ci[2], 2),
+    auprc = round(auprc, 2),
+    auprc_ci_low = round(auprc_ci[1], 2),
+    auprc_ci_high = round(auprc_ci[2], 2)
   )
 }
 
@@ -223,13 +272,13 @@ build_metric_label <- function(perf_df, metric = c("auroc", "auprc")) {
   if (metric == "auroc") {
     paste0(
       perf_df$cohort, ":\n",
-      "AUROC=", sprintf("%.3f", perf_df$auroc),
+      "AUROC=", sprintf("%.2f (%.2f - %.2f)", perf_df$auroc, perf_df$auroc_ci_low, perf_df$auroc_ci_high),
       collapse = "\n"
     )
   } else {
     paste0(
       perf_df$cohort, ":\n",
-      "AUPRC=", sprintf("%.3f", perf_df$auprc),
+      "AUPRC=", sprintf("%.2f (%.2f - %.2f)", perf_df$auprc, perf_df$auprc_ci_low, perf_df$auprc_ci_high),
       collapse = "\n"
     )
   }
