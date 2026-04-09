@@ -365,7 +365,7 @@ calc_metrics_once <- function(dat, threshold = 0.12) {
         pROC::roc(
           response = y_case,
           predictor = p_case,
-          levels = c(1, 0),
+          levels = c(0, 1),
           direction = "<",
           quiet = TRUE
         )
@@ -550,11 +550,11 @@ patient_level_outcome <- rf_hour_df %>%
     .groups = "drop"
   )
 
-sbi_prevalence <- mean(patient_level_outcome$sbi_present, na.rm = TRUE)
+sbi_neg_prevalence <- mean(1 - patient_level_outcome$sbi_present, na.rm = TRUE)
 
-sbi_prevalence_label <- paste0(
-  "SBI Prevalence = ",
-  sprintf("%.2f", sbi_prevalence)
+sbi_neg_prevalence_label <- paste0(
+  "SBI- Prevalence = ",
+  sprintf("%.2f", sbi_neg_prevalence)
 )
 
 
@@ -677,6 +677,7 @@ p_auroc <- ggplot2::ggplot(
   ) +
   ggplot2::labs(
     title = "AUROC by PICU Hour",
+    subtitle = sbi_neg_prevalence_label,
     x = "Hours Since PICU Admission",
     y = "AUROC"
   ) +
@@ -731,7 +732,7 @@ p_auprc <- ggplot2::ggplot(
   ) +
 
   ggplot2::geom_hline(
-    yintercept = sbi_prevalence,
+    yintercept = sbi_neg_prevalence,
     linetype = "dashed",
     color = "black",
     linewidth = 0.8
@@ -739,8 +740,8 @@ p_auprc <- ggplot2::ggplot(
   ggplot2::annotate(
     "text",
     x = 24,
-    y = sbi_prevalence,
-    label = sbi_prevalence_label,
+    y = sbi_neg_prevalence,
+    label = sbi_neg_prevalence_label,
     hjust = 1,
     vjust = -0.6,
     size = 3.8,
