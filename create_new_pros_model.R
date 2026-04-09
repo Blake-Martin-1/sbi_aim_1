@@ -245,8 +245,8 @@ rf_pred_prob_train <- predict(rf_tune, train_df %>% dplyr::select(-study_id, -sb
 rf_pred_prob_val <- predict(rf_tune, valid_df %>% dplyr::select(-study_id, -sbi_present), type = "prob")[, "pos"]
 rf_pred_prob_test <- predict(rf_tune, test_df %>% dplyr::select(-study_id, -sbi_present), type = "prob")[, "pos"]
 
-colAUC(rf_pred_prob_val, valid_df$SBI, plotROC = TRUE) # determine AUROC in validation set = 0.82
-colAUC(rf_pred_prob_test, test_df$SBI, plotROC = TRUE) # determine AUROC in test set = 0.85
+colAUC(1 - rf_pred_prob_val, 1 - valid_df$SBI, plotROC = TRUE) # determine AUROC using SBI-negative as cases
+colAUC(1 - rf_pred_prob_test, 1 - test_df$SBI, plotROC = TRUE) # determine AUROC using SBI-negative as cases
 
 # Store these datasets for train, validate, test, along with model predictions
 ## --- 1) Build data frame for TRAIN set ---
@@ -328,6 +328,8 @@ calc_metrics_once <- function(dat, threshold = 0.12) {
 
   y <- dat$sbi_present
   p <- dat$rf_prob
+  y_case <- 1 - y
+  p_case <- 1 - p
 
   pred_negative <- p <= threshold
 
@@ -349,15 +351,15 @@ calc_metrics_once <- function(dat, threshold = 0.12) {
     NA_real_
   }
 
-  auroc <- if (length(unique(y)) < 2) {
+  auroc <- if (length(unique(y_case)) < 2) {
     NA_real_
   } else {
     as.numeric(
       pROC::auc(
         pROC::roc(
-          response = y,
-          predictor = p,
-          levels = c(0, 1),
+          response = y_case,
+          predictor = p_case,
+          levels = c(1, 0),
           direction = "<",
           quiet = TRUE
         )
@@ -365,12 +367,12 @@ calc_metrics_once <- function(dat, threshold = 0.12) {
     )
   }
 
-  auprc <- if (sum(y == 1, na.rm = TRUE) == 0 || sum(y == 0, na.rm = TRUE) == 0) {
+  auprc <- if (sum(y_case == 1, na.rm = TRUE) == 0 || sum(y_case == 0, na.rm = TRUE) == 0) {
     NA_real_
   } else {
     PRROC::pr.curve(
-      scores.class0 = p[y == 1],
-      scores.class1 = p[y == 0],
+      scores.class0 = p_case[y_case == 1],
+      scores.class1 = p_case[y_case == 0],
       curve = FALSE
     )$auc.integral
   }

@@ -76,14 +76,20 @@ pros_no_eval <- tibble(
   cohort = "Prospective suspected infection • Abx-",
   truth_num = as.integer(pros_no_abx_susp$sbi_present),
   truth = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes", "no")),
-  p_yes = rf_pred_prob_pros[, "yes"]
+  p_yes = rf_pred_prob_pros[, "yes"],
+  truth_case = as.integer(truth_num == 0L),
+  case = factor(if_else(truth_case == 1L, "yes", "no"), levels = c("yes", "no")),
+  p_case = 1 - p_yes
 )
 
 pros_yes_eval <- tibble(
   cohort = "Prospective suspected infection • Abx+",
   truth_num = as.integer(pros_yes_temp$sbi_present),
   truth = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes", "no")),
-  p_yes = rf_pred_prob_pros_abx[, "yes"]
+  p_yes = rf_pred_prob_pros_abx[, "yes"],
+  truth_case = as.integer(truth_num == 0L),
+  case = factor(if_else(truth_case == 1L, "yes", "no"), levels = c("yes", "no")),
+  p_case = 1 - p_yes
 )
 
 # -----------------------------------------------------------------------------
@@ -101,8 +107,8 @@ metric_summary <- function(eval_df, threshold) {
   tibble(
     n = nrow(eval_df),
     prevalence = mean(actual_pos, na.rm = TRUE),
-    auroc = as.numeric(pROC::auc(pROC::roc(eval_df$truth_num, eval_df$p_yes, quiet = TRUE, direction = "<"))),
-    auprc = yardstick::pr_auc(eval_df, truth = truth, p_yes) %>% pull(.estimate),
+    auroc = as.numeric(pROC::auc(pROC::roc(eval_df$truth_case, eval_df$p_case, quiet = TRUE, direction = "<"))),
+    auprc = yardstick::pr_auc(eval_df, truth = case, p_case) %>% pull(.estimate),
     threshold = threshold,
     npv = if_else((tn + fn) > 0, tn / (tn + fn), as.numeric(NA)),
     false_negative_n = fn,
@@ -129,7 +135,10 @@ retro_no_eval <- test_pr_df %>%
     cohort = "Retrospective test set • Abx-",
     truth = factor(as.character(truth), levels = c("yes", "no")),
     truth_num = as.integer(truth == "yes"),
-    p_yes = as.numeric(p_yes)
+    p_yes = as.numeric(p_yes),
+    truth_case = as.integer(truth_num == 0L),
+    case = factor(if_else(truth_case == 1L, "yes", "no"), levels = c("yes", "no")),
+    p_case = 1 - p_yes
   )
 
 retro_yes_eval <- test_pr_df_abx %>%
@@ -137,7 +146,10 @@ retro_yes_eval <- test_pr_df_abx %>%
     cohort = "Retrospective test set • Abx+",
     truth = factor(as.character(truth), levels = c("yes", "no")),
     truth_num = as.integer(truth == "yes"),
-    p_yes = as.numeric(p_yes)
+    p_yes = as.numeric(p_yes),
+    truth_case = as.integer(truth_num == 0L),
+    case = factor(if_else(truth_case == 1L, "yes", "no"), levels = c("yes", "no")),
+    p_case = 1 - p_yes
   )
 
 # -----------------------------------------------------------------------------
@@ -147,7 +159,7 @@ retro_yes_eval <- test_pr_df_abx %>%
 # 5) ROC + PR curve utilities and plots (retro test vs prospective suspected)
 # -----------------------------------------------------------------------------
 roc_df <- function(df, cohort_name) {
-  roc_obj <- pROC::roc(df$truth_num, df$p_yes, quiet = TRUE, direction = "<")
+  roc_obj <- pROC::roc(df$truth_case, df$p_case, quiet = TRUE, direction = "<")
   tibble(
     fpr = 1 - roc_obj$specificities,
     tpr = roc_obj$sensitivities,
@@ -156,16 +168,16 @@ roc_df <- function(df, cohort_name) {
 }
 
 pr_df <- function(df, cohort_name) {
-  out <- yardstick::pr_curve(df, truth = truth, p_yes)
+  out <- yardstick::pr_curve(df, truth = case, p_case)
   out %>% transmute(recall = recall, precision = precision, cohort = cohort_name)
 }
 
 cohort_perf <- function(df, cohort_name) {
   tibble(
     cohort = cohort_name,
-    prevalence = mean(df$truth_num == 1L, na.rm = TRUE),
-    auroc = as.numeric(pROC::auc(pROC::roc(df$truth_num, df$p_yes, quiet = TRUE, direction = "<"))),
-    auprc = yardstick::pr_auc(df, truth = truth, p_yes) %>% pull(.estimate)
+    prevalence = mean(df$truth_case == 1L, na.rm = TRUE),
+    auroc = as.numeric(pROC::auc(pROC::roc(df$truth_case, df$p_case, quiet = TRUE, direction = "<"))),
+    auprc = yardstick::pr_auc(df, truth = case, p_case) %>% pull(.estimate)
   )
 }
 
