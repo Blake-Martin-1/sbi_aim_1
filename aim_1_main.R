@@ -2820,9 +2820,7 @@ roc_curve_df <- function(df_one) {
   if (dplyr::n_distinct(df_one$truth_num) < 2) {
     return(tibble(scenario = df_one$scenario[1], fpr = NA_real_, tpr = NA_real_))
   }
-  truth_case <- 1L - as.integer(df_one$truth_num)
-  score_case <- 1 - df_one$score
-  roc_obj <- pROC::roc(truth_case, score_case, quiet = TRUE, direction = "<")
+  roc_obj <- pROC::roc(df_one$truth_num, df_one$score, quiet = TRUE, direction = "<")
   tibble(
     scenario = df_one$scenario[1],
     fpr      = 1 - roc_obj$specificities,
@@ -2831,9 +2829,7 @@ roc_curve_df <- function(df_one) {
 }
 
 auroc_one <- function(df_one) {
-  truth_case <- 1L - as.integer(df_one$truth_num)
-  score_case <- 1 - df_one$score
-  roc_obj <- pROC::roc(truth_case, score_case, quiet = TRUE, direction = "<")
+  roc_obj <- pROC::roc(df_one$truth_num, df_one$score, quiet = TRUE, direction = "<")
   as.numeric(pROC::auc(roc_obj))
 }
 
@@ -2842,12 +2838,7 @@ pr_curve_df <- function(df_one) {
     return(tibble(scenario = df_one$scenario[1], recall = NA_real_, precision = NA_real_))
   }
 
-  df_case <- df_one %>%
-    mutate(
-      truth = factor(if_else(as.integer(truth_num) == 0L, "yes", "no"), levels = c("yes", "no")),
-      score = 1 - score
-    )
-  pc <- yardstick::pr_curve(df_case, truth, score, event_level = "first")
+  pc <- yardstick::pr_curve(df_one, truth, score, event_level = "first")
 
   if (all(c("precision", "recall") %in% names(pc))) {
     out <- pc %>% transmute(recall = .data[["recall"]], precision = .data[["precision"]])
@@ -2863,12 +2854,7 @@ pr_curve_df <- function(df_one) {
 }
 
 auprc_one <- function(df_one) {
-  df_case <- df_one %>%
-    mutate(
-      truth = factor(if_else(as.integer(truth_num) == 0L, "yes", "no"), levels = c("yes", "no")),
-      score = 1 - score
-    )
-  yardstick::pr_auc(df_case, truth, score, event_level = "first") %>%
+  yardstick::pr_auc(df_one, truth, score, event_level = "first") %>%
     pull(.estimate) %>%
     as.numeric()
 }
@@ -2879,7 +2865,7 @@ pr_df  <- map_dfr(dat_list, pr_curve_df)
 metrics_df <- map_dfr(dat_list, ~ tibble(
   scenario   = .x$scenario[1],
   n          = nrow(.x),
-  prevalence = mean(.x$truth_num == 0L),
+  prevalence = mean(.x$truth_num == 1L),
   AUROC      = auroc_one(.x),
   AUPRC      = auprc_one(.x)
 )) %>%
@@ -3743,8 +3729,8 @@ safe_unweighted_auroc <- function(df, truth_col = "sbi_present", score_col = "mo
   if (nrow(d) == 0 || length(unique(d[[truth_col]])) < 2) return(NA_real_)
 
   r <- pROC::roc(
-    response = 1 - d[[truth_col]],
-    predictor = 1 - d[[score_col]],
+    response = d[[truth_col]],
+    predictor = d[[score_col]],
     quiet = TRUE,
     direction = "<"
   )
@@ -3763,8 +3749,7 @@ safe_weighted_auroc <- function(df,
       .data[[w_col]] > 0
     ) %>%
     dplyr::mutate(
-      truth01 = 1 - as.integer(.data[[truth_col]]),
-      score_case = 1 - as.numeric(.data[[score_col]])
+      truth01 = as.integer(.data[[truth_col]])
     )
 
   if (nrow(d) == 0 || length(unique(d$truth01)) < 2) {
@@ -3772,7 +3757,7 @@ safe_weighted_auroc <- function(df,
   }
 
   roc_obj <- WeightedROC::WeightedROC(
-    guess  = d$score_case,
+    guess  = d[[score_col]],
     label  = d$truth01,
     weight = d[[w_col]]
   )
@@ -3784,8 +3769,8 @@ safe_unweighted_auprc <- function(df, truth_col = "sbi_present", score_col = "mo
   d <- df %>% filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]]))
   if (nrow(d) == 0 || length(unique(d[[truth_col]])) < 2) return(NA_real_)
 
-  scores_pos <- (1 - d[[score_col]])[d[[truth_col]] == 0]
-  scores_neg <- (1 - d[[score_col]])[d[[truth_col]] == 1]
+  scores_pos <- d[[score_col]][d[[truth_col]] == 1]
+  scores_neg <- d[[score_col]][d[[truth_col]] == 0]
 
   PRROC::pr.curve(
     scores.class0 = scores_pos,
@@ -3798,10 +3783,10 @@ safe_weighted_auprc <- function(df, truth_col = "sbi_present", score_col = "mode
   d <- df %>% filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]]), !is.na(.data[[w_col]]))
   if (nrow(d) == 0 || length(unique(d[[truth_col]])) < 2) return(NA_real_)
 
-  scores_pos <- (1 - d[[score_col]])[d[[truth_col]] == 0]
-  scores_neg <- (1 - d[[score_col]])[d[[truth_col]] == 1]
-  w_pos <- d[[w_col]][d[[truth_col]] == 0]
-  w_neg <- d[[w_col]][d[[truth_col]] == 1]
+  scores_pos <- d[[score_col]][d[[truth_col]] == 1]
+  scores_neg <- d[[score_col]][d[[truth_col]] == 0]
+  w_pos <- d[[w_col]][d[[truth_col]] == 1]
+  w_neg <- d[[w_col]][d[[truth_col]] == 0]
 
   PRROC::pr.curve(
     scores.class0 = scores_pos,
@@ -3822,8 +3807,7 @@ safe_unweighted_roc_df <- function(df,
       !is.na(.data[[score_col]])
     ) %>%
     dplyr::mutate(
-      truth01 = 1 - as.integer(.data[[truth_col]]),
-      score_case = 1 - as.numeric(.data[[score_col]])
+      truth01 = as.integer(.data[[truth_col]])
     )
 
   if (nrow(d) == 0 || length(unique(d$truth01)) < 2) {
@@ -3836,7 +3820,7 @@ safe_unweighted_roc_df <- function(df,
 
   roc_obj <- pROC::roc(
     response  = d$truth01,
-    predictor = d$score_case,
+    predictor = d[[score_col]],
     quiet     = TRUE,
     direction = "<"
   )
@@ -3861,8 +3845,7 @@ safe_weighted_roc_df <- function(df,
       .data[[w_col]] > 0
     ) %>%
     dplyr::mutate(
-      truth01 = 1 - as.integer(.data[[truth_col]]),
-      score_case = 1 - as.numeric(.data[[score_col]])
+      truth01 = as.integer(.data[[truth_col]])
     )
 
   if (nrow(d) == 0 || length(unique(d$truth01)) < 2) {
@@ -3874,7 +3857,7 @@ safe_weighted_roc_df <- function(df,
   }
 
   roc_obj <- WeightedROC::WeightedROC(
-    guess  = d$score_case,
+    guess  = d[[score_col]],
     label  = d$truth01,
     weight = d[[w_col]]
   )
@@ -4222,8 +4205,8 @@ roc_points_weighted <- function(df,
   d <- df %>%
     filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]])) %>%
     mutate(
-      y = 1 - as.integer(.data[[truth_col]]),
-      s = 1 - as.numeric(.data[[score_col]]),
+      y = as.integer(.data[[truth_col]]),
+      s = as.numeric(.data[[score_col]]),
       w = if (is.null(w_col)) 1 else as.numeric(.data[[w_col]])
     ) %>%
     filter(is.finite(s), !is.na(w), w > 0)
@@ -4259,8 +4242,8 @@ pr_points_weighted <- function(df,
   d <- df %>%
     filter(!is.na(.data[[truth_col]]), !is.na(.data[[score_col]])) %>%
     mutate(
-      y = 1 - as.integer(.data[[truth_col]]),
-      s = 1 - as.numeric(.data[[score_col]]),
+      y = as.integer(.data[[truth_col]]),
+      s = as.numeric(.data[[score_col]]),
       w = if (is.null(w_col)) 1 else as.numeric(.data[[w_col]])
     ) %>%
     filter(is.finite(s), !is.na(w), w > 0)
@@ -4302,10 +4285,10 @@ curve_prevalence <- function(df,
   if (nrow(d) == 0) return(NA_real_)
 
   if (is.null(w_col)) {
-    mean(as.integer(d[[truth_col]]) == 0L)
+    mean(as.integer(d[[truth_col]]) == 1L)
   } else {
     w <- d[[w_col]]
-    y <- as.integer(d[[truth_col]]) == 0L
+    y <- as.integer(d[[truth_col]]) == 1L
     sum(w * y, na.rm = TRUE) / sum(w, na.rm = TRUE)
   }
 }
