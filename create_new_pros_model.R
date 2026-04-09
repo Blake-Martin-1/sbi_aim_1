@@ -59,7 +59,7 @@ admission_df <- model_slim %>%
 all_ids <- unique(admission_df$study_id)
 shuffled_ids <- sample(all_ids)
 
-# 60/20/20 split fir train, validation, and test sets
+# 60/20/20 split for train, validation, and test sets
 n_total <- length(shuffled_ids)
 n_train <- floor(0.60 * n_total)
 n_valid <- floor(0.20 * n_total)
@@ -178,7 +178,7 @@ rf_grid <- expand.grid(
 )
 
 # Train the model
-rf_tune <- train(SBI ~ ., tuneGrid = rf_grid, data = train_df[, c(predictors, "SBI")] , method = "ranger", na.action = na.omit, importance = 'impurity',
+rf_tune <- train(SBI ~ ., tuneGrid = rf_grid, data = train_df[, c(predictors, "SBI")] , method = "ranger", metric = "ROC", na.action = na.omit, importance = 'impurity',
                  verbose = TRUE,
                  respect.unordered.factors = TRUE, num.trees = 1000,
                  trControl = ctrl)
@@ -240,13 +240,37 @@ top40 %>%
 
 
 
-# Apply to training and test sets
-rf_pred_prob_train <- predict(rf_tune, train_df %>% dplyr::select(-study_id, -sbi_present, -abx_exp, -rowid, -SBI), type = "prob")[, "pos"]
-rf_pred_prob_val <- predict(rf_tune, valid_df %>% dplyr::select(-study_id, -sbi_present), type = "prob")[, "pos"]
-rf_pred_prob_test <- predict(rf_tune, test_df %>% dplyr::select(-study_id, -sbi_present), type = "prob")[, "pos"]
+# Apply to training/validation/test sets (predictors only)
+rf_pred_prob_train <- predict(
+  rf_tune,
+  train_df %>% dplyr::select(dplyr::all_of(predictors)),
+  type = "prob"
+)[, "pos"]
+rf_pred_prob_val <- predict(
+  rf_tune,
+  valid_df %>% dplyr::select(dplyr::all_of(predictors)),
+  type = "prob"
+)[, "pos"]
+rf_pred_prob_test <- predict(
+  rf_tune,
+  test_df %>% dplyr::select(dplyr::all_of(predictors)),
+  type = "prob"
+)[, "pos"]
 
-colAUC(1 - rf_pred_prob_val, 1 - valid_df$SBI, plotROC = TRUE) # determine AUROC using SBI-negative as cases
-colAUC(1 - rf_pred_prob_test, 1 - test_df$SBI, plotROC = TRUE) # determine AUROC using SBI-negative as cases
+safe_colauc_case <- function(prob_pos, truth_factor, dataset_label, plotROC = TRUE) {
+  truth_case <- as.integer(as.character(truth_factor) == "neg")
+  if (length(unique(truth_case[!is.na(truth_case)])) < 2) {
+    warning(
+      dataset_label,
+      " has only one class in truth labels; skipping colAUC for this split."
+    )
+    return(NA_real_)
+  }
+  colAUC(1 - prob_pos, truth_case, plotROC = plotROC)
+}
+
+safe_colauc_case(rf_pred_prob_val, valid_df$SBI, "Validation") # AUROC with SBI-negative as cases
+safe_colauc_case(rf_pred_prob_test, test_df$SBI, "Test")       # AUROC with SBI-negative as cases
 
 # Store these datasets for train, validate, test, along with model predictions
 ## --- 1) Build data frame for TRAIN set ---
