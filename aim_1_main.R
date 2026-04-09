@@ -5208,17 +5208,32 @@ plot_availability_diff <- function(shift_tbl, stratum_name, min_abs_diff = 0.01)
     )
 }
 
+# helper: omit variables that end with "count" for SMD plots
+is_count_suffix_var <- function(variable, variable_plot = NA_character_) {
+  variable_clean <- variable %>%
+    stringr::str_trim() %>%
+    stringr::str_to_lower()
+
+  variable_plot_clean <- dplyr::coalesce(variable_plot, "") %>%
+    stringr::str_trim() %>%
+    stringr::str_to_lower()
+
+  stringr::str_detect(variable_clean, "_count$|count$") |
+    stringr::str_detect(variable_plot_clean, "\\bcount$")
+}
+
 plot_abs_smd <- function(shift_tbl, stratum_name) {
   top <- shift_tbl %>%
-    filter(
+    dplyr::filter(
       is.finite(abs_smd),
-      !variable %in% c("blood_y_n", "urine_y_n", "csf_y_n")
+      !variable %in% c("blood_y_n", "urine_y_n", "csf_y_n"),
+      !is_count_suffix_var(variable, variable_plot)
     ) %>%
-    slice_head(n = TOP_N_SMD_PLOT) %>%
-    mutate(
-      variable_plot = str_replace(variable_plot, "^N\\s+", "NUMBER OF "),
-      variable_plot = str_to_upper(variable_plot),
-      variable_plot = fct_reorder(variable_plot, abs_smd),
+    dplyr::slice_head(n = TOP_N_SMD_PLOT) %>%
+    dplyr::mutate(
+      variable_plot = stringr::str_replace(variable_plot, "^N\\s+", "NUMBER OF "),
+      variable_plot = stringr::str_to_upper(variable_plot),
+      variable_plot = forcats::fct_reorder(variable_plot, abs_smd),
       type = factor(type, levels = c("continuous", "binary", "categorical"))
     )
 
@@ -5249,6 +5264,62 @@ plot_abs_smd <- function(shift_tbl, stratum_name) {
       subtitle = "Dashed line marks |SMD| = 0.10",
       x = NULL,
       y = "|Standardized Mean Difference|"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      plot.title = element_text(face = "bold"),
+      strip.text = element_text(face = "bold"),
+      axis.text.y = element_text(face = "bold"),
+      legend.position = "bottom",
+      panel.grid.major.y = element_blank()
+    )
+}
+
+plot_signed_smd <- function(shift_tbl, stratum_name) {
+  top <- shift_tbl %>%
+    dplyr::filter(
+      is.finite(smd),
+      is.finite(abs_smd),
+      !variable %in% c("blood_y_n", "urine_y_n", "csf_y_n"),
+      !is_count_suffix_var(variable, variable_plot)
+    ) %>%
+    dplyr::slice_head(n = TOP_N_SMD_PLOT) %>%
+    dplyr::mutate(
+      variable_plot = stringr::str_replace(variable_plot, "^N\\s+", "NUMBER OF "),
+      variable_plot = stringr::str_to_upper(variable_plot),
+      variable_plot = forcats::fct_reorder(variable_plot, smd),
+      type = factor(type, levels = c("continuous", "binary", "categorical"))
+    )
+
+  ggplot(top, aes(x = variable_plot, y = smd, fill = type)) +
+    geom_col(width = 0.72, alpha = 0.95) +
+    coord_flip() +
+    geom_hline(yintercept = 0, linewidth = 0.7, color = "black") +
+    geom_hline(yintercept = c(-0.1, 0.1), linetype = "dashed", linewidth = 0.8, color = "gray35") +
+    geom_text(
+      aes(
+        label = sprintf("%.2f", smd),
+        hjust = ifelse(smd >= 0, -0.1, 1.1)
+      ),
+      size = 3.5,
+      color = "black"
+    ) +
+    scale_fill_manual(
+      values = c(
+        "continuous" = "#56B4E9",
+        "binary" = "#E69F00",
+        "categorical" = "#CC79A7"
+      ),
+      name = "Variable type"
+    ) +
+    scale_y_continuous(
+      expand = expansion(mult = c(0.10, 0.10))
+    ) +
+    labs(
+      title = paste0("Most shifted predictors by signed SMD — ", stratum_name),
+      subtitle = "Bars show direction of shift; dashed lines mark SMD = ±0.10",
+      x = NULL,
+      y = "STANDARDIZED MEAN DIFFERENCE"
     ) +
     theme_minimal(base_size = 14) +
     theme(
@@ -5342,60 +5413,7 @@ p_yes_abx_smd     <- yes_abx_results$p_smd
 
 
 # Now another version of shifed SMD predictor plot without abs value
-plot_signed_smd <- function(shift_tbl, stratum_name) {
-  top <- shift_tbl %>%
-    filter(
-      is.finite(smd),
-      is.finite(abs_smd),
-      !variable %in% c("blood_y_n", "urine_y_n", "csf_y_n")
-    ) %>%
-    slice_head(n = TOP_N_SMD_PLOT) %>%
-    mutate(
-      variable_plot = str_replace(variable_plot, "^N\\s+", "NUMBER OF "),
-      variable_plot = str_to_upper(variable_plot),
-      variable_plot = fct_reorder(variable_plot, smd),
-      type = factor(type, levels = c("continuous", "binary", "categorical"))
-    )
 
-  ggplot(top, aes(x = variable_plot, y = smd, fill = type)) +
-    geom_col(width = 0.72, alpha = 0.95) +
-    coord_flip() +
-    geom_hline(yintercept = 0, linewidth = 0.7, color = "black") +
-    geom_hline(yintercept = c(-0.1, 0.1), linetype = "dashed", linewidth = 0.8, color = "gray35") +
-    geom_text(
-      aes(
-        label = sprintf("%.2f", smd),
-        hjust = ifelse(smd >= 0, -0.1, 1.1)
-      ),
-      size = 3.5,
-      color = "black"
-    ) +
-    scale_fill_manual(
-      values = c(
-        "continuous" = "#56B4E9",
-        "binary" = "#E69F00",
-        "categorical" = "#CC79A7"
-      ),
-      name = "Variable type"
-    ) +
-    scale_y_continuous(
-      expand = expansion(mult = c(0.10, 0.10))
-    ) +
-    labs(
-      title = paste0("Most shifted predictors by signed SMD — ", stratum_name),
-      subtitle = "Bars show direction of shift; dashed lines mark SMD = ±0.10",
-      x = NULL,
-      y = "STANDARDIZED MEAN DIFFERENCE"
-    ) +
-    theme_minimal(base_size = 14) +
-    theme(
-      plot.title = element_text(face = "bold"),
-      strip.text = element_text(face = "bold"),
-      axis.text.y = element_text(face = "bold"),
-      legend.position = "bottom",
-      panel.grid.major.y = element_blank()
-    )
-}
 
 p_no_abx_smd_signed <- plot_signed_smd(
   shift_no_abx,
