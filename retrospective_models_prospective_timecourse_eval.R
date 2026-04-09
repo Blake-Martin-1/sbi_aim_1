@@ -99,7 +99,7 @@ pros_24_yes <- pros_yes_abx_final_24
 # Now test the no_abx model on prospective cohort at all hours
 validate_predictor_schema(pros_24_no, predictors, "pros_24_no")
 rf_pred_prob_pros_24 <- predict(rf_model, pros_24_no[, all_of(c(predictors))], type = "prob")
-pros_auroc_no_abx_24 <- colAUC(rf_pred_prob_pros_24, pros_24_no$sbi_present, plotROC = FALSE) # AUC of 0.736 in prospective test set
+pros_auroc_no_abx_24 <- colAUC(1 - rf_pred_prob_pros_24, 1 - pros_24_no$sbi_present, plotROC = FALSE) # AUC with SBI-negative as cases
 pros_auroc_no_abx_24 # overall AUROC 0.715
 
 # Create dataframe to view probabilities and outcomes
@@ -119,7 +119,7 @@ pros_yes_temp_24 <- pros_24_yes
 
 validate_predictor_schema(pros_yes_temp_24, predictors_abx, "pros_24_yes")
 rf_pred_prob_pros_24_abx <- predict(rf_model_abx, pros_yes_temp_24[, all_of(c(predictors_abx))], type = "prob")
-pros_auroc_yes_abx_24 <- colAUC(rf_pred_prob_pros_24_abx, pros_24_yes$sbi_present, plotROC = FALSE)
+pros_auroc_yes_abx_24 <- colAUC(1 - rf_pred_prob_pros_24_abx, 1 - pros_24_yes$sbi_present, plotROC = FALSE)
 pros_auroc_yes_abx_24 # overall AUROC 0.735
 
 # Create dataframe to view probabilities and outcomes
@@ -427,7 +427,8 @@ library(purrr)
 #------------------------------------------------------------
 
 calc_auroc <- function(truth, score) {
-  truth_num <- as.integer(truth)
+  truth_num <- 1 - as.integer(truth)
+  score_case <- 1 - score
 
   if (length(unique(truth_num[!is.na(truth_num)])) < 2) {
     return(NA_real_)
@@ -435,7 +436,7 @@ calc_auroc <- function(truth, score) {
 
   roc_obj <- pROC::roc(
     response = truth_num,
-    predictor = score,
+    predictor = score_case,
     quiet = TRUE,
     direction = "<"
   )
@@ -444,14 +445,15 @@ calc_auroc <- function(truth, score) {
 }
 
 calc_auprc <- function(truth, score) {
-  truth_num <- as.integer(truth)
+  truth_num <- 1 - as.integer(truth)
+  score_case <- 1 - score
 
   if (length(unique(truth_num[!is.na(truth_num)])) < 2) {
     return(NA_real_)
   }
 
-  pos_scores <- score[truth_num == 1]
-  neg_scores <- score[truth_num == 0]
+  pos_scores <- score_case[truth_num == 1]
+  neg_scores <- score_case[truth_num == 0]
 
   if (length(pos_scores) == 0 || length(neg_scores) == 0) {
     return(NA_real_)

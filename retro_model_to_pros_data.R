@@ -19,7 +19,7 @@ validate_predictor_schema <- function(df, required_predictors, dataset_label) {
 # Now test the no_abx model on prospective 2hr AU cohort
 validate_predictor_schema(pros_no_abx_1st_infxn, predictors, "pros_no_abx_1st_infxn")
 rf_pred_prob_pros <- predict(rf_model, pros_no_abx_1st_infxn[, all_of(c(predictors))], type = "prob")
-pros_auroc_no_abx <- colAUC(rf_pred_prob_pros, pros_no_abx_1st_infxn$sbi_present, plotROC = FALSE) # AUC of 0.736 in prospective test set
+pros_auroc_no_abx <- colAUC(1 - rf_pred_prob_pros, 1 - pros_no_abx_1st_infxn$sbi_present, plotROC = FALSE) # AUC using SBI-negative as cases
 pros_auroc_no_abx
 
 
@@ -42,7 +42,7 @@ pros_yes_temp <- pros_yes_abx_1st_infxn %>% rename(hematocrit_blood = hematocrit
 
 validate_predictor_schema(pros_yes_temp, predictors_abx, "pros_yes_temp")
 rf_pred_prob_pros_abx <- predict(rf_model_abx, (pros_yes_temp[, all_of(c(predictors_abx))]), type = "prob")
-pros_auroc_abx_yes_abx <- colAUC(rf_pred_prob_pros_abx, pros_yes_temp$sbi_present, plotROC = FALSE) # AUC of 0.750 in prospective test set
+pros_auroc_abx_yes_abx <- colAUC(1 - rf_pred_prob_pros_abx, 1 - pros_yes_temp$sbi_present, plotROC = FALSE) # AUC using SBI-negative as cases
 pros_auroc_abx_yes_abx
 
 
@@ -56,8 +56,8 @@ pred_df_pros_abx <- pros_yes_temp %>%
 # Get AUROC
 roc_obj_pros_yes_abx <- roc(
   response  = pred_df_pros_abx$sbi_present,
-  predictor = pred_df_pros_abx$pred_prob_yes,
-  levels    = c(0, 1),   # 1 is the positive class
+  predictor = 1 - pred_df_pros_abx$pred_prob_yes,
+  levels    = c(1, 0),   # 0 (SBI-negative) is the positive class
   direction = "<"
 )
 
@@ -77,9 +77,9 @@ stopifnot(all(c("yes","no") %in% colnames(rf_pred_prob_pros)))   # caret probs
 stopifnot(all(pros_no_abx_1st_infxn$sbi_present %in% c(0, 1)))   # numeric truth
 
 pros_noabx_pr_df <- tibble(
-  truth = factor(ifelse(pros_no_abx_1st_infxn$sbi_present == 1, "yes", "no"),
+  truth = factor(ifelse(pros_no_abx_1st_infxn$sbi_present == 0, "yes", "no"),
                  levels = c("yes","no")),
-  p_yes = rf_pred_prob_pros[, "yes"]
+  p_yes = 1 - rf_pred_prob_pros[, "yes"]
 )
 
 pros_auprc_no_abx <- pr_auc(pros_noabx_pr_df, truth = truth, p_yes) %>%
@@ -93,9 +93,9 @@ stopifnot(all(c("yes","no") %in% colnames(rf_pred_prob_pros_abx)))
 stopifnot(all(pros_yes_temp$sbi_present %in% c(0, 1)))
 
 pros_yesabx_pr_df <- tibble(
-  truth = factor(ifelse(pros_yes_temp$sbi_present == 1, "yes", "no"),
+  truth = factor(ifelse(pros_yes_temp$sbi_present == 0, "yes", "no"),
                  levels = c("yes","no")),
-  p_yes = rf_pred_prob_pros_abx[, "yes"]
+  p_yes = 1 - rf_pred_prob_pros_abx[, "yes"]
 )
 
 pros_auprc_yes_abx <- pr_auc(pros_yesabx_pr_df, truth = truth, p_yes) %>%

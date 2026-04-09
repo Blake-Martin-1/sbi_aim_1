@@ -43,7 +43,7 @@ rf_df <- rf_df %>% dplyr::select(all_of(c("case_id", "sbi_present", au_40_list))
 #Fix classes
 rf_df$sbi_present <- factor(
   rf_df$sbi_present,
-  levels = c("yes", "no")
+  levels = c("no", "yes")
 )
 
 #################################################################################################################################################
@@ -247,8 +247,8 @@ retro_test_auroc_no_abx <- as.numeric(
   pROC::auc(
     pROC::roc(
       response  = test_df$sbi_present,
-      predictor = rf_pred_prob[["yes"]],
-      levels    = c("no", "yes"),
+      predictor = 1 - rf_pred_prob[["yes"]],
+      levels    = c("yes", "no"),
       direction = "<",
       quiet     = TRUE
     )
@@ -308,9 +308,9 @@ View(npv_by_threshold)
 # make a data frame with truth + positive-class prob
 test_pr_df <- tibble(
   truth = test_df$sbi_present,
-  p_yes = rf_pred_prob[, "yes"]   # <-- positive class prob (adjust if your level name differs)
+  p_yes = 1 - rf_pred_prob[, "yes"]   # <-- positive class prob (adjust if your level name differs)
 ) %>%
-  mutate(truth = factor(truth, levels = c("yes","no")))
+  mutate(truth = factor(truth, levels = c("no","yes")))
 
 retro_test_auprc_no_abx <- yardstick::pr_auc(test_pr_df, truth = truth, p_yes) %>% # 0.51 in test set, prevalence 0.256
   pull(.estimate)
@@ -321,11 +321,15 @@ retro_test_auprc_no_abx <- yardstick::pr_auc(test_pr_df, truth = truth, p_yes) %
 oof <- rf_model$pred
 
 # AUPRC using PRROC (class0 = positive class scores)
-oof <- rf_model$pred %>% mutate(obs = factor(obs, levels = c("yes","no")))
+oof <- rf_model$pred %>%
+  mutate(
+    obs = factor(obs, levels = c("no","yes")),
+    p_yes = 1 - yes
+  )
 retro_train_auprc_no_abx <- yardstick::pr_auc(
   oof,
   truth = obs,
-  yes        # <-- bare column name, no `estimate =`
+  p_yes      # <-- probability of SBI-negative case class
 ) %>%
   pull(.estimate) #0.486 AUPRC, prevalence in training set of SBI is 0.269
 
@@ -363,8 +367,8 @@ test_preds <- tibble(
 
 roc_obj <- roc(
   response  = test_preds$sbi_present,
-  predictor = test_preds$model_score,
-  levels = c("no", "yes"),   # sets "yes" as the positive class
+  predictor = 1 - test_preds$model_score,
+  levels = c("yes", "no"),   # sets "no" as the positive class
   direction = "<"
 )
 
@@ -417,7 +421,7 @@ rf_df_abx <- rf_df_abx %>% dplyr::select(-all_of(bad_cols))
 #Fix classes
 rf_df_abx$sbi_present <- factor(
   rf_df_abx$sbi_present,
-  levels = c("yes", "no")
+  levels = c("no", "yes")
 )
 
 # Include the top 40 variables identified later
@@ -673,8 +677,8 @@ retro_test_auroc_yes_abx <- as.numeric(
   pROC::auc(
     pROC::roc(
       response  = test_df_abx$sbi_present,
-      predictor = rf_pred_prob_abx[["yes"]],
-      levels    = c("no", "yes"),
+      predictor = 1 - rf_pred_prob_abx[["yes"]],
+      levels    = c("yes", "no"),
       direction = "<",
       quiet     = TRUE
     )
@@ -685,20 +689,24 @@ retro_test_auroc_yes_abx <- as.numeric(
 # make a data frame with truth + positive-class prob
 test_pr_df_abx <- tibble(
   truth = test_df_abx$sbi_present,
-  p_yes = rf_pred_prob_abx[, "yes"]   # <-- positive class prob (adjust if your level name differs)
+  p_yes = 1 - rf_pred_prob_abx[, "yes"]   # <-- positive class prob (adjust if your level name differs)
 ) %>%
-  mutate(truth = factor(truth, levels = c("yes","no")))
+  mutate(truth = factor(truth, levels = c("no","yes")))
 
 retro_test_auprc_yes_abx <- yardstick::pr_auc(test_pr_df_abx, truth = truth, p_yes) %>% # 0.760 in test set, prevalence 0.48
   pull(.estimate)
 
 # Store the training set AURPC
 # AUPRC using PRROC (class0 = positive class scores)
-oof_abx <- rf_model_abx$pred %>% mutate(obs = factor(obs, levels = c("yes","no")))
+oof_abx <- rf_model_abx$pred %>%
+  mutate(
+    obs = factor(obs, levels = c("no","yes")),
+    p_yes = 1 - yes
+  )
 retro_train_auprc_yes_abx <- yardstick::pr_auc(
   oof_abx,
   truth = obs,
-  yes        # <-- bare column name, no `estimate =`
+  p_yes      # <-- probability of SBI-negative case class
 ) %>%
   pull(.estimate) #0.757 AUPRC, prevalence in training set of SBI is 0.505
 
@@ -733,8 +741,8 @@ test_preds_abx <- tibble(
 
 roc_obj_abx <- roc(
   response  = test_preds_abx$sbi_present,
-  predictor = test_preds_abx$model_score,
-  levels = c("no", "yes"),   # sets "yes" as the positive class
+  predictor = 1 - test_preds_abx$model_score,
+  levels = c("yes", "no"),   # sets "no" as the positive class
   direction = "<"
 )
 
