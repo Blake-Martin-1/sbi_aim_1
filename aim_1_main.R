@@ -5087,31 +5087,56 @@ build_shift_table <- function(df_retro, df_pros, stratum_name) {
 # ----------------------------
 # Plot helpers
 # ----------------------------
+# helper: identify count / row-count style variables that should be excluded
+is_excluded_density_var <- function(variable, variable_plot = NA_character_) {
+  variable_clean <- variable %>%
+    stringr::str_trim() %>%
+    stringr::str_to_lower()
+
+  variable_plot_clean <- dplyr::coalesce(variable_plot, "") %>%
+    stringr::str_trim() %>%
+    stringr::str_to_lower()
+
+  # exclude raw variable names like n_fio2_rows, number_xxx, fio2_count
+  # and display labels like "N Fio2 Rows" or "Fio2 count"
+  stringr::str_detect(variable_clean, "^n_|^number_|_count$|count$") |
+    stringr::str_detect(variable_plot_clean, "^n\\b|^n\\s|^number\\b|count$")
+}
+
 plot_density_overlays <- function(df_retro, df_pros, shift_tbl, stratum_name) {
-  top_vars <- shift_tbl %>%
-    filter(type == "continuous", is.finite(abs_smd)) %>%
-    slice_head(n = TOP_N_DENSITY_FEATURE) %>%
-    pull(variable)
+
+  shift_tbl_density <- shift_tbl %>%
+    dplyr::mutate(
+      exclude_from_density = is_excluded_density_var(variable, variable_plot)
+    ) %>%
+    dplyr::filter(
+      type == "continuous",
+      is.finite(abs_smd),
+      !exclude_from_density
+    )
+
+  top_vars <- shift_tbl_density %>%
+    dplyr::slice_head(n = TOP_N_DENSITY_FEATURE) %>%
+    dplyr::pull(variable)
 
   if (length(top_vars) == 0) return(NULL)
 
-  label_map <- shift_tbl %>%
-    distinct(variable, variable_plot)
+  label_map <- shift_tbl_density %>%
+    dplyr::filter(variable %in% top_vars) %>%
+    dplyr::distinct(variable, variable_plot)
 
-  long <- bind_rows(
-    df_retro %>% select(all_of(top_vars)) %>% mutate(epoch2 = "Retro"),
-    df_pros  %>% select(all_of(top_vars)) %>% mutate(epoch2 = "Prospective")
+  long <- dplyr::bind_rows(
+    df_retro %>% dplyr::select(dplyr::all_of(top_vars)) %>% dplyr::mutate(epoch2 = "Retro"),
+    df_pros  %>% dplyr::select(dplyr::all_of(top_vars)) %>% dplyr::mutate(epoch2 = "Prospective")
   ) %>%
-    pivot_longer(cols = all_of(top_vars), names_to = "variable", values_to = "value") %>%
-    left_join(label_map, by = "variable") %>%
-    mutate(
-      is_count_var = str_detect(variable, "^n_|_count$|^number_"),
-      value_plot   = value
+    tidyr::pivot_longer(
+      cols = dplyr::all_of(top_vars),
+      names_to = "variable",
+      values_to = "value"
     ) %>%
-    filter(
-      is.finite(value_plot),
-      !(is_count_var & value_plot > 75)
-    )
+    dplyr::left_join(label_map, by = "variable") %>%
+    dplyr::mutate(value_plot = value) %>%
+    dplyr::filter(is.finite(value_plot))
 
   ggplot(long, aes(x = value_plot, color = epoch2, fill = epoch2)) +
     geom_density(alpha = 0.18, linewidth = 1) +
@@ -5121,7 +5146,10 @@ plot_density_overlays <- function(df_retro, df_pros, shift_tbl, stratum_name) {
     labs(
       title = paste0("Top shifted continuous predictors — ", stratum_name),
       subtitle = "Density overlays comparing retrospective vs prospective cohorts",
-      x = NULL, y = "Density", color = "Epoch", fill = "Epoch"
+      x = NULL,
+      y = "Density",
+      color = "Epoch",
+      fill = "Epoch"
     ) +
     theme_minimal(base_size = 13) +
     theme(
@@ -5130,7 +5158,6 @@ plot_density_overlays <- function(df_retro, df_pros, shift_tbl, stratum_name) {
       legend.position = "bottom"
     )
 }
-
 plot_availability_diff <- function(shift_tbl, stratum_name, min_abs_diff = 0.01) {
 
   top <- shift_tbl %>%
