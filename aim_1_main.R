@@ -2725,14 +2725,33 @@ dat_all <- bind_rows(
 ) %>%
   filter(!is.na(truth_num), !is.na(score), is.finite(score)) %>%
   mutate(
-    case_num = as.integer(truth_num == 0L),
-    case = factor(if_else(case_num == 1L, "yes", "no"), levels = c("yes", "no")),
-    score_case = 1 - score,
     scenario = factor(
       scenario,
       levels = c("Retro • Abx+", "Retro • Abx-", "Pros • Abx+", "Pros • Abx-")
     )
   )
+
+# Ensure each scenario uses a score direction where higher score = more likely SBI+
+# (avoids inverted ROC/PR curves when a source score is oriented to SBI-).
+score_direction <- dat_all %>%
+  group_by(scenario) %>%
+  summarise(
+    auc_raw = suppressWarnings(
+      as.numeric(pROC::auc(pROC::roc(truth_num, score, quiet = TRUE, direction = "<")))
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(flip_score = !is.na(auc_raw) & auc_raw < 0.5)
+
+dat_all <- dat_all %>%
+  left_join(score_direction %>% select(scenario, flip_score), by = "scenario") %>%
+  mutate(
+    score_event = if_else(flip_score, 1 - score, score),
+    case_num = as.integer(truth_num == 1L),
+    case = factor(if_else(case_num == 1L, "yes", "no"), levels = c("yes", "no")),
+    score_case = score_event
+  ) %>%
+  select(-flip_score)
 
 dat_list <- split(dat_all, dat_all$scenario)
 
@@ -3006,14 +3025,31 @@ dat_all_susp <- bind_rows(
 ) %>%
   filter(!is.na(truth_num), !is.na(score), is.finite(score)) %>%
   mutate(
-    case_num = as.integer(truth_num == 0L),
-    case = factor(if_else(case_num == 1L, "yes", "no"), levels = c("yes", "no")),
-    score_case = 1 - score,
     scenario = factor(
       scenario,
       levels = c("Retro • Abx+", "Retro • Abx-", "Pros • Abx+", "Pros • Abx-")
     )
   )
+
+score_direction_susp <- dat_all_susp %>%
+  group_by(scenario) %>%
+  summarise(
+    auc_raw = suppressWarnings(
+      as.numeric(pROC::auc(pROC::roc(truth_num, score, quiet = TRUE, direction = "<")))
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(flip_score = !is.na(auc_raw) & auc_raw < 0.5)
+
+dat_all_susp <- dat_all_susp %>%
+  left_join(score_direction_susp %>% select(scenario, flip_score), by = "scenario") %>%
+  mutate(
+    score_event = if_else(flip_score, 1 - score, score),
+    case_num = as.integer(truth_num == 1L),
+    case = factor(if_else(case_num == 1L, "yes", "no"), levels = c("yes", "no")),
+    score_case = score_event
+  ) %>%
+  select(-flip_score)
 
 dat_list_susp <- split(dat_all_susp, dat_all_susp$scenario)
 
