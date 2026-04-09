@@ -2725,6 +2725,9 @@ dat_all <- bind_rows(
 ) %>%
   filter(!is.na(truth_num), !is.na(score), is.finite(score)) %>%
   mutate(
+    case_num = as.integer(truth_num == 0L),
+    case = factor(if_else(case_num == 1L, "yes", "no"), levels = c("yes", "no")),
+    score_case = 1 - score,
     scenario = factor(
       scenario,
       levels = c("Retro • Abx+", "Retro • Abx-", "Pros • Abx+", "Pros • Abx-")
@@ -2817,10 +2820,10 @@ p_calibration
 # ----------------------------
 
 roc_curve_df <- function(df_one) {
-  if (dplyr::n_distinct(df_one$truth_num) < 2) {
+  if (dplyr::n_distinct(df_one$case_num) < 2) {
     return(tibble(scenario = df_one$scenario[1], fpr = NA_real_, tpr = NA_real_))
   }
-  roc_obj <- pROC::roc(df_one$truth_num, df_one$score, quiet = TRUE, direction = "<")
+  roc_obj <- pROC::roc(df_one$case_num, df_one$score_case, quiet = TRUE, direction = "<")
   tibble(
     scenario = df_one$scenario[1],
     fpr      = 1 - roc_obj$specificities,
@@ -2829,16 +2832,16 @@ roc_curve_df <- function(df_one) {
 }
 
 auroc_one <- function(df_one) {
-  roc_obj <- pROC::roc(df_one$truth_num, df_one$score, quiet = TRUE, direction = "<")
+  roc_obj <- pROC::roc(df_one$case_num, df_one$score_case, quiet = TRUE, direction = "<")
   as.numeric(pROC::auc(roc_obj))
 }
 
 pr_curve_df <- function(df_one) {
-  if (dplyr::n_distinct(df_one$truth_num) < 2) {
+  if (dplyr::n_distinct(df_one$case_num) < 2) {
     return(tibble(scenario = df_one$scenario[1], recall = NA_real_, precision = NA_real_))
   }
 
-  pc <- yardstick::pr_curve(df_one, truth, score, event_level = "first")
+  pc <- yardstick::pr_curve(df_one, case, score_case, event_level = "first")
 
   if (all(c("precision", "recall") %in% names(pc))) {
     out <- pc %>% transmute(recall = .data[["recall"]], precision = .data[["precision"]])
@@ -2854,7 +2857,7 @@ pr_curve_df <- function(df_one) {
 }
 
 auprc_one <- function(df_one) {
-  yardstick::pr_auc(df_one, truth, score, event_level = "first") %>%
+  yardstick::pr_auc(df_one, case, score_case, event_level = "first") %>%
     pull(.estimate) %>%
     as.numeric()
 }
@@ -2865,22 +2868,17 @@ pr_df  <- map_dfr(dat_list, pr_curve_df)
 metrics_df <- map_dfr(dat_list, ~ tibble(
   scenario   = .x$scenario[1],
   n          = nrow(.x),
-  prevalence = mean(.x$truth_num == 1L),
+  prevalence = mean(.x$case_num == 1L),
   AUROC      = auroc_one(.x),
   AUPRC      = auprc_one(.x)
 )) %>%
   mutate(
     scenario = factor(scenario, levels = levels(dat_all$scenario)),
-    auprc_prev_ratio = AUPRC / prevalence,
     roc_label = paste0(
       "AUROC = ", sprintf("%.3f", AUROC)
     ),
     pr_label = paste0(
-      "AUPRC = ", sprintf("%.3f", AUPRC), "\n",
-      "AUPRC / Prev = ",
-      sprintf("%.3f", AUPRC), " / ",
-      sprintf("%.3f", prevalence), " = ",
-      sprintf("%.1f", auprc_prev_ratio)
+      "AUPRC = ", sprintf("%.3f", AUPRC)
     )
   )
 
@@ -2935,6 +2933,13 @@ roc_plot <- ggplot(roc_df, aes(x = fpr, y = tpr, color = cohort_type)) +
 
 pr_plot <- ggplot(pr_df, aes(x = recall, y = precision, color = cohort_type)) +
   geom_line(linewidth = 1) +
+  geom_hline(
+    data = metrics_df,
+    aes(yintercept = prevalence),
+    linetype = "dashed",
+    color = "grey40",
+    inherit.aes = FALSE
+  ) +
   facet_wrap(~ scenario, ncol = 2) +
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
   scale_color_manual(values = c("Retrospective" = "red", "Prospective" = "blue", "Other" = "black")) +
@@ -3001,6 +3006,9 @@ dat_all_susp <- bind_rows(
 ) %>%
   filter(!is.na(truth_num), !is.na(score), is.finite(score)) %>%
   mutate(
+    case_num = as.integer(truth_num == 0L),
+    case = factor(if_else(case_num == 1L, "yes", "no"), levels = c("yes", "no")),
+    score_case = 1 - score,
     scenario = factor(
       scenario,
       levels = c("Retro • Abx+", "Retro • Abx-", "Pros • Abx+", "Pros • Abx-")
@@ -3015,22 +3023,17 @@ pr_df_susp  <- map_dfr(dat_list_susp, pr_curve_df)
 metrics_df_susp <- map_dfr(dat_list_susp, ~ tibble(
   scenario   = .x$scenario[1],
   n          = nrow(.x),
-  prevalence = mean(.x$truth_num == 1L),
+  prevalence = mean(.x$case_num == 1L),
   AUROC      = auroc_one(.x),
   AUPRC      = auprc_one(.x)
 )) %>%
   mutate(
     scenario = factor(scenario, levels = levels(dat_all_susp$scenario)),
-    auprc_prev_ratio = AUPRC / prevalence,
     roc_label = paste0(
       "AUROC = ", sprintf("%.3f", AUROC)
     ),
     pr_label = paste0(
-      "AUPRC = ", sprintf("%.3f", AUPRC), "\n",
-      "AUPRC / Prev = ",
-      sprintf("%.3f", AUPRC), " / ",
-      sprintf("%.3f", prevalence), " = ",
-      sprintf("%.1f", auprc_prev_ratio)
+      "AUPRC = ", sprintf("%.3f", AUPRC)
     )
   )
 
@@ -3081,6 +3084,13 @@ roc_plot_susp <- ggplot(roc_df_susp, aes(x = fpr, y = tpr, color = cohort_type))
 
 pr_plot_susp <- ggplot(pr_df_susp, aes(x = recall, y = precision, color = cohort_type)) +
   geom_line(linewidth = 1) +
+  geom_hline(
+    data = metrics_df_susp,
+    aes(yintercept = prevalence),
+    linetype = "dashed",
+    color = "grey40",
+    inherit.aes = FALSE
+  ) +
   facet_wrap(~ scenario, ncol = 2) +
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
   scale_color_manual(values = c("Retrospective" = "red", "Prospective" = "blue", "Other" = "black")) +
