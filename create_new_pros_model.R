@@ -245,8 +245,14 @@ rf_pred_prob_train <- predict(rf_tune, train_df %>% dplyr::select(-study_id, -sb
 rf_pred_prob_val <- predict(rf_tune, valid_df %>% dplyr::select(-study_id, -sbi_present), type = "prob")[, "pos"]
 rf_pred_prob_test <- predict(rf_tune, test_df %>% dplyr::select(-study_id, -sbi_present), type = "prob")[, "pos"]
 
-colAUC(1 - rf_pred_prob_val, 1 - valid_df$SBI, plotROC = TRUE) # determine AUROC using SBI-negative as cases
-colAUC(1 - rf_pred_prob_test, 1 - test_df$SBI, plotROC = TRUE) # determine AUROC using SBI-negative as cases
+# Determine AUROC using SBI-negative as the positive/case class.
+# Convert sbi_present safely to numeric (0 = no SBI, 1 = SBI present) so subtraction is valid.
+to_binary_numeric <- function(x) as.integer(as.character(x))
+valid_sbi_neg_case <- 1 - to_binary_numeric(valid_df$sbi_present)
+test_sbi_neg_case <- 1 - to_binary_numeric(test_df$sbi_present)
+
+colAUC(1 - rf_pred_prob_val, valid_sbi_neg_case, plotROC = TRUE)
+colAUC(1 - rf_pred_prob_test, test_sbi_neg_case, plotROC = TRUE)
 
 # Store these datasets for train, validate, test, along with model predictions
 ## --- 1) Build data frame for TRAIN set ---
