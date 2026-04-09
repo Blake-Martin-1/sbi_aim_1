@@ -5631,6 +5631,101 @@ p_joint_pros <- make_testing_plot(
 
 p_joint_pros
 
+#### Additional plot: counts of suspicion-of-infection components over time (full cohorts)
+# Build full retrospective and prospective datasets with the same columns
+retro_susp_counts_df <- joint_retro %>%
+  distinct(study_id, adm_year, adm_quarter, crp_pres, pct_pres, cxr_pres, any_micro_pres) %>%
+  mutate(
+    adm_year = as.integer(adm_year),
+    adm_quarter = as.integer(adm_quarter),
+    epoch = "Retrospective"
+  )
+
+pros_susp_counts_df <- bind_rows(pros_susp_elements_to_plot_no_abx, pros_susp_elements_to_plot_yes_abx) %>%
+  distinct(study_id, adm_year, adm_quarter, crp_pres, pct_pres, cxr_pres, any_micro_pres) %>%
+  mutate(
+    adm_year = as.integer(adm_year),
+    adm_quarter = as.integer(adm_quarter),
+    epoch = "Prospective"
+  )
+
+make_testing_count_plot <- function(df, plot_title = NULL) {
+
+  plot_df <- df %>%
+    mutate(year_quarter = paste0(adm_year, " Q", adm_quarter)) %>%
+    pivot_longer(
+      cols = c(crp_pres, pct_pres, cxr_pres, any_micro_pres),
+      names_to = "test",
+      values_to = "present"
+    ) %>%
+    mutate(
+      test = recode(
+        test,
+        crp_pres = "CRP",
+        pct_pres = "Procalcitonin",
+        cxr_pres = "CXR",
+        any_micro_pres = "Micro testing"
+      ),
+      test = factor(test, levels = c("CRP", "Procalcitonin", "CXR", "Micro testing"))
+    ) %>%
+    group_by(epoch, adm_year, adm_quarter, year_quarter, test) %>%
+    summarise(
+      n_encounters = sum(present == 1, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  quarter_levels <- plot_df %>%
+    distinct(adm_year, adm_quarter, year_quarter) %>%
+    arrange(adm_year, adm_quarter) %>%
+    pull(year_quarter)
+
+  plot_df <- plot_df %>%
+    mutate(year_quarter = factor(year_quarter, levels = quarter_levels))
+
+  test_colors <- c(
+    "CRP" = "#D55E00",
+    "Procalcitonin" = "#7B3294",
+    "CXR" = "#0072B2",
+    "Micro testing" = "#009E73"
+  )
+
+  p <- ggplot(plot_df, aes(x = year_quarter, y = n_encounters, color = test, group = test)) +
+    geom_line(linewidth = 1.2) +
+    geom_point(size = 2.6) +
+    facet_wrap(~epoch, nrow = 1) +
+    scale_color_manual(values = test_colors) +
+    labs(
+      title = plot_title,
+      x = "PICU admission year and quarter",
+      y = "Number of encounters with test component present",
+      color = "Test"
+    ) +
+    theme_bw(base_size = 16) +
+    theme(
+      plot.title = element_text(face = "bold", size = 18),
+      axis.title.x = element_text(face = "bold", size = 16),
+      axis.title.y = element_text(face = "bold", size = 16),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+      axis.text.y = element_text(size = 14),
+      legend.title = element_text(face = "bold", size = 15),
+      legend.text = element_text(size = 14),
+      strip.text = element_text(face = "bold", size = 15),
+      legend.position = "bottom"
+    )
+
+  if (!is.null(plot_title)) {
+    return(p)
+  }
+
+  p + ggtitle("Suspicion of Infection Components Over Time: Encounter Counts by Epoch")
+}
+
+susp_counts_all_epochs <- bind_rows(retro_susp_counts_df, pros_susp_counts_df)
+
+p_suspicion_counts_faceted <- make_testing_count_plot(susp_counts_all_epochs)
+
+p_suspicion_counts_faceted
+
 
 ##Finally will eval number of SBI neg patient who got abx, what proportion predicted to
 ## be SBI-negative by the model at the 2 hour mark (from all comers not just suspicion of
