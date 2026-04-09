@@ -2760,10 +2760,11 @@ dat_list <- split(dat_all, dat_all$scenario)
 calib_df <- purrr::list_rbind(dat_list)
 
 ## Create 0.1 probability bins and summarize calibration within each bin
+## IMPORTANT: use score_case + case_num, not raw score + truth_num
 calib_summary <- calib_df %>%
   dplyr::mutate(
     prob_bin = cut(
-      score,
+      score_case,
       breaks = seq(0, 1, by = 0.1),
       include.lowest = TRUE,
       right = FALSE
@@ -2772,33 +2773,32 @@ calib_summary <- calib_df %>%
   dplyr::group_by(scenario, prob_bin) %>%
   dplyr::summarise(
     n = dplyr::n(),
-    mean_pred = mean(score, na.rm = TRUE),
-    obs_rate = mean(truth_num, na.rm = TRUE),
-    events = sum(truth_num, na.rm = TRUE),
-    .groups = "drop"
+    mean_pred = mean(score_case, na.rm = TRUE),
+    obs_rate  = mean(case_num, na.rm = TRUE),
+    events    = sum(case_num, na.rm = TRUE),
+    .groups   = "drop"
   ) %>%
   dplyr::mutate(
     bin_lower = seq(0, 0.9, by = 0.1)[as.numeric(prob_bin)],
     bin_upper = bin_lower + 0.1,
-    bin_mid = bin_lower + 0.05
+    bin_mid   = bin_lower + 0.05
   )
 
-## View the calibration summary table
-calib_summary
-
-# Make faceted plot
-p_calibration <- ggplot(calib_summary, aes(x = mean_pred, y = obs_rate, color = scenario)) +
-  geom_abline(slope = 1, intercept = 0, linetype = 2, color = "gray50") +
-  geom_line(linewidth = 0.9) +
-  geom_point(size = 2.5) +
-  geom_text(
-    aes(label = paste0("n=", n)),
+p_calibration <- ggplot2::ggplot(
+  calib_summary,
+  ggplot2::aes(x = mean_pred, y = obs_rate, color = scenario)
+) +
+  ggplot2::geom_abline(slope = 1, intercept = 0, linetype = 2, color = "gray50") +
+  ggplot2::geom_line(linewidth = 0.9) +
+  ggplot2::geom_point(size = 2.5) +
+  ggplot2::geom_text(
+    ggplot2::aes(label = paste0("n=", n)),
     vjust = -0.8,
     size = 3.5,
     show.legend = FALSE
   ) +
-  facet_wrap(~ scenario, ncol = 2) +
-  scale_color_manual(
+  ggplot2::facet_wrap(~ scenario, ncol = 2) +
+  ggplot2::scale_color_manual(
     values = c(
       "Retro • Abx+" = "red",
       "Retro • Abx-" = "red",
@@ -2806,28 +2806,28 @@ p_calibration <- ggplot(calib_summary, aes(x = mean_pred, y = obs_rate, color = 
       "Pros • Abx-"  = "blue"
     )
   ) +
-  scale_x_continuous(
+  ggplot2::scale_x_continuous(
     limits = c(0, 1),
     breaks = seq(0, 1, by = 0.1),
     labels = scales::label_number(accuracy = 0.1)
   ) +
-  scale_y_continuous(
+  ggplot2::scale_y_continuous(
     limits = c(0, 1),
     breaks = seq(0, 1, by = 0.1),
     labels = scales::label_number(accuracy = 0.1)
   ) +
-  labs(
+  ggplot2::labs(
     title = "Calibration plots by scenario",
     x = "Mean predicted probability within bin",
     y = "Observed event rate within bin"
   ) +
-  theme_minimal(base_size = 14) +
-  theme(
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-    axis.title = element_text(size = 14, face = "bold"),
-    axis.text = element_text(size = 12, face = "bold"),
-    strip.text = element_text(size = 13, face = "bold"),
-    panel.grid.minor = element_blank(),
+  ggplot2::theme_minimal(base_size = 14) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = ggplot2::element_text(size = 14, face = "bold"),
+    axis.text = ggplot2::element_text(size = 12, face = "bold"),
+    strip.text = ggplot2::element_text(size = 13, face = "bold"),
+    panel.grid.minor = ggplot2::element_blank(),
     legend.position = "none"
   )
 
@@ -2884,23 +2884,20 @@ auprc_one <- function(df_one) {
 roc_df <- map_dfr(dat_list, roc_curve_df)
 pr_df  <- map_dfr(dat_list, pr_curve_df)
 
-metrics_df <- map_dfr(dat_list, ~ tibble(
-  scenario   = .x$scenario[1],
-  n          = nrow(.x),
-  prevalence = mean(.x$case_num == 1L),
-  AUROC      = auroc_one(.x),
-  AUPRC      = auprc_one(.x)
+metrics_df <- purrr::map_dfr(dat_list, ~ tibble::tibble(
+  scenario       = .x$scenario[1],
+  n              = nrow(.x),
+  prevalence_pos = mean(.x$case_num == 1L),
+  prevalence_neg = mean(.x$case_num == 0L),
+  AUROC          = auroc_one(.x),
+  AUPRC          = auprc_one(.x)
 )) %>%
-  mutate(
+  dplyr::mutate(
     scenario = factor(scenario, levels = levels(dat_all$scenario)),
-    roc_label = paste0(
-      "AUROC = ", sprintf("%.3f", AUROC)
-    ),
-    pr_label = paste0(
-      "AUPRC = ", sprintf("%.3f", AUPRC)
-    )
+    roc_label = paste0("AUROC = ", sprintf("%.3f", AUROC)),
+    pr_label  = paste0("AUPRC = ", sprintf("%.3f", AUPRC)),
+    prev_neg_label = paste0("SBI- prevalence = ", sprintf("%.2f", prevalence_neg))
   )
-
 # ----------------------------
 # 3) Plots
 # ----------------------------
@@ -2950,36 +2947,43 @@ roc_plot <- ggplot(roc_df, aes(x = fpr, y = tpr, color = cohort_type)) +
     legend.position = "none"
   )
 
-pr_plot <- ggplot(pr_df, aes(x = recall, y = precision, color = cohort_type)) +
-  geom_line(linewidth = 1) +
-  geom_hline(
+pr_plot <- ggplot2::ggplot(pr_df, ggplot2::aes(x = recall, y = precision, color = cohort_type)) +
+  ggplot2::geom_line(linewidth = 1) +
+  ggplot2::geom_hline(
     data = metrics_df,
-    aes(yintercept = prevalence),
+    ggplot2::aes(yintercept = prevalence_neg),
     linetype = "dashed",
     color = "grey40",
     inherit.aes = FALSE
   ) +
-  facet_wrap(~ scenario, ncol = 2) +
-  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
-  scale_color_manual(values = c("Retrospective" = "red", "Prospective" = "blue", "Other" = "black")) +
-  labs(
+  ggplot2::facet_wrap(~ scenario, ncol = 2) +
+  ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  ggplot2::scale_color_manual(values = c("Retrospective" = "red", "Prospective" = "blue", "Other" = "black")) +
+  ggplot2::labs(
     title = "Precision–Recall Curves (Retrospective TEST + Prospective)",
     x = "Recall",
     y = "Precision"
   ) +
-  geom_text(
+  ggplot2::geom_text(
     data = metrics_df,
-    aes(x = 0.10, y = 0.15, label = pr_label),
+    ggplot2::aes(x = 0.55, y = 0.93, label = pr_label),
     inherit.aes = FALSE,
     hjust = 0,
     size = 4
   ) +
-  theme_bw() +
-  theme(
-    plot.title = element_text(size = 18, face = "bold"),
-    strip.text = element_text(size = 14, face = "bold"),
-    axis.title = element_text(size = 14, face = "bold"),
-    axis.text = element_text(size = 8),
+  ggplot2::geom_text(
+    data = metrics_df,
+    ggplot2::aes(x = 0.55, y = 0.83, label = prev_neg_label),
+    inherit.aes = FALSE,
+    hjust = 0,
+    size = 4
+  ) +
+  ggplot2::theme_bw() +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(size = 18, face = "bold"),
+    strip.text = ggplot2::element_text(size = 14, face = "bold"),
+    axis.title = ggplot2::element_text(size = 14, face = "bold"),
+    axis.text = ggplot2::element_text(size = 8),
     legend.position = "none"
   )
 
@@ -3056,21 +3060,19 @@ dat_list_susp <- split(dat_all_susp, dat_all_susp$scenario)
 roc_df_susp <- map_dfr(dat_list_susp, roc_curve_df)
 pr_df_susp  <- map_dfr(dat_list_susp, pr_curve_df)
 
-metrics_df_susp <- map_dfr(dat_list_susp, ~ tibble(
-  scenario   = .x$scenario[1],
-  n          = nrow(.x),
-  prevalence = mean(.x$case_num == 1L),
-  AUROC      = auroc_one(.x),
-  AUPRC      = auprc_one(.x)
+metrics_df_susp <- purrr::map_dfr(dat_list_susp, ~ tibble::tibble(
+  scenario       = .x$scenario[1],
+  n              = nrow(.x),
+  prevalence_pos = mean(.x$case_num == 1L),
+  prevalence_neg = mean(.x$case_num == 0L),
+  AUROC          = auroc_one(.x),
+  AUPRC          = auprc_one(.x)
 )) %>%
-  mutate(
+  dplyr::mutate(
     scenario = factor(scenario, levels = levels(dat_all_susp$scenario)),
-    roc_label = paste0(
-      "AUROC = ", sprintf("%.3f", AUROC)
-    ),
-    pr_label = paste0(
-      "AUPRC = ", sprintf("%.3f", AUPRC)
-    )
+    roc_label = paste0("AUROC = ", sprintf("%.3f", AUROC)),
+    pr_label  = paste0("AUPRC = ", sprintf("%.3f", AUPRC)),
+    prev_neg_label = paste0("SBI-negative prevalence = ", sprintf("%.2f", prevalence_neg))
   )
 
 roc_df_susp <- roc_df_susp %>%
@@ -3118,36 +3120,43 @@ roc_plot_susp <- ggplot(roc_df_susp, aes(x = fpr, y = tpr, color = cohort_type))
     legend.position = "none"
   )
 
-pr_plot_susp <- ggplot(pr_df_susp, aes(x = recall, y = precision, color = cohort_type)) +
-  geom_line(linewidth = 1) +
-  geom_hline(
+pr_plot_susp <- ggplot2::ggplot(pr_df_susp, ggplot2::aes(x = recall, y = precision, color = cohort_type)) +
+  ggplot2::geom_line(linewidth = 1) +
+  ggplot2::geom_hline(
     data = metrics_df_susp,
-    aes(yintercept = prevalence),
+    ggplot2::aes(yintercept = prevalence_neg),
     linetype = "dashed",
     color = "grey40",
     inherit.aes = FALSE
   ) +
-  facet_wrap(~ scenario, ncol = 2) +
-  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
-  scale_color_manual(values = c("Retrospective" = "red", "Prospective" = "blue", "Other" = "black")) +
-  labs(
+  ggplot2::facet_wrap(~ scenario, ncol = 2) +
+  ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  ggplot2::scale_color_manual(values = c("Retrospective" = "red", "Prospective" = "blue", "Other" = "black")) +
+  ggplot2::labs(
     title = "Precision-Recall Curves (Suspected Infection Only)",
     x = "Recall",
     y = "Precision"
   ) +
-  geom_text(
+  ggplot2::geom_text(
     data = metrics_df_susp,
-    aes(x = 0.10, y = 0.15, label = pr_label),
+    ggplot2::aes(x = 0.60, y = 0.97, label = pr_label),
     inherit.aes = FALSE,
     hjust = 0,
     size = 4
   ) +
-  theme_bw() +
-  theme(
-    plot.title = element_text(size = 18, face = "bold"),
-    strip.text = element_text(size = 14, face = "bold"),
-    axis.title = element_text(size = 14, face = "bold"),
-    axis.text = element_text(size = 8),
+  ggplot2::geom_text(
+    data = metrics_df_susp,
+    ggplot2::aes(x = 0.60, y = 0.87, label = prev_neg_label),
+    inherit.aes = FALSE,
+    hjust = 0,
+    size = 4
+  ) +
+  ggplot2::theme_bw() +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(size = 18, face = "bold"),
+    strip.text = ggplot2::element_text(size = 14, face = "bold"),
+    axis.title = ggplot2::element_text(size = 14, face = "bold"),
+    axis.text = ggplot2::element_text(size = 8),
     legend.position = "none"
   )
 
