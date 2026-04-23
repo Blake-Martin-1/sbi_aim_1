@@ -2,6 +2,8 @@
 # timepoints, not just the point 2 hours after PICU admission. No need to recreate all of the 'suspicion of infection' code since we
 # are not going to look at that subgroup at these other timepoints.
 
+source(file = "retro_models_to_2026.R")
+
 pros_all <- read_csv(file = prospective_model_data_file_path)
 
 # Filter to just the antibiotic unexposed random forest model

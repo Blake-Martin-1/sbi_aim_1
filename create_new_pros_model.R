@@ -677,7 +677,6 @@ p_auroc <- ggplot2::ggplot(
   ) +
   ggplot2::labs(
     title = "AUROC by PICU Hour",
-    subtitle = sbi_neg_prevalence_label,
     x = "Hours Since PICU Admission",
     y = "AUROC"
   ) +
