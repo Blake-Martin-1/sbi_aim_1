@@ -2954,11 +2954,11 @@ metrics_df <- purrr::map_dfr(dat_list, ~ {
     scenario = factor(scenario, levels = levels(dat_all$scenario)),
     roc_label = purrr::pmap_chr(
       list(AUROC, AUROC_low, AUROC_high),
-      ~ format_metric_ci(.1, .2, .3, "AUROC")
+      ~ format_metric_ci(..1, ..2, ..3, "AUROC")
     ),
     pr_label = purrr::pmap_chr(
       list(AUPRC, AUPRC_low, AUPRC_high),
-      ~ format_metric_ci(.1, .2, .3, "AUPRC")
+      ~ format_metric_ci(..1, ..2, ..3, "AUPRC")
     ),
     prev_neg_label = paste0(
       "SBI- prevalence = ",
