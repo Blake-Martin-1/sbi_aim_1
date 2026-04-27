@@ -2733,7 +2733,8 @@ retro_no_abx <- test_pr_df %>%
     scenario  = "Retro • Abx-",
     truth     = factor(as.character(truth), levels = c("yes","no")),
     truth_num = as.integer(truth == "yes"),
-    score     = to_prob01(p_yes)
+    # In retro_models_to_2026.R, p_yes is already Pr(SBI-negative).
+    score_case = to_prob01(p_yes)
   )
 
 # Retro test: exposed (already in test_pr_df_abx: truth + p_yes)
@@ -2742,7 +2743,8 @@ retro_yes_abx <- test_pr_df_abx %>%
     scenario  = "Retro • Abx+",
     truth     = factor(as.character(truth), levels = c("yes","no")),
     truth_num = as.integer(truth == "yes"),
-    score     = to_prob01(p_yes)
+    # In retro_models_to_2026.R, p_yes is already Pr(SBI-negative).
+    score_case = to_prob01(p_yes)
   )
 
 # Prospective: unexposed
@@ -2750,7 +2752,8 @@ pros_no_abx <- tibble(
   scenario  = "Pros • Abx-",
   truth_num = as.integer(pros_no_abx_1st_infxn$sbi_present),
   truth     = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes","no")),
-  score     = to_prob01(rf_pred_prob_pros[, "yes"])
+  # rf_pred_prob_pros[, "yes"] is Pr(SBI-present), so invert to get Pr(SBI-negative).
+  score_case = 1 - to_prob01(rf_pred_prob_pros[, "yes"])
 )
 
 # Prospective: exposed
@@ -2758,7 +2761,8 @@ pros_yes_abx <- tibble(
   scenario  = "Pros • Abx+",
   truth_num = as.integer(pros_yes_temp$sbi_present),
   truth     = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes","no")),
-  score     = to_prob01(rf_pred_prob_pros_abx[, "yes"])
+  # rf_pred_prob_pros_abx[, "yes"] is Pr(SBI-present), so invert to get Pr(SBI-negative).
+  score_case = 1 - to_prob01(rf_pred_prob_pros_abx[, "yes"])
 )
 
 dat_all <- bind_rows(
@@ -2769,8 +2773,8 @@ dat_all <- bind_rows(
 ) %>%
   dplyr::filter(
     !is.na(truth_num),
-    !is.na(score),
-    is.finite(score)
+    !is.na(score_case),
+    is.finite(score_case)
   ) %>%
   dplyr::mutate(
     scenario = factor(
@@ -2786,30 +2790,7 @@ dat_all <- bind_rows(
     case = factor(
       dplyr::if_else(case_num == 1L, "yes", "no"),
       levels = c("yes", "no")
-    ),
-
-    # Convert model score from Pr(SBI-present) to Pr(SBI-negative)
-    score_case = 1 - score
-  )
-
-
-dat_all <- dat_all %>%
-  dplyr::mutate(
-    # Original truth_num: 1 = SBI-present, 0 = SBI-negative
-
-    case_num = dplyr::if_else(truth_num == 0L, 1L, 0L),
-
-    # "yes" is now the event for yardstick:
-    # yes = SBI-negative
-    # no  = SBI-positive
-    case = factor(
-      dplyr::if_else(case_num == 1L, "yes", "no"),
-      levels = c("yes", "no")
-    ),
-
-    # Original score is predicted probability of SBI-present.
-    # For SBI-negative as the event, use 1 - score.
-    score_case = 1 - score
+    )
   )
 
 dat_list <- split(dat_all, dat_all$scenario)
@@ -3085,27 +3066,27 @@ metrics_df
 pros_no_abx_susp <- tibble(
   suspected_infection = pros_no_abx_1st_infxn$suspected_infection,
   sbi_present         = pros_no_abx_1st_infxn$sbi_present,
-  score_raw           = rf_pred_prob_pros[, "yes"]
+  score_case_raw      = 1 - to_prob01(rf_pred_prob_pros[, "yes"])
 ) %>%
   filter(suspected_infection == 1L) %>%
   transmute(
     scenario  = "Pros • Abx-",
     truth_num = as.integer(sbi_present),
     truth     = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes", "no")),
-    score     = to_prob01(score_raw)
+    score_case = score_case_raw
   )
 
 pros_yes_abx_susp <- tibble(
   suspected_infection = pros_yes_temp$suspected_infection,
   sbi_present         = pros_yes_temp$sbi_present,
-  score_raw           = rf_pred_prob_pros_abx[, "yes"]
+  score_case_raw      = 1 - to_prob01(rf_pred_prob_pros_abx[, "yes"])
 ) %>%
   filter(suspected_infection == 1L) %>%
   transmute(
     scenario  = "Pros • Abx+",
     truth_num = as.integer(sbi_present),
     truth     = factor(if_else(truth_num == 1L, "yes", "no"), levels = c("yes", "no")),
-    score     = to_prob01(score_raw)
+    score_case = score_case_raw
   )
 
 dat_all_susp <- bind_rows(
@@ -3116,8 +3097,8 @@ dat_all_susp <- bind_rows(
 ) %>%
   dplyr::filter(
     !is.na(truth_num),
-    !is.na(score),
-    is.finite(score)
+    !is.na(score_case),
+    is.finite(score_case)
   ) %>%
   dplyr::mutate(
     scenario = factor(
@@ -3132,10 +3113,7 @@ dat_all_susp <- bind_rows(
     case = factor(
       dplyr::if_else(case_num == 1L, "yes", "no"),
       levels = c("yes", "no")
-    ),
-
-    # Original score is Pr(SBI-present), so invert for Pr(SBI-negative)
-    score_case = 1 - score
+    )
   )
 
 dat_list_susp <- split(dat_all_susp, dat_all_susp$scenario)
