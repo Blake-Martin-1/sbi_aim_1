@@ -2762,40 +2762,55 @@ pros_yes_abx <- tibble(
 )
 
 dat_all <- bind_rows(
-  reto_yes_abx = retro_yes_abx,
-  reto_no_abx  = retro_no_abx,
-  pros_yes_abx = pros_yes_abx,
-  pros_no_abx  = pros_no_abx
+  retro_yes_abx = retro_yes_abx,
+  retro_no_abx  = retro_no_abx,
+  pros_yes_abx  = pros_yes_abx,
+  pros_no_abx   = pros_no_abx
 ) %>%
-  filter(!is.na(truth_num), !is.na(score), is.finite(score)) %>%
-  mutate(
+  dplyr::filter(
+    !is.na(truth_num),
+    !is.na(score),
+    is.finite(score)
+  ) %>%
+  dplyr::mutate(
     scenario = factor(
       scenario,
       levels = c("Retro • Abx+", "Retro • Abx-", "Pros • Abx+", "Pros • Abx-")
-    )
+    ),
+
+    # Define the event/case class for PR/ROC:
+    # 1 = SBI-negative
+    # 0 = SBI-positive
+    case_num = dplyr::if_else(truth_num == 0L, 1L, 0L),
+
+    case = factor(
+      dplyr::if_else(case_num == 1L, "yes", "no"),
+      levels = c("yes", "no")
+    ),
+
+    # Convert model score from Pr(SBI-present) to Pr(SBI-negative)
+    score_case = 1 - score
   )
 
-# Ensure each scenario uses a score direction where higher score = more likely SBI+
-# (avoids inverted ROC/PR curves when a source score is oriented to SBI-).
-score_direction <- dat_all %>%
-  group_by(scenario) %>%
-  summarise(
-    auc_raw = suppressWarnings(
-      as.numeric(pROC::auc(pROC::roc(truth_num, score, quiet = TRUE, direction = "<")))
-    ),
-    .groups = "drop"
-  ) %>%
-  mutate(flip_score = !is.na(auc_raw) & auc_raw < 0.5)
 
 dat_all <- dat_all %>%
-  left_join(score_direction %>% select(scenario, flip_score), by = "scenario") %>%
-  mutate(
-    score_event = if_else(flip_score, 1 - score, score),
-    case_num = as.integer(truth_num == 1L),
-    case = factor(if_else(case_num == 1L, "yes", "no"), levels = c("yes", "no")),
-    score_case = score_event
-  ) %>%
-  select(-flip_score)
+  dplyr::mutate(
+    # Original truth_num: 1 = SBI-present, 0 = SBI-negative
+
+    case_num = dplyr::if_else(truth_num == 0L, 1L, 0L),
+
+    # "yes" is now the event for yardstick:
+    # yes = SBI-negative
+    # no  = SBI-positive
+    case = factor(
+      dplyr::if_else(case_num == 1L, "yes", "no"),
+      levels = c("yes", "no")
+    ),
+
+    # Original score is predicted probability of SBI-present.
+    # For SBI-negative as the event, use 1 - score.
+    score_case = 1 - score
+  )
 
 dat_list <- split(dat_all, dat_all$scenario)
 
@@ -2901,27 +2916,37 @@ auroc_one <- function(df_one) {
 
 pr_curve_df <- function(df_one) {
   if (dplyr::n_distinct(df_one$case_num) < 2) {
-    return(tibble(scenario = df_one$scenario[1], recall = NA_real_, precision = NA_real_))
+    return(tibble::tibble(
+      scenario = df_one$scenario[1],
+      recall = NA_real_,
+      precision = NA_real_
+    ))
   }
 
-  pc <- yardstick::pr_curve(df_one, case, score_case, event_level = "first")
+  pc <- yardstick::pr_curve(
+    df_one,
+    case,
+    score_case,
+    event_level = "first"
+  )
 
-  if (all(c("precision", "recall") %in% names(pc))) {
-    out <- pc %>% transmute(recall = .data[["recall"]], precision = .data[["precision"]])
-  } else if (all(c("precision", "sensitivity") %in% names(pc))) {
-    out <- pc %>% transmute(recall = .data[["sensitivity"]], precision = .data[["precision"]])
-  } else {
-    stop("Unexpected columns from pr_curve(): ", paste(names(pc), collapse = ", "))
-  }
-
-  out %>%
-    mutate(scenario = df_one$scenario[1]) %>%
-    filter(is.finite(recall), is.finite(precision))
+  pc %>%
+    dplyr::transmute(
+      scenario = df_one$scenario[1],
+      recall = recall,
+      precision = precision
+    ) %>%
+    dplyr::filter(is.finite(recall), is.finite(precision))
 }
 
 auprc_one <- function(df_one) {
-  yardstick::pr_auc(df_one, case, score_case, event_level = "first") %>%
-    pull(.estimate) %>%
+  yardstick::pr_auc(
+    df_one,
+    case,
+    score_case,
+    event_level = "first"
+  ) %>%
+    dplyr::pull(.estimate) %>%
     as.numeric()
 }
 
@@ -2933,30 +2958,33 @@ metrics_df <- purrr::map_dfr(dat_list, ~ {
   auprc_ci <- bootstrap_pr_auc_ci(.x, n_boot = 1000)
 
   tibble::tibble(
-    scenario       = .x$scenario[1],
-    n              = nrow(.x),
-    prevalence_pos = mean(.x$case_num == 1L),
-    prevalence_neg = mean(.x$case_num == 0L),
-    AUROC          = auroc_one(.x),
-    AUROC_low      = auroc_ci[1],
-    AUROC_high     = auroc_ci[2],
-    AUPRC          = auprc_one(.x),
-    AUPRC_low      = auprc_ci[1],
-    AUPRC_high     = auprc_ci[2]
+    scenario = .x$scenario[1],
+    n = nrow(.x),
+    prevalence_sbi_negative = mean(.x$case_num == 1L),
+    AUROC = auroc_one(.x),
+    AUROC_low = auroc_ci[1],
+    AUROC_high = auroc_ci[2],
+    AUPRC = auprc_one(.x),
+    AUPRC_low = auprc_ci[1],
+    AUPRC_high = auprc_ci[2]
   )
 }) %>%
   dplyr::mutate(
     scenario = factor(scenario, levels = levels(dat_all$scenario)),
     roc_label = purrr::pmap_chr(
       list(AUROC, AUROC_low, AUROC_high),
-      ~ format_metric_ci(..1, ..2, ..3, "AUROC")
+      ~ format_metric_ci(.1, .2, .3, "AUROC")
     ),
     pr_label = purrr::pmap_chr(
       list(AUPRC, AUPRC_low, AUPRC_high),
-      ~ format_metric_ci(..1, ..2, ..3, "AUPRC")
+      ~ format_metric_ci(.1, .2, .3, "AUPRC")
     ),
-    prev_neg_label = paste0("SBI- prevalence = ", sprintf("%.2f", prevalence_neg))
+    prev_neg_label = paste0(
+      "SBI- prevalence = ",
+      sprintf("%.2f", prevalence_sbi_negative)
+    )
   )
+
 # ----------------------------
 # 3) Plots
 # ----------------------------
@@ -3010,7 +3038,7 @@ pr_plot <- ggplot2::ggplot(pr_df, ggplot2::aes(x = recall, y = precision, color 
   ggplot2::geom_line(linewidth = 1) +
   ggplot2::geom_hline(
     data = metrics_df,
-    ggplot2::aes(yintercept = prevalence_neg),
+    ggplot2::aes(yintercept = prevalence_sbi_negative),
     linetype = "dashed",
     color = "grey40",
     inherit.aes = FALSE
@@ -3086,33 +3114,29 @@ dat_all_susp <- bind_rows(
   pros_yes_abx = pros_yes_abx_susp,
   pros_no_abx  = pros_no_abx_susp
 ) %>%
-  filter(!is.na(truth_num), !is.na(score), is.finite(score)) %>%
-  mutate(
+  dplyr::filter(
+    !is.na(truth_num),
+    !is.na(score),
+    is.finite(score)
+  ) %>%
+  dplyr::mutate(
     scenario = factor(
       scenario,
       levels = c("Retro • Abx+", "Retro • Abx-", "Pros • Abx+", "Pros • Abx-")
-    )
-  )
-
-score_direction_susp <- dat_all_susp %>%
-  group_by(scenario) %>%
-  summarise(
-    auc_raw = suppressWarnings(
-      as.numeric(pROC::auc(pROC::roc(truth_num, score, quiet = TRUE, direction = "<")))
     ),
-    .groups = "drop"
-  ) %>%
-  mutate(flip_score = !is.na(auc_raw) & auc_raw < 0.5)
 
-dat_all_susp <- dat_all_susp %>%
-  left_join(score_direction_susp %>% select(scenario, flip_score), by = "scenario") %>%
-  mutate(
-    score_event = if_else(flip_score, 1 - score, score),
-    case_num = as.integer(truth_num == 1L),
-    case = factor(if_else(case_num == 1L, "yes", "no"), levels = c("yes", "no")),
-    score_case = score_event
-  ) %>%
-  select(-flip_score)
+    # 1 = SBI-negative case/event
+    # 0 = SBI-positive control/non-event
+    case_num = dplyr::if_else(truth_num == 0L, 1L, 0L),
+
+    case = factor(
+      dplyr::if_else(case_num == 1L, "yes", "no"),
+      levels = c("yes", "no")
+    ),
+
+    # Original score is Pr(SBI-present), so invert for Pr(SBI-negative)
+    score_case = 1 - score
+  )
 
 dat_list_susp <- split(dat_all_susp, dat_all_susp$scenario)
 
@@ -3124,16 +3148,15 @@ metrics_df_susp <- purrr::map_dfr(dat_list_susp, ~ {
   auprc_ci <- bootstrap_pr_auc_ci(.x, n_boot = 1000)
 
   tibble::tibble(
-    scenario       = .x$scenario[1],
-    n              = nrow(.x),
-    prevalence_pos = mean(.x$case_num == 1L),
-    prevalence_neg = mean(.x$case_num == 0L),
-    AUROC          = auroc_one(.x),
-    AUROC_low      = auroc_ci[1],
-    AUROC_high     = auroc_ci[2],
-    AUPRC          = auprc_one(.x),
-    AUPRC_low      = auprc_ci[1],
-    AUPRC_high     = auprc_ci[2]
+    scenario = .x$scenario[1],
+    n = nrow(.x),
+    prevalence_sbi_negative = mean(.x$case_num == 1L),
+    AUROC = auroc_one(.x),
+    AUROC_low = auroc_ci[1],
+    AUROC_high = auroc_ci[2],
+    AUPRC = auprc_one(.x),
+    AUPRC_low = auprc_ci[1],
+    AUPRC_high = auprc_ci[2]
   )
 }) %>%
   dplyr::mutate(
@@ -3146,7 +3169,10 @@ metrics_df_susp <- purrr::map_dfr(dat_list_susp, ~ {
       list(AUPRC, AUPRC_low, AUPRC_high),
       ~ format_metric_ci(..1, ..2, ..3, "AUPRC")
     ),
-    prev_neg_label = paste0("SBI- prevalence = ", sprintf("%.2f", prevalence_neg))
+    prev_neg_label = paste0(
+      "SBI- prevalence = ",
+      sprintf("%.2f", prevalence_sbi_negative)
+    )
   )
 
 roc_df_susp <- roc_df_susp %>%
@@ -3198,7 +3224,7 @@ pr_plot_susp <- ggplot2::ggplot(pr_df_susp, ggplot2::aes(x = recall, y = precisi
   ggplot2::geom_line(linewidth = 1) +
   ggplot2::geom_hline(
     data = metrics_df_susp,
-    ggplot2::aes(yintercept = prevalence_neg),
+    ggplot2::aes(yintercept = prevalence_sbi_negative),
     linetype = "dashed",
     color = "grey40",
     inherit.aes = FALSE
