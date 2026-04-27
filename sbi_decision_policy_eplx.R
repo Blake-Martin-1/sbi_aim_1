@@ -83,8 +83,26 @@ prep_seq_data <- function(df) {
 rf_valid_seq <- prep_seq_data(rf_valid_df)
 rf_test_seq  <- prep_seq_data(rf_test_df)
 
-valid_patients <- split(rf_valid_seq, rf_valid_seq$study_id)
-test_patients  <- split(rf_test_seq, rf_test_seq$study_id)
+build_patient_list <- function(seq_df) {
+  split_df <- split(seq_df, seq_df$study_id)
+
+  lapply(
+    split_df,
+    function(pt_df) {
+      pt_df <- pt_df %>% dplyr::arrange(hours_since_picu_adm)
+
+      list(
+        study_id = pt_df$study_id[[1]],
+        sbi_present = as.integer(pt_df$sbi_present[[1]]),
+        probs = as.numeric(pt_df$rf_prob),
+        hours = as.integer(pt_df$hours_since_picu_adm)
+      )
+    }
+  )
+}
+
+valid_patients <- build_patient_list(rf_valid_seq)
+test_patients  <- build_patient_list(rf_test_seq)
 
 ### ---------------------------------------------------------
 ### 2) Rule helper functions
@@ -197,18 +215,10 @@ high_rule_met <- function(probs, i, params) {
 ###    High-risk stop rule takes precedence over rule-out
 ### ---------------------------------------------------------
 
-apply_policy_one_patient <- function(pt_df, params) {
+apply_policy_one_patient <- function(pt, params) {
 
-  pt_df <- pt_df %>%
-    dplyr::arrange(hours_since_picu_adm)
-
-  probs <- pt_df$rf_prob
-  hours <- pt_df$hours_since_picu_adm
-  truth <- unique(pt_df$sbi_present)
-
-  if (length(truth) != 1) {
-    stop("Each study_id should have exactly one sbi_present value.")
-  }
+  probs <- pt$probs
+  hours <- pt$hours
 
   final_state <- "indeterminate"
   decision_hour <- NA_integer_
@@ -232,22 +242,41 @@ apply_policy_one_patient <- function(pt_df, params) {
     }
   }
 
-  tibble::tibble(
-    study_id = pt_df$study_id[[1]],
-    sbi_present = truth[[1]],
+  list(
+    study_id = pt$study_id,
+    sbi_present = pt$sbi_present,
     final_state = final_state,
     decision_hour = decision_hour
   )
 }
 
 apply_policy_dataset <- function(patient_list, params) {
-  out_list <- lapply(
-    patient_list,
-    FUN = apply_policy_one_patient,
-    params = params
-  )
+  n <- length(patient_list)
 
-  dplyr::bind_rows(out_list)
+  study_id <- character(n)
+  sbi_present <- integer(n)
+  final_state <- character(n)
+  decision_hour <- rep(NA_integer_, n)
+
+  for (j in seq_len(n)) {
+    res_j <- apply_policy_one_patient(
+      pt = patient_list[[j]],
+      params = params
+    )
+
+    study_id[[j]] <- res_j$study_id
+    sbi_present[[j]] <- res_j$sbi_present
+    final_state[[j]] <- res_j$final_state
+    decision_hour[[j]] <- res_j$decision_hour
+  }
+
+  data.frame(
+    study_id = study_id,
+    sbi_present = sbi_present,
+    final_state = final_state,
+    decision_hour = decision_hour,
+    stringsAsFactors = FALSE
+  )
 }
 
 ### ---------------------------------------------------------
@@ -257,21 +286,22 @@ apply_policy_dataset <- function(patient_list, params) {
 summarise_policy <- function(decisions_df, params) {
 
   n_patients <- nrow(decisions_df)
-  n_true_neg <- sum(decisions_df$sbi_present == 0, na.rm = TRUE)
-  n_true_pos <- sum(decisions_df$sbi_present == 1, na.rm = TRUE)
+  sbi_present <- decisions_df$sbi_present
+  final_state <- decisions_df$final_state
+  decision_hour <- decisions_df$decision_hour
 
-  ruled_out_df <- decisions_df %>%
-    dplyr::filter(final_state == "ruled_out")
+  is_true_neg <- sbi_present == 0
+  is_true_pos <- sbi_present == 1
+  is_ruled_out <- final_state == "ruled_out"
+  is_not_eligible <- final_state == "not_eligible"
+  is_indeterminate <- final_state == "indeterminate"
 
-  not_eligible_df <- decisions_df %>%
-    dplyr::filter(final_state == "not_eligible")
+  n_true_neg <- sum(is_true_neg, na.rm = TRUE)
+  n_true_pos <- sum(is_true_pos, na.rm = TRUE)
 
-  indeterminate_df <- decisions_df %>%
-    dplyr::filter(final_state == "indeterminate")
-
-  n_ruled_out <- nrow(ruled_out_df)
-  n_ruled_out_true_neg <- sum(ruled_out_df$sbi_present == 0, na.rm = TRUE)
-  n_ruled_out_false_neg <- sum(ruled_out_df$sbi_present == 1, na.rm = TRUE)
+  n_ruled_out <- sum(is_ruled_out, na.rm = TRUE)
+  n_ruled_out_true_neg <- sum(is_ruled_out & is_true_neg, na.rm = TRUE)
+  n_ruled_out_false_neg <- sum(is_ruled_out & is_true_pos, na.rm = TRUE)
 
   if (n_ruled_out > 0) {
     npv <- n_ruled_out_true_neg / n_ruled_out
@@ -291,8 +321,10 @@ summarise_policy <- function(decisions_df, params) {
     npv_upper <- NA_real_
   }
 
-  if (nrow(not_eligible_df) > 0) {
-    ppv_not_eligible <- mean(not_eligible_df$sbi_present == 1, na.rm = TRUE)
+  n_not_eligible <- sum(is_not_eligible, na.rm = TRUE)
+
+  if (n_not_eligible > 0) {
+    ppv_not_eligible <- mean(sbi_present[is_not_eligible] == 1, na.rm = TRUE)
   } else {
     ppv_not_eligible <- NA_real_
   }
@@ -334,42 +366,42 @@ summarise_policy <- function(decisions_df, params) {
 
     median_hour_ruleout_all =
       ifelse(n_ruled_out > 0,
-             stats::median(ruled_out_df$decision_hour, na.rm = TRUE),
+             stats::median(decision_hour[is_ruled_out], na.rm = TRUE),
              NA_real_),
 
     median_hour_ruleout_true_neg =
-      ifelse(sum(ruled_out_df$sbi_present == 0, na.rm = TRUE) > 0,
+      ifelse(sum(is_ruled_out & is_true_neg, na.rm = TRUE) > 0,
              stats::median(
-               ruled_out_df$decision_hour[ruled_out_df$sbi_present == 0],
+               decision_hour[is_ruled_out & is_true_neg],
                na.rm = TRUE
              ),
              NA_real_),
 
-    n_not_eligible = nrow(not_eligible_df),
+    n_not_eligible = n_not_eligible,
 
     prop_true_pos_not_eligible =
       ifelse(n_true_pos > 0,
-             sum(not_eligible_df$sbi_present == 1, na.rm = TRUE) / n_true_pos,
+             sum(is_not_eligible & is_true_pos, na.rm = TRUE) / n_true_pos,
              NA_real_),
 
     prop_true_neg_not_eligible =
       ifelse(n_true_neg > 0,
-             sum(not_eligible_df$sbi_present == 0, na.rm = TRUE) / n_true_neg,
+             sum(is_not_eligible & is_true_neg, na.rm = TRUE) / n_true_neg,
              NA_real_),
 
     ppv_not_eligible = ppv_not_eligible,
 
     prop_indeterminate =
-      ifelse(n_patients > 0, nrow(indeterminate_df) / n_patients, NA_real_),
+      ifelse(n_patients > 0, sum(is_indeterminate, na.rm = TRUE) / n_patients, NA_real_),
 
     prop_true_neg_indeterminate =
       ifelse(n_true_neg > 0,
-             sum(indeterminate_df$sbi_present == 0, na.rm = TRUE) / n_true_neg,
+             sum(is_indeterminate & is_true_neg, na.rm = TRUE) / n_true_neg,
              NA_real_),
 
     prop_true_pos_indeterminate =
       ifelse(n_true_pos > 0,
-             sum(indeterminate_df$sbi_present == 1, na.rm = TRUE) / n_true_pos,
+             sum(is_indeterminate & is_true_pos, na.rm = TRUE) / n_true_pos,
              NA_real_)
   )
 }
