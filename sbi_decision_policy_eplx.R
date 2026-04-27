@@ -83,6 +83,16 @@ low_rule_met <- function(probs, i, params) {
   low_rule <- params$low_rule[[1]]
   low_threshold <- params$low_threshold[[1]]
 
+  if (low_rule == "single_low") {
+    current_val <- probs[i]
+
+    if (is.na(current_val)) {
+      return(FALSE)
+    }
+
+    return(current_val <= low_threshold)
+  }
+
   if (low_rule == "consecutive") {
     low_k <- params$low_k[[1]]
 
@@ -149,6 +159,22 @@ high_rule_met <- function(probs, i, params) {
     }
 
     return(sum(window_vals >= high_threshold) >= high_m)
+  }
+
+  if (high_rule == "consecutive_high") {
+    high_k <- params$high_k[[1]]
+
+    if (is.na(high_k) || i < high_k) {
+      return(FALSE)
+    }
+
+    window_vals <- probs[(i - high_k + 1):i]
+
+    if (any(is.na(window_vals))) {
+      return(FALSE)
+    }
+
+    return(all(window_vals >= high_threshold))
   }
 
   stop("Unknown high_rule.")
@@ -269,6 +295,7 @@ summarise_policy <- function(decisions_df, params) {
     low_n = params$low_n[[1]],
     high_threshold = params$high_threshold[[1]],
     high_rule = params$high_rule[[1]],
+    high_k = params$high_k[[1]],
     high_m = params$high_m[[1]],
     high_n = params$high_n[[1]],
 
@@ -342,6 +369,12 @@ summarise_policy <- function(decisions_df, params) {
 
 low_rule_grid <- dplyr::bind_rows(
   tibble::tibble(
+    low_rule = "single_low",
+    low_k = NA_integer_,
+    low_m = NA_integer_,
+    low_n = NA_integer_
+  ),
+  tibble::tibble(
     low_rule = "consecutive",
     low_k = c(2L, 3L, 4L),
     low_m = NA_integer_,
@@ -350,32 +383,35 @@ low_rule_grid <- dplyr::bind_rows(
   tibble::tibble(
     low_rule = "m_of_n",
     low_k = NA_integer_,
-    low_m = c(2L, 3L),
-    low_n = c(3L, 4L)
+    low_m = c(2L, 2L, 3L, 3L, 4L),
+    low_n = c(3L, 4L, 4L, 5L, 5L)
   )
 )
 
 high_rule_grid <- dplyr::bind_rows(
   tibble::tibble(
     high_rule = "single_high",
+    high_k = NA_integer_,
     high_m = NA_integer_,
     high_n = NA_integer_
   ),
   tibble::tibble(
     high_rule = "m_of_n_high",
-    high_m = 2L,
-    high_n = 3L
+    high_k = NA_integer_,
+    high_m = c(2L, 2L, 3L, 3L, 4L),
+    high_n = c(3L, 4L, 4L, 5L, 5L)
   ),
   tibble::tibble(
-    high_rule = "m_of_n_high",
-    high_m = 3L,
-    high_n = 4L
+    high_rule = "consecutive_high",
+    high_k = c(2L, 3L, 4L),
+    high_m = NA_integer_,
+    high_n = NA_integer_
   )
 )
 
 policy_grid <- tidyr::crossing(
-  min_ruleout_hour = 1L,
-  low_threshold = seq(0.08, 0.16, by = 0.01),
+  min_ruleout_hour = 0:3,
+  low_threshold = seq(0.05, 0.24, by = 0.01),
   high_threshold = seq(0.25, 0.90, by = 0.05),
   low_rule_grid,
   high_rule_grid
@@ -461,6 +497,7 @@ top_valid_policies <- valid_grid_ranked %>%
     low_n,
     high_threshold,
     high_rule,
+    high_k,
     high_m,
     high_n,
     npv,
@@ -711,4 +748,3 @@ p_b <- ggplot2::ggplot(
 policy_figure <- p_a + p_b + patchwork::plot_layout(widths = c(1, 1.15))
 
 policy_figure
-
