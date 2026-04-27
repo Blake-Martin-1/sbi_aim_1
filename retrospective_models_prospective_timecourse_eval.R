@@ -10,16 +10,19 @@ pros_all <- read_csv(file = prospective_model_data_file_path)
 pros_rf_ue <- pros_all %>% filter(model_type == "RF_no_abx")
 
 # Filter to just the 24hr after picu admission
-pros_24hr_rf_ue <- pros_rf_ue %>% filter(hours_since_picu_adm >= 0) %>% filter(hours_since_picu_adm <= 24)
-
-pros_24hr_rf_ue <- pros_24hr_rf_ue %>%
-  mutate(
-    picu_hour = floor(hours_since_picu_adm)
+pros_24hr_rf_ue <- pros_rf_ue %>%
+  dplyr::filter(
+    hours_since_picu_adm > 0,
+    hours_since_picu_adm <= 24
+  ) %>% filter(abx_exp == 0) %>%
+  dplyr::mutate(
+    picu_hour = ceiling(hours_since_picu_adm)
   ) %>%
-  arrange(study_id, picu_hour, score_time) %>%
-  group_by(study_id, picu_hour) %>%
-  slice(1) %>%
-  ungroup()
+  dplyr::arrange(study_id, picu_hour, score_time) %>%
+  dplyr::group_by(study_id, picu_hour) %>%
+  dplyr::slice(1) %>%
+  dplyr::ungroup()
+
 
 #Now select only the same input and output columns as present in the retrospective dataset, make sure names and format match, scales match, etc
 thresh_rf_no_abx <- 0.05
@@ -41,20 +44,22 @@ pros_rf_same_24 <- pros_rf_same_24 %>%
 pros_rf_same_24$epoch <- "prospective"
 
 
-# Filter to just the antibiotic unexposed random forest model
+# Filter to just the antibiotic exposed random forest model
 pros_rf_ae <- pros_all %>% filter(model_type == "RF_yes_abx")
 
 # Filter to just the 2hr mark
-pros_24hr_rf_ae <- pros_rf_ae %>% filter(hours_since_picu_adm >= 0) %>% filter(hours_since_picu_adm <= 24)
-
-pros_24hr_rf_ae <- pros_24hr_rf_ae %>%
-  mutate(
-    picu_hour = floor(hours_since_picu_adm)
+pros_24hr_rf_ae <- pros_rf_ae %>%
+  dplyr::filter(
+    hours_since_picu_adm > 0,
+    hours_since_picu_adm <= 24
+  ) %>% filter(abx_exp == 1) %>%
+  dplyr::mutate(
+    picu_hour = ceiling(hours_since_picu_adm)
   ) %>%
-  arrange(study_id, picu_hour, score_time) %>%
-  group_by(study_id, picu_hour) %>%
-  slice(1) %>%
-  ungroup()
+  dplyr::arrange(study_id, picu_hour, score_time) %>%
+  dplyr::group_by(study_id, picu_hour) %>%
+  dplyr::slice(1) %>%
+  dplyr::ungroup()
 
 #Now select only the same input and output columns as present in the retrospective dataset, make sure names and format match, scales match, etc
 thresh_rf_yes_abx <- 0.074 #
@@ -240,7 +245,7 @@ p_npv_facet <- ggplot(npv_plot_df, aes(x = picu_hour, y = npv)) +
     color = "darkblue"
   ) +
   facet_wrap(~ facet_label, ncol = 1) +
-  scale_x_continuous(breaks = 0:24) +
+  scale_x_continuous(breaks = 1:24) +
   scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
   coord_cartesian(ylim = c(0, 1.08)) +
   labs(
@@ -398,7 +403,7 @@ p_npv_facet_matched <- ggplot2::ggplot(npv_plot_df_matched, ggplot2::aes(x = pic
     color = "darkblue"
   ) +
   ggplot2::facet_wrap(~ facet_label, ncol = 1) +
-  ggplot2::scale_x_continuous(breaks = 0:24) +
+  ggplot2::scale_x_continuous(breaks = 1:24) +
   ggplot2::scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
   ggplot2::coord_cartesian(ylim = c(0, 1.08)) +
   ggplot2::labs(
@@ -610,6 +615,31 @@ auprc_plot_df <- auprc_plot_df %>%
     facet_label = group
   )
 
+auprc_prev_df <- dplyr::bind_rows(
+  pros_24_no %>%
+    dplyr::distinct(study_id, sbi_present) %>%
+    dplyr::mutate(facet_label = "No antibiotic exposure before PICU"),
+
+  pros_24_yes %>%
+    dplyr::distinct(study_id, sbi_present) %>%
+    dplyr::mutate(facet_label = "Antibiotic exposure before PICU")
+) %>%
+  dplyr::group_by(facet_label) %>%
+  dplyr::summarise(
+    n_encounters = dplyr::n(),
+    n_sbi_neg = sum(sbi_present == 0, na.rm = TRUE),
+    sbi_neg_prevalence = n_sbi_neg / n_encounters,
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    prevalence_label = paste0(
+      "SBI\u2212 prevalence = ",
+      scales::percent(sbi_neg_prevalence, accuracy = 1)
+    ),
+    label_x = 1.3,
+    label_y = pmax(sbi_neg_prevalence - 0.035, 0.02)
+  )
+
 #------------------------------------------------------------
 # Keep only non-missing metric rows for lines/ribbons
 #------------------------------------------------------------
@@ -638,19 +668,6 @@ auprc_line_df <- auprc_line_df %>%
 # AUROC plot
 #------------------------------------------------------------
 
-# Omit hour 0
-auroc_plot_df_no0 <- auroc_plot_df %>%
-  dplyr::filter(picu_hour != 0)
-
-auprc_plot_df_no0 <- auprc_plot_df %>%
-  dplyr::filter(picu_hour != 0)
-
-auroc_line_df_no0 <- auroc_line_df %>%
-  dplyr::filter(picu_hour != 0)
-
-auprc_line_df_no0 <- auprc_line_df %>%
-  dplyr::filter(picu_hour != 0)
-
 p_auroc_facet <- ggplot(auroc_plot_df, aes(x = picu_hour, y = metric_value)) +
   geom_ribbon(
     data = auroc_line_df,
@@ -676,7 +693,7 @@ p_auroc_facet <- ggplot(auroc_plot_df, aes(x = picu_hour, y = metric_value)) +
     color = "darkblue"
   ) +
   facet_wrap(~ facet_label, ncol = 1) +
-  scale_x_continuous(breaks = 0:24) +
+  scale_x_continuous(breaks = 1:24) +
   scale_y_continuous(
     limits = c(0, 1),
     labels = scales::number_format(accuracy = 0.01)
@@ -703,6 +720,27 @@ p_auroc_facet <- ggplot(auroc_plot_df, aes(x = picu_hour, y = metric_value)) +
 #------------------------------------------------------------
 
 p_auprc_facet <- ggplot(auprc_plot_df, aes(x = picu_hour, y = metric_value)) +
+  geom_hline(
+    data = auprc_prev_df,
+    aes(yintercept = sbi_neg_prevalence),
+    inherit.aes = FALSE,
+    linetype = "dashed",
+    linewidth = 0.8,
+    color = "gray35"
+  ) +
+  geom_text(
+    data = auprc_prev_df,
+    aes(
+      x = label_x,
+      y = label_y,
+      label = prevalence_label
+    ),
+    inherit.aes = FALSE,
+    hjust = 0,
+    vjust = 1,
+    size = 3.8,
+    color = "gray25"
+  ) +
   geom_ribbon(
     data = auprc_line_df,
     aes(
@@ -727,14 +765,14 @@ p_auprc_facet <- ggplot(auprc_plot_df, aes(x = picu_hour, y = metric_value)) +
     color = "darkblue"
   ) +
   facet_wrap(~ facet_label, ncol = 1) +
-  scale_x_continuous(breaks = 0:24) +
+  scale_x_continuous(breaks = 1:24) +
   scale_y_continuous(
     limits = c(0, 1),
     labels = scales::number_format(accuracy = 0.01)
   ) +
   labs(
     title = "AUPRC over PICU time",
-    subtitle = "Shaded ribbons show 95% bootstrap confidence intervals",
+    subtitle = "Shaded ribbons show 95% bootstrap confidence intervals; dashed line shows SBI\u2212 prevalence",
     x = "PICU hour",
     y = "AUPRC"
   ) +
@@ -748,7 +786,6 @@ p_auprc_facet <- ggplot(auprc_plot_df, aes(x = picu_hour, y = metric_value)) +
     axis.text.y = element_text(size = 13),
     strip.text = element_text(face = "bold", size = 14)
   )
-
 # Add labels #
 p_auroc_facet <- p_auroc_facet +
   geom_text(
@@ -770,120 +807,5 @@ p_auprc_facet <- p_auprc_facet +
     color = "darkblue"
   )
 
-# If we want hour 0 plotted
 p_auroc_facet
 p_auprc_facet
-
-# Plot the non 0 hour plots
-p_auroc_facet_no0 <- ggplot(auroc_plot_df_no0, aes(x = picu_hour, y = metric_value)) +
-  geom_ribbon(
-    data = auroc_line_df_no0,
-    aes(
-      x = picu_hour,
-      ymin = ci_low,
-      ymax = ci_high,
-      group = facet_label
-    ),
-    inherit.aes = FALSE,
-    fill = "lightblue",
-    alpha = 0.35
-  ) +
-  geom_line(
-    data = auroc_line_df_no0,
-    aes(group = facet_label),
-    linewidth = 1.2,
-    color = "darkblue"
-  ) +
-  geom_point(
-    data = auroc_line_df_no0,
-    size = 2.8,
-    color = "darkblue"
-  ) +
-  geom_text(
-    data = auroc_line_df_no0,
-    aes(label = metric_label),
-    na.rm = TRUE,
-    vjust = -0.8,
-    size = 3.5,
-    color = "darkblue"
-  ) +
-  facet_wrap(~ facet_label, ncol = 1) +
-  scale_x_continuous(breaks = 1:24) +
-  scale_y_continuous(
-    limits = c(0, 1),
-    labels = scales::number_format(accuracy = 0.01)
-  ) +
-  labs(
-    title = "AUROC over PICU time",
-    subtitle = "Shaded ribbons show 95% bootstrap confidence intervals",
-    x = "PICU hour",
-    y = "AUROC"
-  ) +
-  theme_bw(base_size = 16) +
-  theme(
-    plot.title = element_text(face = "bold", size = 18),
-    plot.subtitle = element_text(size = 13),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.title.y = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 13),
-    axis.text.y = element_text(size = 13),
-    strip.text = element_text(face = "bold", size = 14)
-  )
-
-p_auprc_facet_no0 <- ggplot(auprc_plot_df_no0, aes(x = picu_hour, y = metric_value)) +
-  geom_ribbon(
-    data = auprc_line_df_no0,
-    aes(
-      x = picu_hour,
-      ymin = ci_low,
-      ymax = ci_high,
-      group = facet_label
-    ),
-    inherit.aes = FALSE,
-    fill = "lightblue",
-    alpha = 0.35
-  ) +
-  geom_line(
-    data = auprc_line_df_no0,
-    aes(group = facet_label),
-    linewidth = 1.2,
-    color = "darkblue"
-  ) +
-  geom_point(
-    data = auprc_line_df_no0,
-    size = 2.8,
-    color = "darkblue"
-  ) +
-  geom_text(
-    data = auprc_line_df_no0,
-    aes(label = metric_label),
-    na.rm = TRUE,
-    vjust = -0.8,
-    size = 3.5,
-    color = "darkblue"
-  ) +
-  facet_wrap(~ facet_label, ncol = 1) +
-  scale_x_continuous(breaks = 1:24) +
-  scale_y_continuous(
-    limits = c(0, 1),
-    labels = scales::number_format(accuracy = 0.01)
-  ) +
-  labs(
-    title = "AUPRC over PICU time",
-    subtitle = "Shaded ribbons show 95% bootstrap confidence intervals",
-    x = "PICU hour",
-    y = "AUPRC"
-  ) +
-  theme_bw(base_size = 16) +
-  theme(
-    plot.title = element_text(face = "bold", size = 18),
-    plot.subtitle = element_text(size = 13),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.title.y = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 13),
-    axis.text.y = element_text(size = 13),
-    strip.text = element_text(face = "bold", size = 14)
-  )
-
-p_auroc_facet_no0
-p_auprc_facet_no0

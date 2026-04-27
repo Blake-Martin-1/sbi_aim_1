@@ -341,7 +341,7 @@ pros_2hr_rf_ae <- pros_2hr_rf_ae %>%
 
 
 #Now select only the same input and output columns as present in the retrospective dataset, make sure names and format match, scales match, etc
-thresh_rf_yes_abx <- 0.1 # need to ensure this is correct
+thresh_rf_yes_abx <- 0.074 # need to ensure this is correct
 
 retro_rf_same_abx <- rf_df_abx
 
