@@ -296,6 +296,32 @@ set.seed(123)
 rf_hour_df <- rf_test_df %>%
   dplyr::filter(hours_since_picu_adm %in% 1:24)
 
+# Overall patient-timepoint pair performance at 0.12 threshold
+threshold <- 0.12
+
+overall_sbi_neg_timepoint_summary <- rf_hour_df %>%
+  dplyr::filter(
+    !is.na(sbi_present),
+    !is.na(rf_prob)
+  ) %>%
+  dplyr::mutate(
+    pred_sbi_negative = rf_prob <= threshold,
+    actual_sbi_negative = sbi_present == 0,
+    correctly_identified_sbi_negative = pred_sbi_negative & actual_sbi_negative
+  ) %>%
+  dplyr::summarise(
+    n_patient_timepoint_pairs = dplyr::n(),
+    n_actual_sbi_negative_timepoint_pairs = sum(actual_sbi_negative, na.rm = TRUE),
+    n_predicted_sbi_negative_timepoint_pairs = sum(pred_sbi_negative, na.rm = TRUE),
+    n_correctly_identified_sbi_negative_timepoint_pairs = sum(correctly_identified_sbi_negative, na.rm = TRUE),
+    pct_actual_sbi_negative_timepoints_identified =
+      n_correctly_identified_sbi_negative_timepoint_pairs / n_actual_sbi_negative_timepoint_pairs,
+    npv_among_predicted_sbi_negative_timepoints =
+      n_correctly_identified_sbi_negative_timepoint_pairs / n_predicted_sbi_negative_timepoint_pairs
+  )
+
+overall_sbi_neg_timepoint_summary
+
 dup_check <- rf_hour_df %>%
   dplyr::count(study_id, hours_since_picu_adm, name = "n_rows") %>%
   dplyr::filter(n_rows > 1)
