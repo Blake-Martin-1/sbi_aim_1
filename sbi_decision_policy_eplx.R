@@ -11,6 +11,18 @@
 library(dplyr)
 library(tidyr)
 library(tibble)
+library(future)
+library(furrr)
+
+n_workers <- max(1L, as.integer(parallelly::availableCores()) - 1L)
+
+future::plan(
+  future::multisession,
+  workers = n_workers
+)
+
+message("Using ", n_workers, " parallel workers")
+
 
 ### ---------------------------------------------------------
 ### 1) Prep data
@@ -376,15 +388,15 @@ low_rule_grid <- dplyr::bind_rows(
   ),
   tibble::tibble(
     low_rule = "consecutive",
-    low_k = c(2L, 3L, 4L),
+    low_k = c(2L, 3L),
     low_m = NA_integer_,
     low_n = NA_integer_
   ),
   tibble::tibble(
     low_rule = "m_of_n",
     low_k = NA_integer_,
-    low_m = c(2L, 2L, 3L, 3L, 4L),
-    low_n = c(3L, 4L, 4L, 5L, 5L)
+    low_m = c(2L, 2L, 3L),
+    low_n = c(3L, 4L, 4L)
   )
 )
 
@@ -398,20 +410,20 @@ high_rule_grid <- dplyr::bind_rows(
   tibble::tibble(
     high_rule = "m_of_n_high",
     high_k = NA_integer_,
-    high_m = c(2L, 2L, 3L, 3L, 4L),
-    high_n = c(3L, 4L, 4L, 5L, 5L)
+    high_m = c(2L, 2L, 3L),
+    high_n = c(3L, 4L, 4L)
   ),
   tibble::tibble(
     high_rule = "consecutive_high",
-    high_k = c(2L, 3L, 4L),
+    high_k = c(2L, 3L),
     high_m = NA_integer_,
     high_n = NA_integer_
   )
 )
 
 policy_grid <- tidyr::crossing(
-  min_ruleout_hour = 0:3,
-  low_threshold = seq(0.05, 0.24, by = 0.01),
+  min_ruleout_hour = 0:2,
+  low_threshold = seq(0.05, 0.20, by = 0.01),
   high_threshold = seq(0.25, 0.90, by = 0.05),
   low_rule_grid,
   high_rule_grid
@@ -425,28 +437,28 @@ policy_grid <- tidyr::crossing(
 
 run_grid_search <- function(patient_list, policy_grid) {
 
-  out_list <- vector("list", length = nrow(policy_grid))
+  furrr::future_map_dfr(
+    seq_len(nrow(policy_grid)),
+    function(i) {
 
-  for (i in seq_len(nrow(policy_grid))) {
+      if (i %% 100 == 0) {
+        message("Completed ", i, " / ", nrow(policy_grid), " policies")
+      }
 
-    if (i %% 100 == 0) {
-      message("Completed ", i, " / ", nrow(policy_grid), " policies")
-    }
+      params_i <- policy_grid[i, , drop = FALSE]
 
-    params_i <- policy_grid[i, , drop = FALSE]
+      decisions_i <- apply_policy_dataset(
+        patient_list = patient_list,
+        params = params_i
+      )
 
-    decisions_i <- apply_policy_dataset(
-      patient_list = patient_list,
-      params = params_i
-    )
-
-    out_list[[i]] <- summarise_policy(
-      decisions_df = decisions_i,
-      params = params_i
-    )
-  }
-
-  dplyr::bind_rows(out_list)
+      summarise_policy(
+        decisions_df = decisions_i,
+        params = params_i
+      )
+    },
+    .options = furrr::furrr_options(seed = TRUE)
+  )
 }
 
 valid_grid_results <- run_grid_search(
@@ -748,3 +760,5 @@ p_b <- ggplot2::ggplot(
 policy_figure <- p_a + p_b + patchwork::plot_layout(widths = c(1, 1.15))
 
 policy_figure
+
+future::plan(future::sequential)
