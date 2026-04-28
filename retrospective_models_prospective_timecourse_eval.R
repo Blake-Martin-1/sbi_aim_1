@@ -433,17 +433,64 @@ library(purrr)
 # Metric functions
 #------------------------------------------------------------
 
-calc_auroc <- function(truth, score) {
-  truth_num <- 1 - as.integer(truth)
-  score_case <- 1 - score
+to_truth01 <- function(x) {
+  if (is.logical(x)) {
+    return(as.integer(x))
+  }
 
-  if (length(unique(truth_num[!is.na(truth_num)])) < 2) {
+  if (is.factor(x)) {
+    x <- as.character(x)
+  }
+
+  if (is.character(x)) {
+    x_clean <- tolower(trimws(x))
+    return(dplyr::case_when(
+      x_clean %in% c("1", "yes", "y", "true", "t", "sbi+", "sbi_positive", "positive") ~ 1L,
+      x_clean %in% c("0", "no", "n", "false", "f", "sbi-", "sbi_negative", "negative") ~ 0L,
+      TRUE ~ NA_integer_
+    ))
+  }
+
+  x_num <- suppressWarnings(as.numeric(x))
+  dplyr::if_else(is.na(x_num), NA_integer_, as.integer(x_num))
+}
+
+to_prob01 <- function(x) {
+  x_num <- suppressWarnings(as.numeric(x))
+  x_num[!is.finite(x_num)] <- NA_real_
+  x_num
+}
+
+prep_sbi_negative_case_data <- function(truth, score_yes) {
+  truth_num <- to_truth01(truth)
+  score_yes_num <- to_prob01(score_yes)
+
+  valid <- !is.na(truth_num) & !is.na(score_yes_num)
+  truth_num <- truth_num[valid]
+  score_yes_num <- score_yes_num[valid]
+
+  if (length(truth_num) == 0) {
+    return(list(case_num = integer(0), score_case = numeric(0)))
+  }
+
+  list(
+    # SBI-negative is case/event class for ROC/PR analyses.
+    case_num = dplyr::if_else(truth_num == 0L, 1L, 0L),
+    # Incoming score is Pr(SBI-positive), so invert.
+    score_case = 1 - score_yes_num
+  )
+}
+
+calc_auroc <- function(truth, score) {
+  prepared <- prep_sbi_negative_case_data(truth = truth, score_yes = score)
+
+  if (length(unique(prepared$case_num)) < 2) {
     return(NA_real_)
   }
 
   roc_obj <- pROC::roc(
-    response = truth_num,
-    predictor = score_case,
+    response = prepared$case_num,
+    predictor = prepared$score_case,
     quiet = TRUE,
     direction = "<"
   )
@@ -452,15 +499,14 @@ calc_auroc <- function(truth, score) {
 }
 
 calc_auprc <- function(truth, score) {
-  truth_num <- 1 - as.integer(truth)
-  score_case <- 1 - score
+  prepared <- prep_sbi_negative_case_data(truth = truth, score_yes = score)
 
-  if (length(unique(truth_num[!is.na(truth_num)])) < 2) {
+  if (length(unique(prepared$case_num)) < 2) {
     return(NA_real_)
   }
 
-  pos_scores <- score_case[truth_num == 1]
-  neg_scores <- score_case[truth_num == 0]
+  pos_scores <- prepared$score_case[prepared$case_num == 1]
+  neg_scores <- prepared$score_case[prepared$case_num == 0]
 
   if (length(pos_scores) == 0 || length(neg_scores) == 0) {
     return(NA_real_)
@@ -481,8 +527,10 @@ calc_auprc <- function(truth, score) {
 
 bootstrap_metric_ci <- function(df, metric_fun, n_boot = 1000, conf_level = 0.95) {
 
-  # Need both classes present
-  if (length(unique(df$sbi_present[!is.na(df$sbi_present)])) < 2) {
+  truth_num <- to_truth01(df$sbi_present)
+
+  # Need both SBI classes present before bootstrapping
+  if (length(unique(truth_num[!is.na(truth_num)])) < 2) {
     return(tibble::tibble(
       estimate = NA_real_,
       ci_low = NA_real_,
