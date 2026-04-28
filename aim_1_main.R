@@ -3034,14 +3034,14 @@ pr_plot <- ggplot2::ggplot(pr_df, ggplot2::aes(x = recall, y = precision, color 
   ) +
   ggplot2::geom_text(
     data = metrics_df,
-    ggplot2::aes(x = 0.55, y = 0.93, label = pr_label),
+    ggplot2::aes(x = 0.55, y = 0.43, label = pr_label),
     inherit.aes = FALSE,
     hjust = 0,
     size = 4
   ) +
   ggplot2::geom_text(
     data = metrics_df,
-    ggplot2::aes(x = 0.55, y = 0.83, label = prev_neg_label),
+    ggplot2::aes(x = 0.55, y = 0.33, label = prev_neg_label),
     inherit.aes = FALSE,
     hjust = 0,
     size = 4
@@ -3217,14 +3217,14 @@ pr_plot_susp <- ggplot2::ggplot(pr_df_susp, ggplot2::aes(x = recall, y = precisi
   ) +
   ggplot2::geom_text(
     data = metrics_df_susp,
-    ggplot2::aes(x = 0.60, y = 0.97, label = pr_label),
+    ggplot2::aes(x = 0.60, y = 0.37, label = pr_label),
     inherit.aes = FALSE,
     hjust = 0,
     size = 4
   ) +
   ggplot2::geom_text(
     data = metrics_df_susp,
-    ggplot2::aes(x = 0.60, y = 0.87, label = prev_neg_label),
+    ggplot2::aes(x = 0.60, y = 0.27, label = prev_neg_label),
     inherit.aes = FALSE,
     hjust = 0,
     size = 4
