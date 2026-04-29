@@ -454,7 +454,7 @@ high_rule_grid <- dplyr::bind_rows(
 )
 
 # Match the legacy search space from old_decision_policy_code.R exactly
-min_ruleout_hour_grid <- 0:2
+min_ruleout_hour_grid <- 1
 low_threshold_grid <- seq(0.05, 0.20, by = 0.01)
 high_threshold_grid <- seq(0.25, 0.90, by = 0.05)
 
