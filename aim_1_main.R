@@ -3275,6 +3275,9 @@ pros_yes_abx_1st_infxn$model_score <-
 # write_csv(x = pros_no_abx_1st_infxn, "/phi/sbi/sbi_blake/pros_1st_no_abx_2_13_26.csv")
 # write_csv(x = pros_yes_abx_1st_infxn, "/phi/sbi/sbi_blake/pros_1st_yes_abx_2_13_26.csv")
 
+## Add in retrospective and prospective prism, pim, and primary diagnosis information
+extra_vps_raw <- read_excel(path = "/phi/sbi/sbi_blake/vps_pim_prism_dx_pros_2023_2024.xlsx")
+
 
 # ------------------------------------------------------------
 
