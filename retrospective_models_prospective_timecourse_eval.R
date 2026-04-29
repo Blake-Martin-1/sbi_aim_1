@@ -1,3 +1,4 @@
+# retrospective_models_prospective_timecourse_eval.R
 # Script to prepare all of the prospective dataset for input into the two random forest models. Specifically we will need to retain all
 # timepoints, not just the point 2 hours after PICU admission. No need to recreate all of the 'suspicion of infection' code since we
 # are not going to look at that subgroup at these other timepoints.
@@ -766,6 +767,37 @@ p_auroc_facet <- ggplot(auroc_plot_df, aes(x = picu_hour, y = metric_value)) +
 #------------------------------------------------------------
 # AUPRC plot
 #------------------------------------------------------------
+
+#------------------------------------------------------------
+# SBI-negative prevalence reference line for AUPRC plot
+# Because AUPRC event/case = SBI-negative, the no-skill baseline
+# is the prevalence of SBI-negative encounters.
+#------------------------------------------------------------
+
+auprc_prev_df <- dplyr::bind_rows(
+  pros_24_no %>%
+    dplyr::distinct(study_id, sbi_present) %>%
+    dplyr::mutate(facet_label = "No antibiotic exposure before PICU"),
+
+  pros_24_yes %>%
+    dplyr::distinct(study_id, sbi_present) %>%
+    dplyr::mutate(facet_label = "Antibiotic exposure before PICU")
+) %>%
+  dplyr::group_by(facet_label) %>%
+  dplyr::summarise(
+    n_encounters = dplyr::n(),
+    n_sbi_neg = sum(sbi_present == 0, na.rm = TRUE),
+    sbi_neg_prevalence = n_sbi_neg / n_encounters,
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    prevalence_label = paste0(
+      "SBI\u2212 prevalence = ",
+      scales::percent(sbi_neg_prevalence, accuracy = 1)
+    ),
+    label_x = 1.3,
+    label_y = pmax(sbi_neg_prevalence - 0.035, 0.02)
+  )
 
 p_auprc_facet <- ggplot(auprc_plot_df, aes(x = picu_hour, y = metric_value)) +
   geom_hline(

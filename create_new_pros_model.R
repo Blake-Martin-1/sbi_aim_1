@@ -273,6 +273,84 @@ rf_test_df <- test_df %>%
   dplyr::select(study_id, sbi_present, SBI, hours_since_picu_adm, dplyr::all_of(predictors)) %>%
   dplyr::mutate(rf_prob = rf_pred_prob_test)
 
+# Create calibration plot
+# -----------------------------
+# Calibration plot on test set
+# Predicted probability = Pr(SBI present)
+# Observed outcome = SBI present
+# -----------------------------
+
+calib_test_df <- rf_test_df %>%
+  dplyr::filter(
+    !is.na(rf_prob),
+    !is.na(sbi_present)
+  ) %>%
+  dplyr::mutate(
+    sbi_present_num = as.integer(as.character(sbi_present))
+  )
+
+# Decile-based calibration bins
+calib_plot_df <- calib_test_df %>%
+  dplyr::mutate(
+    pred_bin = dplyr::ntile(rf_prob, 10)
+  ) %>%
+  dplyr::group_by(pred_bin) %>%
+  dplyr::summarise(
+    n = dplyr::n(),
+    mean_predicted_risk = mean(rf_prob, na.rm = TRUE),
+    observed_sbi_rate = mean(sbi_present_num == 1, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+p_calibration <- ggplot2::ggplot(
+  calib_plot_df,
+  ggplot2::aes(x = mean_predicted_risk, y = observed_sbi_rate)
+) +
+  ggplot2::geom_abline(
+    slope = 1,
+    intercept = 0,
+    linetype = "dashed",
+    color = "gray40",
+    linewidth = 0.9
+  ) +
+  ggplot2::geom_line(
+    color = "blue3",
+    linewidth = 0.9
+  ) +
+  ggplot2::geom_point(
+    color = "blue3",
+    size = 3
+  ) +
+  # ggplot2::geom_text(
+  #   ggplot2::aes(label = paste0("n=", n)),
+  #   vjust = -0.8,
+  #   size = 3.5,
+  #   color = "blue3"
+  # ) +
+  ggplot2::scale_x_continuous(
+    limits = c(0, 1),
+    labels = scales::percent_format(accuracy = 1)
+  ) +
+  ggplot2::scale_y_continuous(
+    limits = c(0, 1),
+    labels = scales::percent_format(accuracy = 1)
+  ) +
+  ggplot2::labs(
+    title = "Calibration Plot for New Prospective Random Forest Model",
+    subtitle = "Test set; points represent deciles of predicted SBI risk",
+    x = "Mean predicted probability of SBI",
+    y = "Observed SBI rate"
+  ) +
+  ggplot2::theme_bw(base_size = 14) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = ggplot2::element_text(hjust = 0.5),
+    axis.title = ggplot2::element_text(face = "bold"),
+    panel.grid.minor = ggplot2::element_blank()
+  )
+
+p_calibration
+
 
 ######### Now plot NPV, AUROC, and AUPRC by hour #############
 # Packages
@@ -555,12 +633,43 @@ rf_hourly_metrics_boot <- purrr::map_dfr(
 # View results table
 rf_hourly_metrics_boot
 
-# Compute prevalence for AUPRC plot #
-# Check that sbi_present is constant within each patient
+# Compute SBI-negative prevalence for AUPRC plot
+# IMPORTANT:
+# AUPRC is being calculated with SBI-negative as the case/event class.
+# Therefore, the no-skill / prevalence reference line should be:
+#   number of SBI-negative encounters / total encounters
+# not SBI-positive prevalence.
+
+# Helper to safely coerce sbi_present to numeric 0/1
+# Expected coding:
+#   0 = SBI negative
+#   1 = SBI positive
+to_sbi_numeric <- function(x) {
+  if (is.factor(x)) {
+    x <- as.character(x)
+  }
+
+  if (is.character(x)) {
+    x_clean <- stringr::str_to_lower(stringr::str_trim(x))
+
+    return(dplyr::case_when(
+      x_clean %in% c("0", "no", "neg", "negative", "sbi-", "sbi_negative", "false") ~ 0L,
+      x_clean %in% c("1", "yes", "pos", "positive", "sbi+", "sbi_positive", "true") ~ 1L,
+      TRUE ~ NA_integer_
+    ))
+  }
+
+  as.integer(x)
+}
+
+# Check that sbi_present is constant within each patient/encounter
 sbi_consistency_check <- rf_hour_df %>%
+  dplyr::mutate(
+    sbi_present_num = to_sbi_numeric(sbi_present)
+  ) %>%
   dplyr::group_by(study_id) %>%
   dplyr::summarise(
-    n_outcome_values = dplyr::n_distinct(sbi_present[!is.na(sbi_present)]),
+    n_outcome_values = dplyr::n_distinct(sbi_present_num[!is.na(sbi_present_num)]),
     .groups = "drop"
   )
 
@@ -568,20 +677,36 @@ if (any(sbi_consistency_check$n_outcome_values > 1)) {
   warning("Some study_id values have more than one sbi_present value across hours.")
 }
 
-# One row per patient for prevalence calculation
+# One row per patient/encounter for prevalence calculation
 patient_level_outcome <- rf_hour_df %>%
+  dplyr::mutate(
+    sbi_present_num = to_sbi_numeric(sbi_present)
+  ) %>%
   dplyr::group_by(study_id) %>%
   dplyr::summarise(
-    sbi_present = dplyr::first(sbi_present),
+    sbi_present_num = dplyr::first(sbi_present_num[!is.na(sbi_present_num)]),
     .groups = "drop"
   )
 
-sbi_neg_prevalence <- mean(1 - patient_level_outcome$sbi_present, na.rm = TRUE)
+# Explicit SBI-negative prevalence
+sbi_neg_prevalence_df <- patient_level_outcome %>%
+  dplyr::summarise(
+    n_encounters = dplyr::n(),
+    n_sbi_negative = sum(sbi_present_num == 0, na.rm = TRUE),
+    n_sbi_positive = sum(sbi_present_num == 1, na.rm = TRUE),
+    sbi_neg_prevalence = n_sbi_negative / n_encounters,
+    sbi_pos_prevalence = n_sbi_positive / n_encounters
+  )
+
+sbi_neg_prevalence <- sbi_neg_prevalence_df$sbi_neg_prevalence
 
 sbi_neg_prevalence_label <- paste0(
-  "SBI- Prevalence = ",
-  sprintf("%.2f", sbi_neg_prevalence)
+  "SBI-negative prevalence = ",
+  scales::percent(sbi_neg_prevalence, accuracy = 1)
 )
+
+# Optional QC printout
+sbi_neg_prevalence_df
 
 
 
