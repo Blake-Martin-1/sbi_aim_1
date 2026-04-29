@@ -55,10 +55,16 @@ picu_24h_windows <- pros_one_model %>%
   )
 
 # Convert to data.table
+# Convert to data.table
 data.table::setDT(picu_24h_windows)
 
-# Ensure PICU admission time is POSIXct
+# Ensure PICU admission time is POSIXct and interpreted as Denver local time
 picu_24h_windows[, picu_adm_date_time := as.POSIXct(picu_adm_date_time)]
+
+picu_24h_windows[, picu_adm_date_time := lubridate::force_tz(
+  picu_adm_date_time,
+  tzone = "America/Denver"
+)]
 
 # Create the first-24h PICU window
 picu_24h_windows[, window_start := picu_adm_date_time]
@@ -69,7 +75,13 @@ abx_events <- data.table::copy(abx_df)
 
 data.table::setDT(abx_events)
 
+# Ensure antibiotic administration time is POSIXct and interpreted as Denver local time
 abx_events[, taken_time := as.POSIXct(taken_time)]
+
+abx_events[, taken_time := lubridate::force_tz(
+  taken_time,
+  tzone = "America/Denver"
+)]
 
 abx_events <- abx_events[
   !is.na(pat_enc_csn_id) &
