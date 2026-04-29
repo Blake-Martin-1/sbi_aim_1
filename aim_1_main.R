@@ -3315,6 +3315,32 @@ enrich_pros_with_vps <- function(pros_df, vps_df, max_hours_diff = 6) {
 pros_no_abx_1st_infxn <- enrich_pros_with_vps(pros_no_abx_1st_infxn, vps_match_cols)
 pros_yes_abx_1st_infxn <- enrich_pros_with_vps(pros_yes_abx_1st_infxn, vps_match_cols)
 
+### Read in retrospective file that has prism 3 scores in it
+get_retro_prism <- read.fst(path = "/home/martinbl/sbi_blake/pre_micro_vps_vitals_11_21_23.fst")
+get_retro_prism <- get_retro_prism %>% rename(study_id = case_id)
+
+# Add prism info
+retro_no_abx_1st_infxn <- retro_no_abx_1st_infxn %>% left_join(get_retro_prism %>% dplyr::select(study_id, prism_3_score), by = "study_id")
+retro_yes_abx_1st_infxn <- retro_yes_abx_1st_infxn %>% left_join(get_retro_prism %>% dplyr::select(study_id, prism_3_score), by = "study_id")
+
+# Now read in retro vps data and extract and bind primary diagnosis category info
+vps_diagnosis_retro_1 <- read_excel(vps_file_path, sheet = "Diagnoses")
+vps_diagnosis_retro_2 <- readxl::read_xlsx(path = vps_file_path_10_yr, sheet = "Diagnoses")
+
+vps_dx_retro_full <- bind_rows(vps_diagnosis_retro_1, vps_diagnosis_retro_2)
+vps_dx_retro_slim <- vps_dx_retro_full %>% dplyr::select(case_id, category, primary_diag)
+vps_dx_retro_slim <- vps_dx_retro_slim %>% rename(study_id = case_id)
+vps_retro_primary_dx <- vps_dx_retro_slim %>% filter(primary_diag == "Yes")
+
+vps_retro_primary_dx <- vps_retro_primary_dx %>% dplyr::select(study_id, category) %>% distinct()
+vps_retro_primary_dx$study_id <- as.character(vps_retro_primary_dx$study_id)
+
+
+# Now add in the diagnosis categories
+retro_no_abx_1st_infxn <- retro_no_abx_1st_infxn %>% left_join(vps_retro_primary_dx %>% dplyr::select(study_id, category), by = "study_id")
+retro_yes_abx_1st_infxn <- retro_yes_abx_1st_infxn %>% left_join(vps_retro_primary_dx %>% dplyr::select(study_id, category), by = "study_id")
+
+
 # ------------------------------------------------------------
 
 # ----------------------------
