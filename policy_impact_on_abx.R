@@ -4,6 +4,145 @@
 #   - pros_one_model
 #   - test_decisions_best
 
+library(data.table)
+library(dplyr)
+library(lubridate)
+
+### Create flag for whether patient received any antibiotics in the PICU during the first 24 hours.
+abx_raw <- read.csv(file = "/phi/sbi/sbi_blake/antinfective_export_pros_091225.csv")
+
+abx_df <- abx_raw %>%
+  mutate(
+    order_inst = as.POSIXct(order_inst, tz = "UTC"),
+    taken_time = as.POSIXct(taken_time, tz = "UTC")
+  )
+
+abx_df <- abx_df %>%
+  mutate(
+    order_inst = force_tz(order_inst, tzone = "America/Denver"),
+    taken_time = force_tz(taken_time, tzone = "America/Denver")
+  )
+
+abx_df$PAT_MRN_ID <- as.character(abx_df$PAT_MRN_ID)
+
+abx_df <- abx_df %>%
+  rename(
+    mrn = PAT_MRN_ID,
+    hsp_account_id = HSP_ACCOUNT_ID
+  )
+
+colnames(abx_df) <- str_to_lower(colnames(abx_df))
+
+setDT(abx_df)
+abx_df[, taken_time := as.POSIXct(taken_time)]
+
+# ------------------------------------------------------------
+# Create flag for any antibiotic dose during first 24h of PICU
+# ------------------------------------------------------------
+
+# Make a one-row-per-PICU-encounter dataset
+picu_24h_windows <- pros_one_model %>%
+  dplyr::distinct(
+    study_id,
+    pat_enc_csn_id,
+    picu_adm_date_time
+  ) %>%
+  dplyr::filter(
+    !is.na(study_id),
+    !is.na(pat_enc_csn_id),
+    !is.na(picu_adm_date_time)
+  )
+
+# Convert to data.table
+data.table::setDT(picu_24h_windows)
+
+# Ensure PICU admission time is POSIXct
+picu_24h_windows[, picu_adm_date_time := as.POSIXct(picu_adm_date_time)]
+
+# Create the first-24h PICU window
+picu_24h_windows[, window_start := picu_adm_date_time]
+picu_24h_windows[, window_end   := picu_adm_date_time + lubridate::hours(24)]
+
+# Create antibiotic point-event table
+abx_events <- data.table::copy(abx_df)
+
+data.table::setDT(abx_events)
+
+abx_events[, taken_time := as.POSIXct(taken_time)]
+
+abx_events <- abx_events[
+  !is.na(pat_enc_csn_id) &
+    !is.na(taken_time)
+]
+
+# Treat each antibiotic administration as a point event
+abx_events[, abx_start := taken_time]
+abx_events[, abx_end   := taken_time]
+
+# Key the PICU-window table
+data.table::setkey(
+  picu_24h_windows,
+  pat_enc_csn_id,
+  window_start,
+  window_end
+)
+
+# Key the antibiotic-event table
+data.table::setkey(
+  abx_events,
+  pat_enc_csn_id,
+  abx_start,
+  abx_end
+)
+
+# Find antibiotic administrations that occurred within first 24h of PICU admission
+abx_first_24h_overlaps <- data.table::foverlaps(
+  x = abx_events,
+  y = picu_24h_windows,
+  by.x = c("pat_enc_csn_id", "abx_start", "abx_end"),
+  by.y = c("pat_enc_csn_id", "window_start", "window_end"),
+  type = "within",
+  nomatch = 0L
+)
+
+# Create one-row-per-study_id flag
+abx_first_24h_flag <- picu_24h_windows[, .(
+  study_id,
+  pat_enc_csn_id,
+  picu_adm_date_time
+)]
+
+abx_first_24h_flag[, abx_in_first_24h_picu := 0L]
+
+study_ids_with_abx_first_24h <- unique(abx_first_24h_overlaps$study_id)
+
+abx_first_24h_flag[
+  study_id %in% study_ids_with_abx_first_24h,
+  abx_in_first_24h_picu := 1L
+]
+
+# Join flag back onto pros_one_model
+pros_one_model <- pros_one_model %>%
+  dplyr::left_join(
+    abx_first_24h_flag %>%
+      dplyr::as_tibble() %>%
+      dplyr::select(
+        study_id,
+        abx_in_first_24h_picu
+      ),
+    by = "study_id"
+  ) %>%
+  dplyr::mutate(
+    abx_in_first_24h_picu = dplyr::if_else(
+      is.na(abx_in_first_24h_picu),
+      0L,
+      abx_in_first_24h_picu
+    )
+  )
+
+
+
+
 library(dplyr)
 library(tibble)
 
