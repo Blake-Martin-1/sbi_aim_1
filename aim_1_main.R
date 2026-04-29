@@ -3278,6 +3278,42 @@ pros_yes_abx_1st_infxn$model_score <-
 ## Add in retrospective and prospective prism, pim, and primary diagnosis information
 extra_vps_raw <- read_excel(path = "/phi/sbi/sbi_blake/vps_pim_prism_dx_pros_2023_2024.xlsx")
 
+vps_match_cols <- extra_vps_raw %>%
+  transmute(
+    MRN = as.character(MRN),
+    ICUAdmDateTime = force_tz(as.POSIXct(ICUAdmDateTime), tzone = "America/Denver"),
+    admit_category = Category,
+    prism_3_score = `PRISM 3 Score`
+  )
+
+enrich_pros_with_vps <- function(pros_df, vps_df, max_hours_diff = 3) {
+  pros_base <- pros_df %>%
+    mutate(
+      mrn = as.character(mrn),
+      picu_adm_date_time = force_tz(as.POSIXct(picu_adm_date_time), tzone = "America/Denver"),
+      row_id_for_vps = row_number()
+    )
+
+  candidate_matches <- pros_base %>%
+    select(row_id_for_vps, study_id, mrn, picu_adm_date_time) %>%
+    inner_join(vps_df, by = c("mrn" = "MRN")) %>%
+    mutate(
+      admit_time_diff_hours = abs(as.numeric(difftime(ICUAdmDateTime, picu_adm_date_time, units = "hours")))
+    ) %>%
+    filter(admit_time_diff_hours <= max_hours_diff) %>%
+    arrange(row_id_for_vps, admit_time_diff_hours, ICUAdmDateTime) %>%
+    group_by(row_id_for_vps, study_id, mrn) %>%
+    slice_head(n = 1) %>%
+    ungroup() %>%
+    select(row_id_for_vps, admit_category, prism_3_score)
+
+  pros_base %>%
+    left_join(candidate_matches, by = "row_id_for_vps") %>%
+    select(-row_id_for_vps)
+}
+
+pros_no_abx_1st_infxn <- enrich_pros_with_vps(pros_no_abx_1st_infxn, vps_match_cols)
+pros_yes_abx_1st_infxn <- enrich_pros_with_vps(pros_yes_abx_1st_infxn, vps_match_cols)
 
 # ------------------------------------------------------------
 
