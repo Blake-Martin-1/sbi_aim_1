@@ -3286,7 +3286,7 @@ vps_match_cols <- extra_vps_raw %>%
     prism_3_score = `PRISM 3 Score`
   )
 
-enrich_pros_with_vps <- function(pros_df, vps_df, max_hours_diff = 3) {
+enrich_pros_with_vps <- function(pros_df, vps_df, max_hours_diff = 6) {
   pros_base <- pros_df %>%
     mutate(
       mrn = as.character(mrn),
@@ -3295,7 +3295,7 @@ enrich_pros_with_vps <- function(pros_df, vps_df, max_hours_diff = 3) {
     )
 
   candidate_matches <- pros_base %>%
-    select(row_id_for_vps, study_id, mrn, picu_adm_date_time) %>%
+    dplyr::select(row_id_for_vps, study_id, mrn, picu_adm_date_time) %>%
     inner_join(vps_df, by = c("mrn" = "MRN")) %>%
     mutate(
       admit_time_diff_hours = abs(as.numeric(difftime(ICUAdmDateTime, picu_adm_date_time, units = "hours")))
@@ -3305,11 +3305,11 @@ enrich_pros_with_vps <- function(pros_df, vps_df, max_hours_diff = 3) {
     group_by(row_id_for_vps, study_id, mrn) %>%
     slice_head(n = 1) %>%
     ungroup() %>%
-    select(row_id_for_vps, admit_category, prism_3_score)
+    dplyr::select(row_id_for_vps, admit_category, prism_3_score)
 
   pros_base %>%
     left_join(candidate_matches, by = "row_id_for_vps") %>%
-    select(-row_id_for_vps)
+    dplyr::select(-row_id_for_vps)
 }
 
 pros_no_abx_1st_infxn <- enrich_pros_with_vps(pros_no_abx_1st_infxn, vps_match_cols)
