@@ -41,10 +41,28 @@ policy_abx <- policy_sbi_negative %>%
     )
   )
 
-# Restrict "unnecessary antibiotics" calculations to true SBI-negative encounters
-# that the policy ruled out.
+# Restrict "preventable unnecessary antibiotics" numerator calculations to true
+# SBI-negative encounters that the policy ruled out.
 policy_true_neg <- policy_abx %>%
   dplyr::filter(sbi_present == 0)
+
+# Denominator cohort: all true SBI-negative encounters (regardless of final policy
+# state), using each encounter's score timepoint (decision_hour), with any
+# antibiotic exposure after that score timepoint.
+sbi_negative_all_abx <- test_decisions_best %>%
+  dplyr::filter(sbi_present == 0) %>%
+  dplyr::mutate(study_id = as.character(study_id)) %>%
+  dplyr::left_join(
+    abx_at_decision,
+    by = c("study_id", "decision_hour" = "hours_since_picu_adm")
+  ) %>%
+  dplyr::mutate(
+    abx_duration_after_score_capped = dplyr::if_else(
+      is.na(abx_duration_after_score),
+      NA_real_,
+      pmin(abx_duration_after_score, cap_days)
+    )
+  )
 
 # 1) Timing of SBI-negative prediction (rule-out hour)
 metric_1_timing <- policy_abx %>%
@@ -57,12 +75,19 @@ metric_1_timing <- policy_abx %>%
 
 # 2) Number and proportion with potentially preventable unnecessary antibiotics
 # Numerator: true SBI-negative ruled-out encounters with >0 capped abx duration after score
-# Denominator: true SBI-negative ruled-out encounters with any (>0) abx duration after score
-# This follows the requested denominator definition directly.
-metric_2_preventable_count_prop <- policy_true_neg %>%
+# Denominator: all true SBI-negative encounters with any (>0) abx duration after score.
+metric_2_preventable_count_prop <- dplyr::summarise(
+  policy_true_neg,
+  n_sbi_negative_with_preventable_unnecessary_abx = sum(abx_duration_after_score_capped > 0, na.rm = TRUE)
+) %>%
+  dplyr::bind_cols(
+    sbi_negative_all_abx %>%
   dplyr::summarise(
-    n_sbi_negative_with_any_abx_after_score = sum(abx_duration_after_score_capped > 0, na.rm = TRUE),
-    n_sbi_negative_with_preventable_unnecessary_abx = sum(abx_duration_after_score_capped > 0, na.rm = TRUE),
+    n_sbi_negative_with_any_abx_after_score = sum(abx_duration_after_score_capped > 0, na.rm = TRUE)
+  ) %>%
+      dplyr::select(n_sbi_negative_with_any_abx_after_score)
+  ) %>%
+  dplyr::mutate(
     prop_preventable_unnecessary_abx = dplyr::if_else(
       n_sbi_negative_with_any_abx_after_score > 0,
       n_sbi_negative_with_preventable_unnecessary_abx / n_sbi_negative_with_any_abx_after_score,
