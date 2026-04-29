@@ -239,6 +239,59 @@ metric_3_preventable_duration <- policy_true_neg %>%
     q3_preventable_abx_days = stats::quantile(abx_duration_after_score_capped, probs = 0.75, na.rm = TRUE)
   )
 
+# 4) Proportion of SBI-negative encounters with first-24h PICU antibiotics that
+# were ruled out by the model + policy before the first PICU antibiotic dose.
+first_picu_abx_timing <- abx_first_24h_overlaps %>%
+  dplyr::as_tibble() %>%
+  dplyr::transmute(
+    study_id = as.character(study_id),
+    first_picu_abx_time = taken_time
+  ) %>%
+  dplyr::group_by(study_id) %>%
+  dplyr::summarise(
+    first_picu_abx_time = min(first_picu_abx_time, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+sbi_negative_first24h_abx <- test_decisions_best %>%
+  dplyr::filter(sbi_present == 0) %>%
+  dplyr::mutate(study_id = as.character(study_id)) %>%
+  dplyr::left_join(
+    pros_one_model %>%
+      dplyr::transmute(
+        study_id = as.character(study_id),
+        picu_adm_date_time = as.POSIXct(picu_adm_date_time),
+        abx_in_first_24h_picu = as.integer(abx_in_first_24h_picu)
+      ) %>%
+      dplyr::group_by(study_id) %>%
+      dplyr::summarise(
+        picu_adm_date_time = dplyr::first(picu_adm_date_time),
+        abx_in_first_24h_picu = max(abx_in_first_24h_picu, na.rm = TRUE),
+        .groups = "drop"
+      ),
+    by = "study_id"
+  ) %>%
+  dplyr::left_join(first_picu_abx_timing, by = "study_id") %>%
+  dplyr::filter(abx_in_first_24h_picu == 1L, !is.na(first_picu_abx_time), !is.na(picu_adm_date_time)) %>%
+  dplyr::mutate(
+    first_picu_abx_hour = as.numeric(difftime(first_picu_abx_time, picu_adm_date_time, units = "hours")),
+    identified_before_first_picu_abx = (final_state == "ruled_out") & !is.na(decision_hour) & (decision_hour <= first_picu_abx_hour)
+  )
+
+metric_4_identified_before_first_picu_abx <- sbi_negative_first24h_abx %>%
+  dplyr::summarise(
+    n_sbi_negative_with_abx_in_first_24h_picu = dplyr::n(),
+    n_identified_before_first_picu_abx = sum(identified_before_first_picu_abx, na.rm = TRUE),
+    prop_identified_before_first_picu_abx = dplyr::if_else(
+      n_sbi_negative_with_abx_in_first_24h_picu > 0,
+      n_identified_before_first_picu_abx / n_sbi_negative_with_abx_in_first_24h_picu,
+      NA_real_
+    ),
+    median_first_picu_abx_hour = stats::median(first_picu_abx_hour, na.rm = TRUE),
+    q1_first_picu_abx_hour = stats::quantile(first_picu_abx_hour, probs = 0.25, na.rm = TRUE),
+    q3_first_picu_abx_hour = stats::quantile(first_picu_abx_hour, probs = 0.75, na.rm = TRUE)
+  )
+
 # Combined output table and component tables for easy downstream use
 policy_impact_on_abx <- list(
   model_name = "prospective_random_forest",
@@ -246,9 +299,11 @@ policy_impact_on_abx <- list(
   metric_1_timing = metric_1_timing,
   metric_2_preventable_count_prop = metric_2_preventable_count_prop,
   metric_3_preventable_duration = metric_3_preventable_duration,
+  metric_4_identified_before_first_picu_abx = metric_4_identified_before_first_picu_abx,
   patient_level = policy_abx
 )
 
 metric_1_timing
 metric_2_preventable_count_prop
 metric_3_preventable_duration
+metric_4_identified_before_first_picu_abx
