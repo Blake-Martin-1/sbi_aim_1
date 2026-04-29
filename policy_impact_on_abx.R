@@ -6,6 +6,7 @@
 
 library(data.table)
 library(dplyr)
+library(tibble)
 library(lubridate)
 
 ### Create flag for whether patient received any antibiotics in the PICU during the first 24 hours.
@@ -139,12 +140,6 @@ pros_one_model <- pros_one_model %>%
       abx_in_first_24h_picu
     )
   )
-
-
-
-
-library(dplyr)
-library(tibble)
 
 cap_days <- 7
 
