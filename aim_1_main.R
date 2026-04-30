@@ -3517,6 +3517,68 @@ pros_npv_table_rf_abx <- build_prospective_npv_table(
   scenario_label = "Pros • Abx+"
 )
 
+
+plot_npv_vs_threshold <- function(npv_tbl, model_label, curve_color = "blue", label_threshold = 0.23) {
+  label_df <- npv_tbl %>%
+    dplyr::filter(abs(threshold - label_threshold) < 1e-9) %>%
+    dplyr::mutate(
+      npv_label = paste0("Threshold ", sprintf("%.2f", label_threshold), "\nNPV = ", sprintf("%.2f", round(npv, 2)))
+    )
+
+  ggplot(npv_tbl, aes(x = threshold, y = npv)) +
+    geom_line(color = curve_color, linewidth = 1.2) +
+    geom_point(color = curve_color, size = 2) +
+    ggrepel::geom_label_repel(
+      data = label_df,
+      aes(label = npv_label),
+      color = curve_color,
+      fill = "white",
+      size = 4,
+      box.padding = 0.35,
+      point.padding = 0.2,
+      min.segment.length = 0,
+      segment.color = curve_color,
+      show.legend = FALSE
+    ) +
+    scale_x_continuous(
+      breaks = seq(0.01, 0.30, by = 0.03),
+      limits = c(0.01, 0.30)
+    ) +
+    scale_y_continuous(
+      labels = scales::number_format(accuracy = 0.01),
+      limits = c(0.90, 1.00)
+    ) +
+    labs(
+      title = model_label,
+      x = "Threshold",
+      y = "NPV (Prospective stratum)"
+    ) +
+    theme_bw() +
+    theme(
+      plot.title = element_text(size = 15, face = "bold"),
+      axis.title = element_text(size = 13, face = "bold"),
+      axis.text = element_text(size = 11),
+      panel.grid.minor = element_blank()
+    )
+}
+
+p_pros_npv_rf_no_abx <- plot_npv_vs_threshold(
+  npv_tbl = pros_npv_table_rf_no_abx,
+  model_label = "Prospective NPV vs Threshold (RF no antibiotics)",
+  curve_color = "blue"
+)
+
+p_pros_npv_rf_abx <- plot_npv_vs_threshold(
+  npv_tbl = pros_npv_table_rf_abx,
+  model_label = "Prospective NPV vs Threshold (RF with antibiotics)",
+  curve_color = "blue"
+)
+
+p_pros_npv_pair <- p_pros_npv_rf_no_abx + p_pros_npv_rf_abx +
+  patchwork::plot_layout(ncol = 2)
+
+p_pros_npv_pair
+
 quad_df <- quad_df %>%
   mutate(
     x_plot = ifelse(is.na(x_prop_sbineg_low), 0, x_prop_sbineg_low),
