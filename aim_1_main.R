@@ -4820,13 +4820,42 @@ add_preicu_location <- function(df, prefix = "preicu_") {
     )
 }
 
+
+
+# -----------------------------
+# 1b) Helper: keep top 5 admission categories (within input df)
+# -----------------------------
+add_top5_admit_category <- function(df, col = "admit_category", n_top = 5) {
+
+  if (!col %in% names(df)) {
+    df$admit_category_top5 <- NA_character_
+    return(df)
+  }
+
+  vals <- as.character(df[[col]])
+  vals[is.na(vals) | vals == ""] <- "MISSING"
+
+  top_levels <- names(sort(table(vals), decreasing = TRUE))[seq_len(min(n_top, length(unique(vals))))]
+
+  df %>%
+    mutate(
+      admit_category_top5 = case_when(
+        is.na(.data[[col]]) | as.character(.data[[col]]) == "" ~ "MISSING",
+        as.character(.data[[col]]) %in% top_levels ~ as.character(.data[[col]]),
+        TRUE ~ "OTHER"
+      ),
+      admit_category_top5 = as.factor(admit_category_top5)
+    )
+}
+
 # -----------------------------
 # 2) Helper: build Table 1 for one stratum dataframe
 # -----------------------------
 make_table1_epoch <- function(df, title = NULL) {
 
-  # Add preicu_location
+  # Add preicu_location and admission-category rollup
   df <- add_preicu_location(df)
+  df <- add_top5_admit_category(df)
 
   # Make sure epoch is a factor in the correct order
   df <- df %>%
@@ -4875,8 +4904,10 @@ make_table1_epoch <- function(df, title = NULL) {
     "pccc",
     "malignancy_pccc",
     "los_before_icu_days",
+    "prism_3_score",
     "imv_at_picu_adm",
-    "preicu_location"
+    "preicu_location",
+    "admit_category_top5"
   )
 
   # Keep only vars that exist in df
@@ -4889,13 +4920,15 @@ make_table1_epoch <- function(df, title = NULL) {
       type = list(
         age ~ "continuous",
         los_before_icu_days ~ "continuous",
+        prism_3_score ~ "continuous",
         is_female ~ "dichotomous",
         pccc ~ "dichotomous",
         malignancy_pccc ~ "dichotomous",
         imv_at_picu_adm ~ "dichotomous",
         race ~ "categorical",
         ethnicity ~ "categorical",
-        preicu_location ~ "categorical"
+        preicu_location ~ "categorical",
+        admit_category_top5 ~ "categorical"
       ),
       value = list(
         is_female ~ 1,
@@ -4904,7 +4937,7 @@ make_table1_epoch <- function(df, title = NULL) {
         imv_at_picu_adm ~ 1
       ),
       statistic = list(
-        all_continuous() ~ "{median} [{p25}, {p75}]",
+        all_continuous() ~ "{median} ({p25} - {p75})",
         all_categorical() ~ "{n} ({p}%)",
         all_dichotomous() ~ "{n} ({p}%)"
       ),
@@ -4918,8 +4951,10 @@ make_table1_epoch <- function(df, title = NULL) {
         pccc ~ "PCCC",
         malignancy_pccc ~ "MALIGNANCY",
         los_before_icu_days ~ "LOS BEFORE ICU DAYS",
+        prism_3_score ~ "PRISM 3 SCORE",
         imv_at_picu_adm ~ "IMV AT PICU ADM",
-        preicu_location ~ "PREICU LOCATION"
+        preicu_location ~ "PREICU LOCATION",
+        admit_category_top5 ~ "ADMISSION CATEGORY (TOP 5)"
       )
     ) %>%
     modify_header(label ~ "**CHARACTERISTIC**") %>%
@@ -4938,8 +4973,9 @@ make_table1_epoch <- function(df, title = NULL) {
 # -----------------------------
 make_table1_retro_vs_pros_si <- function(df, title = NULL) {
 
-  # Add preicu_location
+  # Add preicu_location and admission-category rollup
   df <- add_preicu_location(df)
+  df <- add_top5_admit_category(df)
 
   # Keep all retro, and only prospective patients with suspected infection == 1
   df <- df %>%
@@ -5014,8 +5050,10 @@ make_table1_retro_vs_pros_si <- function(df, title = NULL) {
     "pccc",
     "malignancy_pccc",
     "los_before_icu_days",
+    "prism_3_score",
     "imv_at_picu_adm",
-    "preicu_location"
+    "preicu_location",
+    "admit_category_top5"
   )
 
   vars <- intersect(vars, names(df))
@@ -5027,13 +5065,15 @@ make_table1_retro_vs_pros_si <- function(df, title = NULL) {
       type = list(
         age ~ "continuous",
         los_before_icu_days ~ "continuous",
+        prism_3_score ~ "continuous",
         is_female ~ "dichotomous",
         pccc ~ "dichotomous",
         malignancy_pccc ~ "dichotomous",
         imv_at_picu_adm ~ "dichotomous",
         race ~ "categorical",
         ethnicity ~ "categorical",
-        preicu_location ~ "categorical"
+        preicu_location ~ "categorical",
+        admit_category_top5 ~ "categorical"
       ),
       value = list(
         is_female ~ 1,
@@ -5042,7 +5082,7 @@ make_table1_retro_vs_pros_si <- function(df, title = NULL) {
         imv_at_picu_adm ~ 1
       ),
       statistic = list(
-        all_continuous() ~ "{median} [{p25}, {p75}]",
+        all_continuous() ~ "{median} ({p25} - {p75})",
         all_categorical() ~ "{n} ({p}%)",
         all_dichotomous() ~ "{n} ({p}%)"
       ),
@@ -5056,8 +5096,10 @@ make_table1_retro_vs_pros_si <- function(df, title = NULL) {
         pccc ~ "PCCC",
         malignancy_pccc ~ "MALIGNANCY",
         los_before_icu_days ~ "LOS BEFORE ICU DAYS",
+        prism_3_score ~ "PRISM 3 SCORE",
         imv_at_picu_adm ~ "IMV AT PICU ADM",
-        preicu_location ~ "PREICU LOCATION"
+        preicu_location ~ "PREICU LOCATION",
+        admit_category_top5 ~ "ADMISSION CATEGORY (TOP 5)"
       )
     ) %>%
     modify_header(label ~ "**CHARACTERISTIC**") %>%
