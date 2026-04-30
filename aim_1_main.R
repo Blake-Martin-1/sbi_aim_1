@@ -3473,6 +3473,50 @@ quad_df <- tidyr::crossing(
   select(-include_all_comers) %>%
   tidyr::unnest(stats)
 
+# ------------------------------------------------------------
+# Prospective NPV threshold tables (RF models, 0.01 to 0.30)
+# ------------------------------------------------------------
+npv_thresholds <- seq(0.01, 0.30, by = 0.01)
+
+build_prospective_npv_table <- function(df, scenario_label, thresholds = npv_thresholds) {
+  purrr::map_dfr(
+    thresholds,
+    ~ruleout_stats_one(
+      df = df,
+      scenario = scenario_label,
+      score_col = score_col,
+      y_col = y_col,
+      threshold = .x,
+      sus_col = sus_col,
+      include_all_comers = TRUE
+    )
+  ) %>%
+    transmute(
+      model = dplyr::case_when(
+        abx == "Abx-" ~ "RF_no_abx",
+        abx == "Abx+" ~ "RF_abx",
+        TRUE ~ NA_character_
+      ),
+      antibiotic_exposure = abx,
+      threshold = round(threshold, 2),
+      n_total,
+      n_ruleout = n_low,
+      true_negative_ruleout = n_low_sbi0,
+      false_negative_ruleout = n_low_sbi1,
+      npv = y_npv
+    )
+}
+
+pros_npv_table_rf_no_abx <- build_prospective_npv_table(
+  df = dfs_eval[["Pros • Abx-"]],
+  scenario_label = "Pros • Abx-"
+)
+
+pros_npv_table_rf_abx <- build_prospective_npv_table(
+  df = dfs_eval[["Pros • Abx+"]],
+  scenario_label = "Pros • Abx+"
+)
+
 quad_df <- quad_df %>%
   mutate(
     x_plot = ifelse(is.na(x_prop_sbineg_low), 0, x_prop_sbineg_low),
