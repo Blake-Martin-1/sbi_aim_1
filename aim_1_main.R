@@ -2662,7 +2662,7 @@ supp_predictor_table <- supp_predictor_table %>%
   )
 
 ## Write the predictors to eTable 1
-write.csv(x = supp_predictor_table, file = "/phi/sbi/sbi_blake/aim_1_paper_materials/eTable_1_predictors.csv")
+# write.csv(x = supp_predictor_table, file = "/phi/sbi/sbi_blake/aim_1_paper_materials/eTable_1_predictors.csv")
 
 
 
