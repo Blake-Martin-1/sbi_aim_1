@@ -167,7 +167,7 @@ split_ledger <- tibble(
   mutate(fold = if_else(split == "train", fold, NA_integer_))
 
 # Create split-level summary table with encounter counts, unique patients, and SBI prevalence
-encounter_patient_map <- pros_one_model %>%
+encounter_patient_map <- pros_one_model %>% mutate(pat_mrn_id = as.character(pat_mrn_id)) %>%
   dplyr::select(study_id, pat_mrn_id) %>%
   dplyr::distinct() %>%
   dplyr::group_by(study_id) %>%
@@ -200,7 +200,20 @@ split_summary_table <- split_ledger %>%
     .groups = "drop"
   )
 
-split_summary_table
+split_summary_table <- split_summary_table %>%
+  dplyr::mutate(
+    split = factor(
+      split,
+      levels = c("training set", "validation set", "test set")
+    ),
+    pct_encounters_with_sbi = round(100 * pct_encounters_with_sbi, 1)
+  ) %>%
+  dplyr::arrange(split) %>%
+  dplyr::mutate(
+    split = as.character(split)
+  )
+
+View(split_summary_table)
 
 # # Store csv file with train, test, and validation labels as well as fold labels for training set rows
 # write.csv(split_ledger, "/phi/sbi/sbi_blake/split_ledger_studyid_10_7_25.csv", row.names = FALSE)
