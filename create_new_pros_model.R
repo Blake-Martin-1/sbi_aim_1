@@ -322,6 +322,7 @@ rf_test_df <- test_df %>%
   dplyr::select(study_id, sbi_present, SBI, hours_since_picu_adm, dplyr::all_of(predictors)) %>%
   dplyr::mutate(rf_prob = rf_pred_prob_test)
 
+
 # Create calibration plot
 # -----------------------------
 # Calibration plot on test set
@@ -560,6 +561,76 @@ get_boot_ci <- function(x) {
 
   as.numeric(stats::quantile(x, probs = c(0.025, 0.975), na.rm = TRUE, names = FALSE))
 }
+
+# Split-level performance at threshold = 0.12 with bootstrap CIs
+format_metric_ci <- function(est, lower, upper, digits = 3) {
+  if (is.na(est) || is.na(lower) || is.na(upper)) {
+    return(NA_character_)
+  }
+  sprintf(paste0("%.", digits, "f (%.", digits, "f, %.", digits, "f)"), est, lower, upper)
+}
+
+calc_split_metrics_boot <- function(dat, threshold = 0.12, n_boot = 1000) {
+  dat <- dat %>%
+    dplyr::filter(!is.na(sbi_present), !is.na(rf_prob))
+
+  if (nrow(dat) == 0) {
+    return(tibble::tibble(
+      auroc = NA_real_, auroc_lower = NA_real_, auroc_upper = NA_real_,
+      auprc = NA_real_, auprc_lower = NA_real_, auprc_upper = NA_real_,
+      npv = NA_real_, npv_lower = NA_real_, npv_upper = NA_real_
+    ))
+  }
+
+  point_est <- calc_metrics_once(dat, threshold = threshold)
+
+  boot_res <- replicate(
+    n = n_boot,
+    expr = {
+      boot_idx <- sample.int(n = nrow(dat), size = nrow(dat), replace = TRUE)
+      boot_dat <- dat[boot_idx, , drop = FALSE]
+      boot_met <- calc_metrics_once(boot_dat, threshold = threshold)
+      c(auroc = boot_met$auroc, auprc = boot_met$auprc, npv = boot_met$npv)
+    },
+    simplify = "matrix"
+  )
+
+  auroc_ci <- get_boot_ci(boot_res["auroc", ])
+  auprc_ci <- get_boot_ci(boot_res["auprc", ])
+  npv_ci <- get_boot_ci(boot_res["npv", ])
+
+  tibble::tibble(
+    auroc = point_est$auroc,
+    auroc_lower = auroc_ci[1],
+    auroc_upper = auroc_ci[2],
+    auprc = point_est$auprc,
+    auprc_lower = auprc_ci[1],
+    auprc_upper = auprc_ci[2],
+    npv = point_est$npv,
+    npv_lower = npv_ci[1],
+    npv_upper = npv_ci[2]
+  )
+}
+
+split_performance_table <- dplyr::bind_rows(
+  "training set" = calc_split_metrics_boot(rf_train_df, threshold = 0.12, n_boot = 1000),
+  "validation set" = calc_split_metrics_boot(rf_valid_df, threshold = 0.12, n_boot = 1000),
+  "test set" = calc_split_metrics_boot(rf_test_df, threshold = 0.12, n_boot = 1000),
+  .id = "split"
+) %>%
+  dplyr::mutate(
+    `AUROC (95% CI)` = format_metric_ci(auroc, auroc_lower, auroc_upper),
+    `AUPRC (95% CI)` = format_metric_ci(auprc, auprc_lower, auprc_upper),
+    `NPV (95% CI)` = format_metric_ci(npv, npv_lower, npv_upper)
+  ) %>%
+  dplyr::select(split, `AUROC (95% CI)`, `AUPRC (95% CI)`, `NPV (95% CI)`)
+
+split_summary_table <- split_summary_table %>%
+  dplyr::left_join(split_performance_table, by = "split")
+
+split_summary_table
+
+
 
 # -----------------------------
 # Compute point estimates + bootstrap CIs for one hour
