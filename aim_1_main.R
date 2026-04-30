@@ -3340,6 +3340,8 @@ vps_retro_primary_dx$study_id <- as.character(vps_retro_primary_dx$study_id)
 retro_no_abx_1st_infxn <- retro_no_abx_1st_infxn %>% left_join(vps_retro_primary_dx %>% dplyr::select(study_id, category), by = "study_id")
 retro_yes_abx_1st_infxn <- retro_yes_abx_1st_infxn %>% left_join(vps_retro_primary_dx %>% dplyr::select(study_id, category), by = "study_id")
 
+retro_no_abx_1st_infxn <- retro_no_abx_1st_infxn %>% rename(admit_category = category)
+retro_yes_abx_1st_infxn <- retro_yes_abx_1st_infxn %>% rename(admit_category = category)
 
 # ------------------------------------------------------------
 
