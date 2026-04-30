@@ -3476,7 +3476,7 @@ quad_df <- tidyr::crossing(
 # ------------------------------------------------------------
 # Prospective NPV threshold tables (RF models, 0.01 to 0.30)
 # ------------------------------------------------------------
-npv_thresholds <- seq(0.01, 0.30, by = 0.01)
+npv_thresholds <- seq(0.01, 1.0, by = 0.01)
 
 build_prospective_npv_table <- function(df, scenario_label, thresholds = npv_thresholds) {
   purrr::map_dfr(
@@ -3534,19 +3534,23 @@ plot_npv_vs_threshold <- function(npv_tbl, model_label, curve_color = "blue", la
       color = curve_color,
       fill = "white",
       size = 4,
-      box.padding = 0.35,
-      point.padding = 0.2,
+      box.padding = 0.6,
+      point.padding = 0.6,
+      nudge_x = 0.025,
+      nudge_y = 0.02,
       min.segment.length = 0,
       segment.color = curve_color,
       show.legend = FALSE
     ) +
     scale_x_continuous(
-      breaks = seq(0.01, 0.30, by = 0.03),
-      limits = c(0.01, 0.30)
+      breaks = seq(0.1, 1.00, by = 0.1),
+      limits = c(0.05, 1.00),
+      labels = scales::number_format(accuracy = 0.01)
     ) +
     scale_y_continuous(
-      labels = scales::number_format(accuracy = 0.01),
-      limits = c(0.90, 1.00)
+      breaks = seq(0.1, 1.00, by = 0.1),
+      labels = scales::number_format(accuracy = 0.05),
+      limits = c(0.0, 1.00)
     ) +
     labs(
       title = model_label,
@@ -3564,13 +3568,13 @@ plot_npv_vs_threshold <- function(npv_tbl, model_label, curve_color = "blue", la
 
 p_pros_npv_rf_no_abx <- plot_npv_vs_threshold(
   npv_tbl = pros_npv_table_rf_no_abx,
-  model_label = "Prospective NPV vs Threshold (RF no antibiotics)",
+  model_label = "Prospective NPV vs Threshold (Antibiotic Unexposed)",
   curve_color = "blue"
 )
 
 p_pros_npv_rf_abx <- plot_npv_vs_threshold(
   npv_tbl = pros_npv_table_rf_abx,
-  model_label = "Prospective NPV vs Threshold (RF with antibiotics)",
+  model_label = "Prospective NPV vs Threshold (Antibiotic Exposed)",
   curve_color = "blue"
 )
 
@@ -6665,7 +6669,7 @@ pros_summary_manuscript <- dplyr::bind_rows(
   )
 )
 
-print(pros_summary_manuscript)
+View(pros_summary_manuscript)
 
 
 ##### Now do abx analysis by subgroups #######
