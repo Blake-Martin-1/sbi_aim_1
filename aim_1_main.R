@@ -6597,6 +6597,88 @@ pros_combined_for_summary <- dplyr::bind_rows(
 )
 
 #-----------------------------
+# Rule-out performance table across threshold scenarios
+# AUROC/AUPRC are calculated treating SBI-negative encounters as the "case" class
+#-----------------------------
+calc_ruleout_metrics <- function(df, threshold, cohort_label) {
+  dat <- df %>%
+    dplyr::transmute(
+      score = as.numeric(model_score),
+      sbi_truth = to_truth01(sbi_present)
+    ) %>%
+    dplyr::filter(!is.na(score), !is.na(sbi_truth), sbi_truth %in% c(0L, 1L)) %>%
+    dplyr::mutate(
+      sbi_neg_case = as.integer(sbi_truth == 0L),
+      pred_neg = score <= threshold
+    )
+
+  auroc_sbineg <- safe_unweighted_auroc(
+    df = dat %>% dplyr::rename(sbi_present = sbi_neg_case, model_prob = score),
+    truth_col = "sbi_present",
+    score_col = "model_prob"
+  )
+
+  auprc_sbineg <- safe_unweighted_auprc(
+    df = dat %>% dplyr::rename(sbi_present = sbi_neg_case, model_prob = score),
+    truth_col = "sbi_present",
+    score_col = "model_prob"
+  )
+
+  n_pred_neg <- sum(dat$pred_neg)
+  n_pred_neg_sbineg <- sum(dat$pred_neg & dat$sbi_truth == 0L)
+  npv_ruleout <- if (n_pred_neg > 0) n_pred_neg_sbineg / n_pred_neg else NA_real_
+
+  tibble::tibble(
+    cohort = cohort_label,
+    threshold = threshold,
+    n_total = nrow(dat),
+    n_pred_neg = n_pred_neg,
+    auroc_sbineg_case = auroc_sbineg,
+    auprc_sbineg_case = auprc_sbineg,
+    npv_ruleout = npv_ruleout
+  )
+}
+
+threshold_scenarios <- tibble::tribble(
+  ~scenario, ~thresh_unexposed, ~thresh_exposed,
+  "Prespecified (0.05 / 0.074)", 0.05, 0.074,
+  "Unified 0.23 / 0.23", 0.23, 0.23
+)
+
+ruleout_metrics_threshold_table <- purrr::map_dfr(
+  seq_len(nrow(threshold_scenarios)),
+  function(i) {
+    scenario_i <- threshold_scenarios[i, ]
+    dplyr::bind_rows(
+      calc_ruleout_metrics(
+        df = pros_no_abx_1st_infxn_abx,
+        threshold = scenario_i$thresh_unexposed,
+        cohort_label = "Prospective abx-unexposed"
+      ),
+      calc_ruleout_metrics(
+        df = pros_yes_abx_1st_infxn_abx,
+        threshold = scenario_i$thresh_exposed,
+        cohort_label = "Prospective abx-exposed"
+      )
+    ) %>%
+      dplyr::mutate(
+        threshold_scenario = scenario_i$scenario
+      )
+  }
+) %>%
+  dplyr::select(
+    threshold_scenario,
+    cohort,
+    threshold,
+    auroc_sbineg_case,
+    auprc_sbineg_case,
+    npv_ruleout,
+    n_pred_neg,
+    n_total
+  ) %>%
+  dplyr::arrange(threshold_scenario, cohort)
+
+#-----------------------------
 # Helper function for manuscript-style summary
 #-----------------------------
 make_manuscript_summary <- function(df, cohort_label) {
