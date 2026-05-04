@@ -3361,7 +3361,7 @@ dfs_eval <- list(
   "Pros • Abx-" = pros_no_abx_1st_infxn %>%
     mutate(eval_score = rf_pred_prob_pros[, "yes"]),
 
-  "Pros • Abx+" = pros_yes_temp %>%
+  "Pros • Abx+" = pros_yes_abx_1st_infxn %>%
     mutate(eval_score = rf_pred_prob_pros_abx[, "yes"])
 )
 
@@ -3694,7 +3694,7 @@ dfs_eval <- list(
   "Pros • Abx-" = pros_no_abx_1st_infxn %>%
     mutate(eval_score = rf_pred_prob_pros[, "yes"]),
 
-  "Pros • Abx+" = pros_yes_temp %>%
+  "Pros • Abx+" = pros_yes_abx_1st_infxn %>%
     mutate(eval_score = rf_pred_prob_pros_abx[, "yes"])
 )
 
@@ -4415,7 +4415,7 @@ retro_no_abx_std <- standardize_epoch_input(retro_no_abx_1st_infxn)
 pros_no_abx_std  <- standardize_epoch_input(pros_no_abx_1st_infxn)
 
 retro_yes_abx_std <- standardize_epoch_input(retro_yes_abx_1st_infxn)
-pros_yes_abx_std  <- standardize_epoch_input(pros_yes_temp)   # swap object if needed
+pros_yes_abx_std  <- standardize_epoch_input(pros_yes_abx_1st_infxn)
 
 df_noabx <- bind_rows(
   prep_epoch_df(
