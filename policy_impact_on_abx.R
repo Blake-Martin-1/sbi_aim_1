@@ -319,3 +319,88 @@ metric_1_timing
 metric_2_preventable_count_prop
 metric_3_preventable_duration
 metric_4_identified_before_first_picu_abx
+
+
+# Make table suitable for manuscript
+fmt_n_pct <- function(n, denom, digits = 1) {
+  sprintf(
+    paste0("%d/%d (%.", digits, "f%%)"),
+    n,
+    denom,
+    100 * n / denom
+  )
+}
+
+fmt_median_iqr <- function(median, q1, q3, digits = 1) {
+  sprintf(
+    paste0("%.", digits, "f (%.", digits, "f–%.", digits, "f)"),
+    median,
+    q1,
+    q3
+  )
+}
+
+policy_timing_table <- tibble::tibble(
+  `Encounters identified as SBI-negative, n` =
+    metric_1_timing$n_predicted_sbi_negative[1],
+
+  `Rule-out hour, median (IQR)` =
+    fmt_median_iqr(
+      metric_1_timing$median_ruleout_hour[1],
+      metric_1_timing$q1_ruleout_hour[1],
+      metric_1_timing$q3_ruleout_hour[1],
+      digits = 0
+    )
+)
+
+antibiotic_opportunity_table <- tibble::tibble(
+  Measure = c(
+    "Potentially preventable unnecessary antibiotic exposure",
+    "Duration of potentially preventable unnecessary antibiotic exposure",
+    "Identified before first PICU antibiotic dose"
+  ),
+
+  Denominator = c(
+    "SBI-negative encounters receiving antibiotics after score/rule-out time",
+    "Encounters with potentially preventable unnecessary antibiotic exposure",
+    "SBI-negative encounters receiving antibiotics within first 24 hours after PICU admission"
+  ),
+
+  Result = c(
+    fmt_n_pct(
+      metric_2_preventable_count_prop$n_sbi_negative_with_preventable_unnecessary_abx[1],
+      metric_2_preventable_count_prop$n_sbi_negative_with_any_abx_after_score[1]
+    ),
+
+    paste0(
+      "Median ",
+      fmt_median_iqr(
+        metric_3_preventable_duration$median_preventable_abx_days[1],
+        metric_3_preventable_duration$q1_preventable_abx_days[1],
+        metric_3_preventable_duration$q3_preventable_abx_days[1],
+        digits = 1
+      ),
+      " days"
+    ),
+
+    paste0(
+      fmt_n_pct(
+        metric_4_identified_before_first_picu_abx$n_identified_before_first_picu_abx[1],
+        metric_4_identified_before_first_picu_abx$n_sbi_negative_with_abx_in_first_24h_picu[1]
+      ),
+      "; first PICU antibiotic dose at median ",
+      fmt_median_iqr(
+        metric_4_identified_before_first_picu_abx$median_first_picu_abx_hour[1],
+        metric_4_identified_before_first_picu_abx$q1_first_picu_abx_hour[1],
+        metric_4_identified_before_first_picu_abx$q3_first_picu_abx_hour[1],
+        digits = 1
+      ),
+      " hours"
+    )
+  )
+)
+
+policy_timing_table
+antibiotic_opportunity_table
+
+
