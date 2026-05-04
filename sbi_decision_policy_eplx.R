@@ -600,7 +600,7 @@ best_policy_performance <- dplyr::bind_rows(
   test_best_summary
 )
 
-best_policy_performance
+View(best_policy_performance)
 
 ### ---------------------------------------------------------
 ### 9) Optional: inspect encounter-level decisions from best policy
