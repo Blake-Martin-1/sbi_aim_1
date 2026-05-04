@@ -564,10 +564,16 @@ get_boot_ci <- function(x) {
 
 # Split-level performance at threshold = 0.12 with bootstrap CIs
 format_metric_ci <- function(est, lower, upper, digits = 3) {
-  if (is.na(est) || is.na(lower) || is.na(upper)) {
-    return(NA_character_)
-  }
-  sprintf(paste0("%.", digits, "f (%.", digits, "f, %.", digits, "f)"), est, lower, upper)
+  missing_vals <- is.na(est) | is.na(lower) | is.na(upper)
+
+  out <- sprintf(
+    paste0("%.", digits, "f (%.", digits, "f, %.", digits, "f)"),
+    est, lower, upper
+  )
+
+  out[missing_vals] <- NA_character_
+
+  out
 }
 
 calc_split_metrics_boot <- function(dat, threshold = 0.12, n_boot = 1000) {
@@ -628,7 +634,7 @@ split_performance_table <- dplyr::bind_rows(
 split_summary_table <- split_summary_table %>%
   dplyr::left_join(split_performance_table, by = "split")
 
-split_summary_table
+View(split_summary_table)
 
 
 
