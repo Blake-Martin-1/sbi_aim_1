@@ -3649,7 +3649,7 @@ p_quadrant <-
     point.padding = 0.25,
     min.segment.length = 0,
     segment.alpha = 0.5,
-    nudge_y = -0.005,
+    nudge_y = 0.005,
     seed = 1
   ) +
 
@@ -7514,57 +7514,10 @@ age_pairwise_results <- purrr::map_dfr(
 age_pairwise_results
 
 ### Get pretty table for manuscript ###
-pccc_result_pretty <- pccc_test$summary %>%
-  dplyr::mutate(
-    prop_label = paste0(n_yes_abx, "/", total, " (",
-                        scales::percent(prop_yes_abx, accuracy = 0.1), ")")
-  ) %>%
-  dplyr::select(group, prop_label) %>%
-  tidyr::pivot_wider(names_from = group, values_from = prop_label) %>%
-  dplyr::mutate(
-    comparison = "PCCC = 0 vs PCCC = 1",
-    p_value = pccc_test$result$p_value,
-    test_used = pccc_test$result$test_used
-  ) %>%
-  dplyr::select(comparison, everything())
+fmt_prop_label <- function(n, den) {
+  paste0(n, "/", den, " (", scales::percent(n / den, accuracy = 0.1), ")")
+}
 
-malignancy_result_pretty <- malignancy_test$summary %>%
-  dplyr::mutate(
-    prop_label = paste0(n_yes_abx, "/", total, " (",
-                        scales::percent(prop_yes_abx, accuracy = 0.1), ")")
-  ) %>%
-  dplyr::select(group, prop_label) %>%
-  tidyr::pivot_wider(names_from = group, values_from = prop_label) %>%
-  dplyr::mutate(
-    comparison = "Malignancy PCCC = 0 vs 1",
-    p_value = malignancy_test$result$p_value,
-    test_used = malignancy_test$result$test_used
-  ) %>%
-  dplyr::select(comparison, everything())
-
-age_pairwise_pretty <- age_pairwise_results %>%
-  dplyr::transmute(
-    comparison,
-    `Comparison group` = paste0(n_yes_comp, "/", total_comp, " (",
-                                scales::percent(prop_yes_comp, accuracy = 0.1), ")"),
-    `Age >=5 years` = paste0(n_yes_ref, "/", total_ref, " (",
-                             scales::percent(prop_yes_ref, accuracy = 0.1), ")"),
-    test_used,
-    p_value,
-    p_value_holm
-  )
-
-pccc_result_pretty
-malignancy_result_pretty
-# age_omnibus_test$result
-age_pairwise_pretty
-
-### Now combine and make pretty in a single table ###
-library(dplyr)
-library(tibble)
-library(flextable)
-library(officer)
-library(stringr)
 
 ## Helper to format p-values for manuscript tables
 fmt_p <- function(x) {
@@ -7575,46 +7528,83 @@ fmt_p <- function(x) {
   )
 }
 
-## -----------------------------
-## 1. Standardize each table
-## -----------------------------
-
-pccc_tbl <- pccc_result_pretty %>%
-  dplyr::transmute(
-    Characteristic = "Pediatric complex chronic condition",
-    Comparison = comparison,
-    `Group 1` = `PCCC = 0`,
-    `Group 2` = `PCCC = 1`,
-    `P value` = fmt_p(p_value),
-    `Adjusted P value` = "",
-    `Statistical test` = test_used
-  )
-
-malignancy_tbl <- malignancy_result_pretty %>%
-  dplyr::transmute(
-    Characteristic = "Malignancy-related pediatric complex chronic condition",
-    Comparison = comparison,
-    `Group 1` = `Malignancy PCCC = 0`,
-    `Group 2` = `Malignancy PCCC = 1`,
-    `P value` = fmt_p(p_value),
-    `Adjusted P value` = "",
-    `Statistical test` = test_used
-  )
-
-age_tbl <- age_pairwise_pretty %>%
-  dplyr::transmute(
-    Characteristic = "Age group",
-    Comparison = comparison,
-    `Group 1` = `Comparison group`,
-    `Group 2` = `Age >=5 years`,
-    `P value` = fmt_p(p_value),
-    `Adjusted P value` = fmt_p(p_value_holm),
-    `Statistical test` = test_used
-  )
+abx_exposure_col_labels <- c(
+  "0" = "No antibiotics after PICU+2h",
+  "1" = "Antibiotics after PICU+2h"
+)
 
 ## -----------------------------
-## 2. Combine into one table
-## -----------------------------
+make_abx_characteristic_row <- function(data, characteristic_label, indicator_expr,
+                                        p_value, adjusted_p_value = NA_real_,
+                                        test_used = NA_character_) {
+  row_df <- data %>%
+    dplyr::mutate(
+      .has_characteristic = {{ indicator_expr }},
+      .abx_after_2h = factor(
+        abx_after_2h,
+        levels = c(0, 1),
+        labels = unname(abx_exposure_col_labels)
+      )
+    ) %>%
+    dplyr::filter(!is.na(.has_characteristic), !is.na(.abx_after_2h)) %>%
+    dplyr::group_by(.abx_after_2h) %>%
+    dplyr::summarise(
+      n = sum(.has_characteristic, na.rm = TRUE),
+      total = dplyr::n(),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(value = fmt_prop_label(n, total)) %>%
+    dplyr::select(.abx_after_2h, value) %>%
+    tidyr::pivot_wider(names_from = .abx_after_2h, values_from = value)
+
+  row_df %>%
+    dplyr::mutate(
+      Characteristic = characteristic_label,
+      `P value` = fmt_p(p_value),
+      `Adjusted P value` = fmt_p(adjusted_p_value),
+      `Statistical test` = test_used,
+      .before = 1
+    )
+}
+
+pccc_tbl <- make_abx_characteristic_row(
+  data = abx_subgroup_df,
+  characteristic_label = "PCCC, n (%)",
+  indicator_expr = as.character(pccc) == "1",
+  p_value = pccc_test$result$p_value,
+  test_used = pccc_test$result$test_used
+)
+
+malignancy_tbl <- make_abx_characteristic_row(
+  data = abx_subgroup_df,
+  characteristic_label = "Malignancy, n (%)",
+  indicator_expr = as.character(malignancy_pccc) == "1",
+  p_value = malignancy_test$result$p_value,
+  test_used = malignancy_test$result$test_used
+)
+
+age_label_map <- c(
+  "Age >=3 months to <6 months" = "Age 3 months to 6 months",
+  "Age >=6 months to <1 year" = "Age 6 months to 1 year",
+  "Age >=1 year to <5 years" = "Age 1 year to 5 years"
+)
+
+age_tbl <- purrr::map_dfr(
+  names(age_label_map),
+  function(age_level) {
+    age_result <- age_pairwise_results %>%
+      dplyr::filter(comparison == paste0(age_level, " vs ", age_ref))
+
+    make_abx_characteristic_row(
+      data = abx_subgroup_df,
+      characteristic_label = unname(age_label_map[age_level]),
+      indicator_expr = age_group == age_level,
+      p_value = age_result$p_value,
+      adjusted_p_value = age_result$p_value_holm,
+      test_used = age_result$test_used
+    )
+  }
+)
 
 combined_results_tbl <- dplyr::bind_rows(
   pccc_tbl,
@@ -7625,9 +7615,11 @@ combined_results_tbl <- dplyr::bind_rows(
     Characteristic = factor(
       Characteristic,
       levels = c(
-        "Pediatric complex chronic condition",
-        "Malignancy-related pediatric complex chronic condition",
-        "Age group"
+        "PCCC, n (%)",
+        "Malignancy, n (%)",
+        "Age 3 months to 6 months",
+        "Age 6 months to 1 year",
+        "Age 1 year to 5 years"
       )
     )
   ) %>%
@@ -7639,15 +7631,12 @@ ft_results <- combined_results_tbl %>%
   flextable::flextable() %>%
   flextable::set_header_labels(
     Characteristic = "Characteristic",
-    Comparison = "Comparison",
-    `Group 1` = "Group 1",
-    `Group 2` = "Group 2",
+    `No antibiotics after PICU+2h` = "No antibiotics after PICU+2h",
+    `Received antibiotics after PICU+2h` = "Received antibiotics after PICU+2h",
     `P value` = "P value",
     `Adjusted P value` = "Holm-adjusted P value",
     `Statistical test` = "Test"
   ) %>%
-  flextable::merge_v(j = "Characteristic") %>%
-  flextable::valign(j = "Characteristic", valign = "top") %>%
   flextable::bold(part = "header") %>%
   flextable::align(align = "left", part = "all") %>%
   flextable::autofit() %>%
@@ -7658,6 +7647,8 @@ ft_results <- combined_results_tbl %>%
   )
 
 ft_results
+
+
 
 source(file = "retrospective_models_prospective_timecourse_eval.R")
 
