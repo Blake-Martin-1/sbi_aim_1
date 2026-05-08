@@ -358,3 +358,7 @@ p_pred_density <- ggplot(
   )
 
 p_pred_density
+
+
+## Join the test data from 2025 with the predicted probabilities
+final_2025_df <- new_test_data_25 %>% bind_cols(data.frame("pred_sbi" = rf_pred_prob_future))
