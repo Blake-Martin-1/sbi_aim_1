@@ -46,13 +46,29 @@ name_map %>% dplyr::arrange(dplyr::desc(in_predictors), new_name)
 missing_predictors
 extra_columns
 
-## Ok now process data to make sure format matches the dataframe used by the models ##
-pros_25 <- apr_25_renamed %>% rename( , score_time = instant_utc_dttm, model_score = total_score, model_type = acuity_system_id)
+# Fix score_time column
+apr_25_renamed <- apr_25_renamed %>%
+  dplyr::mutate(
+    picu_adm_date_time = lubridate::ymd_hms(
+      icu_start_instant_str,
+      tz = "America/Denver"
+    )
+  )
 
-pros_25$model_type[pros_25$model_type == "100133"] <- "LR_no_abx"
-pros_25$model_type[pros_25$model_type == "100134"] <- "LR_yes_abx"
-pros_25$model_type[pros_25$model_type == "100148"] <- "RF_no_abx"
-pros_25$model_type[pros_25$model_type == "100149"] <- "RF_yes_abx"
+# Create score time via picu_adm_date_time and time since PICU admission
+apr_25_renamed <- apr_25_renamed %>%
+  dplyr::mutate(
+    hours_since_icu_num = as.numeric(hours_since_icu),
+    score_time = picu_adm_date_time + lubridate::dhours(hours_since_icu_num)
+  )
+
+## Ok now process data to make sure format matches the dataframe used by the models ##
+pros_25 <- apr_25_renamed
 
 # Lower case of column names
 colnames(pros_25) <- str_to_lower(colnames(pros_25))
+
+# Rearrange important cols to front
+pros_25 <- pros_25 %>% relocate(csn, picu_adm_date_time, score_time, score_value)
+
+
