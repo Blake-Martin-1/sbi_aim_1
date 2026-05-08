@@ -81,10 +81,18 @@ pros_25 <- pros_25 %>% filter(score_time >= pros_val_start_time)
 nrow(pros_25) # 163790 predictions
 n_distinct(pros_25$pat_enc_csn_id) #1,239 distinct PICU encounters
 
+# Add in the base excess present identifier
+pros_25 <- pros_25 %>%
+  dplyr::mutate(
+    base_excess_present =
+      !is.na(base_excess_arterial_ts) |
+      !is.na(base_excess_capillary_ts) |
+      !is.na(base_excess_venous_ts)
+  )
 
 
 ## Helper: assign greedy 5-minute timepoint clusters within each encounter
-add_timepoint_clusters <- function(df, window_minutes = 5) {
+add_timepoint_clusters <- function(df, window_minutes = 15) {
 
   df <- df %>%
     dplyr::arrange(score_time)
@@ -139,7 +147,7 @@ pros_25_timepointed <- pros_25 %>%
   ) %>%
   dplyr::arrange(pat_enc_csn_id, score_time, model_type) %>%
   dplyr::group_by(pat_enc_csn_id) %>%
-  dplyr::group_modify(~ add_timepoint_clusters(.x, window_minutes = 5)) %>%
+  dplyr::group_modify(~ add_timepoint_clusters(.x, window_minutes = 15)) %>%
   dplyr::ungroup()
 
 # Design collapse predictor function
@@ -178,3 +186,175 @@ pros_25_collapsed_predictors <- pros_25_timepointed %>%
     .groups = "drop"
   ) %>%
   dplyr::arrange(pat_enc_csn_id, timepoint_anchor_time)
+
+## Ok now filter to just those predictions in the frst 24 hours
+pros_25_collapsed_predictors_24h <- pros_25_collapsed_predictors %>%
+  dplyr::group_by(pat_enc_csn_id) %>%
+  dplyr::mutate(
+    initial_timepoint_anchor_time = timepoint_anchor_time[timepoint_id == 1][1],
+    hours_since_initial_timepoint = as.numeric(
+      difftime(
+        timepoint_anchor_time,
+        initial_timepoint_anchor_time,
+        units = "hours"
+      )
+    )
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::filter(hours_since_initial_timepoint <= 24)
+
+# Filter to only those rows where 4 models were collapsed
+pros_25_4_model <- pros_25_collapsed_predictors_24h %>% filter(n_models_collapsed == 4)
+
+# Convert classes to match those needed by the model
+## Confirm all required predictors exist before attempting conversion
+missing_from_pros_25 <- setdiff(predictors, names(pros_25_4_model))
+missing_from_test_df <- setdiff(predictors, names(test_df))
+
+if (length(missing_from_pros_25) > 0) {
+  stop(
+    "These predictors are missing from pros_25_4_model: ",
+    paste(missing_from_pros_25, collapse = ", ")
+  )
+}
+
+if (length(missing_from_test_df) > 0) {
+  stop(
+    "These predictors are missing from test_df: ",
+    paste(missing_from_test_df, collapse = ", ")
+  )
+}
+
+## Helper function: coerce a new-data column to match the class of the corresponding test_df column
+coerce_to_test_class <- function(x, template_col) {
+
+  if (inherits(template_col, "POSIXct")) {
+    tz_use <- attr(template_col, "tzone")
+    if (is.null(tz_use) || length(tz_use) == 0 || is.na(tz_use)) {
+      tz_use <- "UTC"
+    }
+    return(as.POSIXct(x, tz = tz_use))
+  }
+
+  if (is.factor(template_col)) {
+    return(factor(as.character(x), levels = levels(template_col)))
+  }
+
+  if (is.integer(template_col)) {
+    if (is.logical(x)) {
+      return(as.integer(x))
+    } else {
+      return(as.integer(readr::parse_number(as.character(x))))
+    }
+  }
+
+  if (is.numeric(template_col)) {
+    if (is.logical(x)) {
+      return(as.numeric(x))
+    } else {
+      return(readr::parse_number(as.character(x)))
+    }
+  }
+
+  if (is.logical(template_col)) {
+    x_chr <- tolower(trimws(as.character(x)))
+    return(
+      dplyr::case_when(
+        x_chr %in% c("true", "t", "1", "yes", "y") ~ TRUE,
+        x_chr %in% c("false", "f", "0", "no", "n") ~ FALSE,
+        TRUE ~ NA
+      )
+    )
+  }
+
+  if (is.character(template_col)) {
+    return(as.character(x))
+  }
+
+  ## Fallback: return unchanged if class is not covered above
+  x
+}
+
+## Create prediction-ready dataframe with predictor classes matched to test_df
+new_test_data_25 <- pros_25_4_model %>%
+  dplyr::mutate(
+    dplyr::across(
+      dplyr::all_of(predictors),
+      ~ coerce_to_test_class(
+        x = .x,
+        template_col = test_df[[dplyr::cur_column()]]
+      )
+    )
+  )
+
+## Optional QA: verify classes now match test_df for all predictors
+new_test_data_25_class_check <- tibble::tibble(
+  predictor = predictors,
+  test_df_class = vapply(
+    predictors,
+    function(x) paste(class(test_df[[x]]), collapse = "/"),
+    character(1)
+  ),
+  new_test_data_25_class = vapply(
+    predictors,
+    function(x) paste(class(new_test_data_25[[x]]), collapse = "/"),
+    character(1)
+  ),
+  class_matches = test_df_class == new_test_data_25_class
+)
+
+new_test_data_25_class_check %>%
+  dplyr::filter(!class_matches)
+
+
+rf_pred_prob_future <- predict(rf_tune, new_test_data_25 %>% dplyr::select(all_of(predictors)), type = "prob")[, "pos"]
+
+##### QC Overlay SBI probabilities between the prior prospective test set and the future test set ####
+library(dplyr)
+library(tibble)
+library(ggplot2)
+library(scales)
+
+pred_dist_df <- dplyr::bind_rows(
+  tibble::tibble(
+    predicted_probability = rf_pred_prob_test,
+    dataset = "Test"
+  ),
+  tibble::tibble(
+    predicted_probability = rf_pred_prob_future,
+    dataset = "Future"
+  )
+)
+
+p_pred_density <- ggplot(
+  pred_dist_df,
+  aes(
+    x = predicted_probability,
+    color = dataset,
+    fill = dataset
+  )
+) +
+  geom_density(
+    alpha = 0.25,
+    linewidth = 1.1,
+    adjust = 1
+  ) +
+  scale_x_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1)
+  ) +
+  labs(
+    title = "Distribution of SBI Model-Predicted Probabilities",
+    x = "Predicted probability of SBI",
+    y = "Density",
+    color = "Dataset",
+    fill = "Dataset"
+  ) +
+  theme_bw(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold"),
+    legend.position = "top"
+  )
+
+p_pred_density
