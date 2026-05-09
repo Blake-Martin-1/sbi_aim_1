@@ -362,3 +362,187 @@ p_pred_density
 
 ## Join the test data from 2025 with the predicted probabilities
 final_2025_df <- new_test_data_25 %>% bind_cols(data.frame("pred_sbi" = rf_pred_prob_future))
+
+# Start loading in and cleaning extracted data (to get PICU admit time and SBI components)
+adt_raw <- read_csv(file = "/phi/sbi/prospective_data/Prospective/data/adt_export_pros_100125.csv")
+
+adt_df <- adt_raw
+adt_df$intime <- as.POSIXct(adt_df$intime, format = "%m/%d/%y %H:%M")
+adt_df$outtime <- as.POSIXct(adt_df$outtime, format = "%m/%d/%y %H:%M")
+
+adt_df <- adt_df %>% mutate(study_id = paste0(pat_enc_csn_id, "_", cicu_event_count))
+adt_df$intime <- force_tz(adt_df$intime, tzone =  "America/Denver")
+
+first_adt <- adt_df %>% filter(cicu_event_count == 1)
+first_adt <- first_adt %>% rename(picu_adm_date_time = intime)
+
+### Limit adt dataframe to only those encounters in the test set
+first_adt <- first_adt %>% mutate(pat_enc_csn_id = as.character(pat_enc_csn_id))
+adt_future <- first_adt %>% filter(pat_enc_csn_id %in% final_2025_df$pat_enc_csn_id) # 1201 csn's remaining, of note final-2025_df has 1231 so some are missing
+
+# Limit the prediction dataset to only those encounters that are in adt_future
+future_interm <- final_2025_df %>% filter(pat_enc_csn_id %in% adt_future$pat_enc_csn_id) # now only same 1201 CSNs left, 25,265 rows
+
+# join in admit info
+future_w_admit <- future_interm %>% left_join(adt_future, by = "pat_enc_csn_id")
+
+# Filter out fows where prediction was > 24 hours after pcu_adm_date_time, drops from 1201 to 1186 csn's
+
+future_w_admit_24h <- future_w_admit %>%
+  dplyr::mutate(
+    hours_from_picu_adm_to_anchor = as.numeric(
+      difftime(
+        timepoint_anchor_time,
+        picu_adm_date_time,
+        units = "hours"
+      )
+    )
+  ) %>%
+  dplyr::filter(
+    hours_from_picu_adm_to_anchor <= 24
+  )
+
+### Add in labs to determine lactate and culture negative sepsis outcome, will need to combine with blood culture data loaded from micro file
+
+lab_raw <- read.csv(file = "/phi/sbi/prospective_data/Prospective/data/lab_export_pros_100125.csv")
+lab_fut <- lab_raw
+colnames(lab_fut) <- str_to_lower(colnames(lab_fut))
+
+lact_df <- lab_fut %>% filter(component_name %in% c(
+  "LACTATE (POCT)",
+  "LACTATE WHOLE BLOOD",
+  "LACTATE WB CONVERSION"
+  ))
+
+# Need to load in the demographics dataframe to be able to join by har instead of csn (or at least link the)
+demo_raw <- read.csv(file = "/phi/sbi/prospective_data/Prospective/data/demog_export_pros_100125.csv")
+
+just_ids <- demo_raw %>% dplyr::select(pat_mrn_id, hsp_account_id, pat_enc_csn_id) %>% distinct()
+just_ids$pat_enc_csn_id <- as.character(just_ids$pat_enc_csn_id)
+slim_ids <- just_ids %>% filter(pat_enc_csn_id %in% future_w_admit_24h$pat_enc_csn_id)
+
+# Add on har
+future_w_har <- future_w_admit_24h %>% left_join(slim_ids, by = "pat_enc_csn_id")
+
+# Ok now will identify encounters with lactate > 2 within 24 hours of picu admission
+
+## 1. Create an encounter-level table from future_w_har
+##    This preserves one row per pat_enc_csn_id / PICU admission.
+future_encounters <- future_w_har %>%
+  dplyr::distinct(
+    pat_enc_csn_id,
+    hsp_account_id,
+    picu_adm_date_time
+  )
+
+## 2. Clean lactate dataframe:
+##    - Convert result_value to numeric
+##    - Convert specimn_taken_time from character to POSIXct
+##    - Assume times are America/Denver wall-clock times
+lact_df_clean <- lact_df %>%
+  dplyr::mutate(
+    lactate_value = readr::parse_number(result_value),
+    specimn_taken_time_dt = lubridate::ymd_hms(
+      specimn_taken_time,
+      tz = "America/Denver"
+    )
+  ) %>%
+  dplyr::filter(
+    !is.na(lactate_value),
+    !is.na(specimn_taken_time_dt)
+  )
+
+## 3. For each encounter, determine whether any lactate >2 occurred
+##    within +/- 24 hours of PICU admission
+lact_over_two_by_encounter <- future_encounters %>%
+  dplyr::left_join(
+    lact_df_clean,
+    by = "hsp_account_id"
+  ) %>%
+  dplyr::mutate(
+    hours_from_picu_adm_to_lactate = as.numeric(
+      difftime(
+        specimn_taken_time_dt,
+        picu_adm_date_time,
+        units = "hours"
+      )
+    ),
+    lactate_over_two_in_window =
+      lactate_value > 2 &
+      abs(hours_from_picu_adm_to_lactate) <= 24
+  ) %>%
+  dplyr::group_by(pat_enc_csn_id) %>%
+  dplyr::summarise(
+    lact_over_two = as.integer(any(lactate_over_two_in_window, na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+## 4. Join the encounter-level lact_over_two flag back onto future_w_har
+future_w_har <- future_w_har %>%
+  dplyr::left_join(
+    lact_over_two_by_encounter,
+    by = "pat_enc_csn_id"
+  ) %>%
+  dplyr::mutate(
+    lact_over_two = dplyr::coalesce(lact_over_two, 0L)
+  )
+
+# Now load in VPS data and determine pneumonia on admission
+vps_pna_raw_1 <- read_excel("/phi/sbi/sbi_blake/2025_Q1_pna.xlsx")
+vps_pna_raw_2 <- read_excel("/phi/sbi/sbi_blake/2025_Q2_pna.xlsx")
+
+vps_pna_raw_full <- bind_rows(vps_pna_raw_1, vps_pna_raw_2)
+
+# Fix names and classes of columns, and then bind all vps df's together
+vps_pna_fixed <- vps_pna_raw_full %>% dplyr::select(MRN, ICUAdmDateTime, AccountNum, `Present On Admission`)
+colnames(vps_pna_fixed) <- c("mrn", "picu_adm_date_time", "hsp_account_id", "pna_on_admit")
+
+# Fix all of the pna timezone info
+pna_all <- vps_pna_fixed %>% mutate(picu_adm_date_time = force_tz(picu_adm_date_time, tzone = "America/Denver"))
+pna_all$hsp_account_id <- as.integer(pna_all$hsp_account_id)
+
+# Filter for pneumonias present on admission
+pna_admit <- pna_all %>% filter(pna_on_admit == "Yes") %>% distinct() # from 577 pna rows to 420 pneumonias
+
+# Add pneumonia label to current dataframe
+future_w_pna <- future_w_har %>% mutate(pna_1_0 = ifelse(hsp_account_id %in% pna_admit$hsp_account_id, yes = 1, no = 0))
+
+# Now call micro script to determine micro sbi presence
+source(file = "/phi/sbi/sbi_blake/micro_tidying_2025.R")
+
+## Identify study id's with a micro sbi
+pros_all <- future_w_micro %>% mutate(micro_sbi_1_0 = ifelse(study_id %in% micro_df$study_id, yes = 1, no = 0))
+
+# Clarify that cnss has to occur in setting of drawing a blood culture, drops cnss rate from 7% to 3.7%
+pros_all <- pros_all %>% group_by(study_id) %>% mutate(cx_neg_sepsis = ifelse(min(sbp_min) < 5 & lact_over_two == 1, yes = 1, no = 0)) %>% ungroup()
+pros_all <- pros_all %>% mutate(cnss_true = ifelse(cx_neg_sepsis == 1 & study_id %in% bcx_mrn_hosp_adm$study_id, yes = 1, no = 0))
+
+# Now identify sbi overall with combo of pneumonia, cnss, and micro sbi's
+pros_all <- pros_all %>% mutate(sbi_present = ifelse((pna_1_0 + cnss_true + micro_sbi_1_0) > 0, yes = 1, no = 0)) # 27.5% of all predictions have an SBI present in 24hr period around PICU admit
+
+# Identify study_id level rate of SBI
+# BY prediction
+sbi_rate_by_prediction <- round(sum(pros_all$sbi_present) / nrow(pros_all) * 100, digits = 2)
+
+# By study_id
+n_with_sbi <- pros_all %>%
+  group_by(study_id) %>%                 # one group per PICU stay
+  summarise(has_sbi = any(sbi_present == 1), .groups = "drop") %>%
+  filter(has_sbi) %>%                    # keep stays with ≥1 “1”
+  nrow() # 309 with sbi out of 1186
+
+sbi_rate_by_study_id <- round(n_with_sbi / n_distinct(pros_all$study_id) * 100, digits = 2) # 26% of all PICU admissions
+
+# Now filter to appropriate time period based on available data
+study_end <- as.POSIXct("2025-05-31 23:59:59", tz = "America/Denver")
+study_start_time <- as.POSIXct("2025-01-01 00:00:01", tz = "America/Denver")
+
+# Change anchor to score time
+pros_all <- pros_all %>% rename(score_time = timepoint_anchor_time)
+
+pros_full_data <- pros_all # store full dataset in case needed
+pros_all <- pros_all %>% filter(score_time <= study_end) %>% filter (score_time >= study_start_time)# filter for end of study period
+
+# Load in antibiotic data
+source(file = "/phi/sbi/sbi_blake/abx_pros_2025.R")
+
