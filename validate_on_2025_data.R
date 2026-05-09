@@ -306,7 +306,10 @@ new_test_data_25_class_check <- tibble::tibble(
 new_test_data_25_class_check %>%
   dplyr::filter(!class_matches)
 
+#Set seed for reproducibility
+set.seed(2025)
 
+# Generate predictions
 rf_pred_prob_future <- predict(rf_tune, new_test_data_25 %>% dplyr::select(all_of(predictors)), type = "prob")[, "pos"]
 
 ##### QC Overlay SBI probabilities between the prior prospective test set and the future test set ####
@@ -546,3 +549,103 @@ pros_all <- pros_all %>% filter(score_time <= study_end) %>% filter (score_time 
 # Load in antibiotic data
 source(file = "/phi/sbi/sbi_blake/abx_pros_2025.R")
 
+# Filter out predictions that occur >24 hours after picu admission
+pros_all<- pros_all %>% mutate(t_diff = difftime(score_time, picu_adm_date_time, units = "hours"))
+pros_all <- pros_all %>% filter(t_diff <= 24) # n of prediction rows unchanged
+
+# Recalculate number of encounters
+n_enc <- n_distinct(pros_all$study_id) #1186 study encounters
+n_pts <- nrow(pros_all %>% dplyr::select(pat_mrn_id) %>% distinct()) #1131 unique hospitalizations
+n_pred_pre <- nrow(pros_all) #24,512 predictions
+
+# Fix it so that sbi_present is 1 if cx_neg_sepsis is 1 at any point during the PICU encounter
+# Step 1: Identify study_ids where cx_neg_sepsis is 1 in any row
+study_ids_with_cx_neg_sepsis <- pros_all %>%
+  group_by(study_id) %>%
+  summarise(max_cx_neg_sepsis = max(cnss_true)) %>%
+  filter(max_cx_neg_sepsis == 1) %>%
+  pull(study_id)
+
+# Create another column to show if cx_neg_sepsis was every present (instead of just becoming 1 once)
+pros_all <- pros_all %>%
+  mutate("ever_cx_neg_sepsis" = if_else(study_id %in% study_ids_with_cx_neg_sepsis, 1, 0))
+
+pros_all <- pros_all %>% mutate(sbi_present = ifelse(sbi_present == 1 | ever_cx_neg_sepsis == 1, yes = 1, no = sbi_present))
+
+# Load in demographic info to help match csn and har
+demo_ref <- read_csv(file = "/phi/sbi/prospective_data/Prospective/data/demog_export_pros_100125.csv")
+id_df <- demo_ref %>% dplyr::select(hsp_account_id, pat_enc_csn_id, pat_mrn_id) %>% distinct()
+id_df$pat_enc_csn_id <- as.character(id_df$pat_enc_csn_id)
+
+# Add in race, ethnicity, language, insurance data from demo_slim after adding hsp_account_id via id_df,
+pros_all <- pros_all %>% left_join(demo_slim %>% dplyr::select(hsp_account_id, race, ethnicity, language, insurance_type) %>% distinct(), by = "hsp_account_id")
+
+# Fix ethnicity and other SDOH categories
+pros_all$ethnicity[pros_all$ethnicity == "Decline to Answer"] <- "Other_Or_Unknown"
+pros_all$ethnicity[pros_all$ethnicity == "Not Reported"] <- "Other_Or_Unknown"
+pros_all$ethnicity[pros_all$ethnicity == "Unknown"] <- "Other_Or_Unknown"
+pros_all$ethnicity[is.na(pros_all$ethnicity)] <- "Other_Or_Unknown"
+
+pros_all$race[is.na(pros_all$race)] <- "Other_Or_Unknown"
+pros_all$race[pros_all$race == "Not Reported"] <- "Other_Or_Unknown"
+pros_all$race[pros_all$race == "Decline to Answer"] <- "Other_Or_Unknown"
+pros_all$race[pros_all$race == "Other"] <- "Other_Or_Unknown"
+pros_all$race[pros_all$race == "Unknown"] <- "Other_Or_Unknown"
+
+pros_all$language[!(pros_all$language %in% c("English", "Spanish"))] <- "Other_Or_Unknown"
+pros_all$insurance_type[pros_all$insurance_type == "Other" | is.na(pros_all$insurance_type)] <- "Other_Or_Unknown"
+
+# Establish slim dataframe with unique study id and other identifiers
+adm_and_csn <- pros_all %>% dplyr::select(study_id, pat_enc_csn_id, hsp_account_id, pat_mrn_id, picu_adm_date_time) %>% distinct()
+
+# Now calculate number of encounters with SBI and without SBI
+n_sbi_with <- pros_all %>%
+  group_by(study_id) %>%
+  summarise(has_sbi = any(sbi_present == 1), .groups = "drop") %>%
+  filter(has_sbi) %>%
+  nrow()
+
+n_sbi_without <- pros_all %>%
+  group_by(study_id) %>%
+  summarise(has_sbi = any(sbi_present == 1), .groups = "drop") %>%
+  filter(!has_sbi) %>%
+  nrow()
+
+
+# QC: Output the results
+n_sbi_with #309
+n_sbi_without #877
+n_sbi_with + n_sbi_without  # This should now equal 1186 which is the number of study_ids that are unique
+n_enc <- nrow(pros_all %>% dplyr::select(study_id) %>% distinct()); n_enc # 1186 total encounters
+
+# Ensure that if a patient has a pneumonia, micro, or cnss SBI during one prediction that that study_id has all rows with pna present, etc
+pros_all <- pros_all %>%
+  group_by(study_id) %>%
+  mutate(pna_1_0 = if_else(any(pna_1_0 == 1), 1, 0)) %>%
+  ungroup()
+
+
+pros_all <- pros_all %>%
+  group_by(study_id) %>%
+  mutate(micro_sbi_1_0 = if_else(any(micro_sbi_1_0 == 1), 1, 0)) %>%
+  ungroup()
+
+pros_all <- pros_all %>%
+  group_by(study_id) %>%
+  mutate(ever_cx_neg_sepsis = if_else(any(ever_cx_neg_sepsis == 1), 1, 0)) %>%
+  ungroup()
+
+pros_all <- pros_all %>%
+  group_by(study_id) %>%
+  mutate(sbi_present = if_else(any(sbi_present == 1), 1, 0)) %>%
+  ungroup()
+
+# Ensure the culture negative sepsis flag is only positive if pneumonia and micro are == 0
+pros_all$ever_cx_neg_sepsis[pros_all$pna_1_0 == 1] <- 0
+pros_all$ever_cx_neg_sepsis[pros_all$micro_sbi_1_0 == 1] <- 0
+
+# # Write / read fst of pros_all before modeling
+# write.csv(x = pros_all, file = "/phi/sbi/sbi_blake/pros_2025_validation_pros_all_just_b4_modeling_5_8_26.csv")
+# pros_all <- read.csv(file =  "/phi/sbi/sbi_blake/pros_2025_validation_pros_all_just_b4_modeling_5_8_26.csv")
+
+# Evaluat predictions
