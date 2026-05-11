@@ -648,4 +648,5 @@ pros_all$ever_cx_neg_sepsis[pros_all$micro_sbi_1_0 == 1] <- 0
 # write.csv(x = pros_all, file = "/phi/sbi/sbi_blake/pros_2025_validation_pros_all_just_b4_modeling_5_8_26.csv")
 # pros_all <- read.csv(file =  "/phi/sbi/sbi_blake/pros_2025_validation_pros_all_just_b4_modeling_5_8_26.csv")
 
-# Evaluat predictions
+# Evaluate predictions
+colAUC(pros_all$pred_sbi, pros_all$sbi_present, plotROC = TRUE) # determine AUROC in test set = 0.83
