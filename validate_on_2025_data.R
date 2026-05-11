@@ -692,3 +692,482 @@ rf_future_df <- rf_future_df %>%
 rf_future_df <- rf_future_df %>% filter(hours_since_picu_adm >= 0)
 
 
+
+
+######### Future test set performance analyses #############
+# These analyses mirror the rf_test_df evaluations from create_new_pros_model.R,
+# but use rf_future_df from the 2025 prospective validation data.
+
+# Preserve the original prospective test-set performance objects so combined plots
+# and tables can compare the create_new_pros_model.R test set against this future
+# test set.
+rf_test_hourly_metrics_boot <- rf_hourly_metrics_boot
+split_performance_table_original <- split_performance_table
+
+# -----------------------------
+# Calibration plot on future test set
+# Predicted probability = Pr(SBI present)
+# Observed outcome = SBI present
+# -----------------------------
+calib_future_df <- rf_future_df %>%
+  dplyr::filter(
+    !is.na(rf_prob),
+    !is.na(sbi_present)
+  ) %>%
+  dplyr::mutate(
+    sbi_present_num = to_sbi_numeric(sbi_present)
+  )
+
+calib_future_plot_df <- calib_future_df %>%
+  dplyr::mutate(
+    pred_bin = dplyr::ntile(rf_prob, 10)
+  ) %>%
+  dplyr::group_by(pred_bin) %>%
+  dplyr::summarise(
+    n = dplyr::n(),
+    mean_predicted_risk = mean(rf_prob, na.rm = TRUE),
+    observed_sbi_rate = mean(sbi_present_num == 1, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+p_calibration_future <- ggplot2::ggplot(
+  calib_future_plot_df,
+  ggplot2::aes(x = mean_predicted_risk, y = observed_sbi_rate)
+) +
+  ggplot2::geom_abline(
+    slope = 1,
+    intercept = 0,
+    linetype = "dashed",
+    color = "gray40",
+    linewidth = 0.9
+  ) +
+  ggplot2::geom_line(
+    color = "blue3",
+    linewidth = 0.9
+  ) +
+  ggplot2::geom_point(
+    color = "blue3",
+    size = 3
+  ) +
+  ggplot2::scale_x_continuous(
+    limits = c(0, 1),
+    labels = scales::percent_format(accuracy = 1)
+  ) +
+  ggplot2::scale_y_continuous(
+    limits = c(0, 1),
+    labels = scales::percent_format(accuracy = 1)
+  ) +
+  ggplot2::labs(
+    title = "Calibration Plot for New Prospective Random Forest Model",
+    subtitle = "Future test set; points represent deciles of predicted SBI risk",
+    x = "Mean predicted probability of SBI",
+    y = "Observed SBI rate"
+  ) +
+  ggplot2::theme_bw(base_size = 14) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = ggplot2::element_text(hjust = 0.5),
+    axis.title = ggplot2::element_text(face = "bold"),
+    panel.grid.minor = ggplot2::element_blank()
+  )
+
+p_calibration_future
+
+# -----------------------------
+# Future test set timepoint-level summary at the same 0.12 threshold
+# -----------------------------
+threshold <- 0.12
+n_boot <- 1000
+set.seed(123)
+
+rf_future_hour_df <- rf_future_df %>%
+  dplyr::filter(hours_since_picu_adm %in% 1:24)
+
+overall_sbi_neg_timepoint_summary_future <- rf_future_hour_df %>%
+  dplyr::filter(
+    !is.na(sbi_present),
+    !is.na(rf_prob)
+  ) %>%
+  dplyr::mutate(
+    sbi_present_num = to_sbi_numeric(sbi_present),
+    pred_sbi_negative = rf_prob <= threshold,
+    actual_sbi_negative = sbi_present_num == 0,
+    correctly_identified_sbi_negative = pred_sbi_negative & actual_sbi_negative
+  ) %>%
+  dplyr::summarise(
+    n_patient_timepoint_pairs = dplyr::n(),
+    n_actual_sbi_negative_timepoint_pairs = sum(actual_sbi_negative, na.rm = TRUE),
+    n_predicted_sbi_negative_timepoint_pairs = sum(pred_sbi_negative, na.rm = TRUE),
+    n_correctly_identified_sbi_negative_timepoint_pairs = sum(correctly_identified_sbi_negative, na.rm = TRUE),
+    pct_actual_sbi_negative_timepoints_identified =
+      n_correctly_identified_sbi_negative_timepoint_pairs / n_actual_sbi_negative_timepoint_pairs,
+    npv_among_predicted_sbi_negative_timepoints =
+      n_correctly_identified_sbi_negative_timepoint_pairs / n_predicted_sbi_negative_timepoint_pairs
+  )
+
+overall_sbi_neg_timepoint_summary_future
+
+# Recreate overall_sbi_neg_timepoint_summary using rf_future_df.
+overall_sbi_neg_timepoint_summary <- overall_sbi_neg_timepoint_summary_future
+
+future_dup_check <- rf_future_hour_df %>%
+  dplyr::count(study_id, hours_since_picu_adm, name = "n_rows") %>%
+  dplyr::filter(n_rows > 1)
+
+if (nrow(future_dup_check) > 0) {
+  warning("Some future study_id + hours_since_picu_adm combinations had >1 row. Keeping the first row per patient-hour.")
+
+  rf_future_hour_df <- rf_future_hour_df %>%
+    dplyr::group_by(study_id, hours_since_picu_adm) %>%
+    dplyr::slice(1) %>%
+    dplyr::ungroup()
+}
+
+# -----------------------------
+# Split-level performance, keeping the original test-set row and adding the
+# future test set row. AUROC/AUPRC use SBI-negative as the case/event class via
+# calc_metrics_once() from create_new_pros_model.R.
+# -----------------------------
+future_split_performance_row <- calc_split_metrics_boot(
+  rf_future_df,
+  threshold = threshold,
+  n_boot = n_boot
+) %>%
+  dplyr::mutate(
+    split = "future test set",
+    `AUROC (95% CI)` = format_metric_ci(auroc, auroc_lower, auroc_upper),
+    `AUPRC (95% CI)` = format_metric_ci(auprc, auprc_lower, auprc_upper),
+    `NPV (95% CI)` = format_metric_ci(npv, npv_lower, npv_upper),
+    .before = 1
+  ) %>%
+  dplyr::select(split, `AUROC (95% CI)`, `AUPRC (95% CI)`, `NPV (95% CI)`)
+
+split_performance_table <- dplyr::bind_rows(
+  split_performance_table_original %>%
+    dplyr::filter(split == "test set") %>%
+    dplyr::select(split, `AUROC (95% CI)`, `AUPRC (95% CI)`, `NPV (95% CI)`),
+  future_split_performance_row
+)
+
+split_performance_table_future <- split_performance_table
+split_performance_table
+
+# -----------------------------
+# Future hourly metrics and SBI-negative prevalence
+# -----------------------------
+rf_future_hourly_metrics_boot <- purrr::map_dfr(
+  1:24,
+  function(hr) {
+    dat_hr <- rf_future_hour_df %>%
+      dplyr::filter(hours_since_picu_adm == hr)
+
+    calc_hour_metrics_boot(
+      dat = dat_hr,
+      threshold = threshold,
+      n_boot = n_boot
+    ) %>%
+      dplyr::mutate(hours_since_picu_adm = hr, .before = 1)
+  }
+) %>%
+  dplyr::mutate(
+    auroc = round(auroc, 2),
+    auroc_lower = round(auroc_lower, 2),
+    auroc_upper = round(auroc_upper, 2),
+    auprc = round(auprc, 2),
+    auprc_lower = round(auprc_lower, 2),
+    auprc_upper = round(auprc_upper, 2),
+    npv_label = dplyr::if_else(
+      !is.na(n_negative_pred) & n_negative_pred > 0,
+      paste0(tn, "/", n_negative_pred),
+      NA_character_
+    ),
+    pct_sbi_neg_identified_label = dplyr::if_else(
+      !is.na(pct_sbi_neg_identified),
+      paste0(round(100 * pct_sbi_neg_identified), "%"),
+      NA_character_
+    ),
+    auroc_label = dplyr::if_else(
+      !is.na(auroc),
+      sprintf("%.2f", auroc),
+      NA_character_
+    ),
+    auprc_label = dplyr::if_else(
+      !is.na(auprc),
+      sprintf("%.2f", auprc),
+      NA_character_
+    )
+  )
+
+# Recreate rf_hourly_metrics_boot using rf_future_df, while the original test-set
+# metrics remain available as rf_test_hourly_metrics_boot for combined plots.
+rf_hourly_metrics_boot <- rf_future_hourly_metrics_boot
+rf_hourly_metrics_boot
+
+future_sbi_consistency_check <- rf_future_hour_df %>%
+  dplyr::mutate(
+    sbi_present_num = to_sbi_numeric(sbi_present)
+  ) %>%
+  dplyr::group_by(study_id) %>%
+  dplyr::summarise(
+    n_outcome_values = dplyr::n_distinct(sbi_present_num[!is.na(sbi_present_num)]),
+    .groups = "drop"
+  )
+
+if (any(future_sbi_consistency_check$n_outcome_values > 1)) {
+  warning("Some future study_id values have more than one sbi_present value across hours.")
+}
+
+future_patient_level_outcome <- rf_future_hour_df %>%
+  dplyr::mutate(
+    sbi_present_num = to_sbi_numeric(sbi_present)
+  ) %>%
+  dplyr::group_by(study_id) %>%
+  dplyr::summarise(
+    sbi_present_num = dplyr::first(sbi_present_num[!is.na(sbi_present_num)]),
+    .groups = "drop"
+  )
+
+sbi_neg_prevalence_df_future <- future_patient_level_outcome %>%
+  dplyr::summarise(
+    n_encounters = dplyr::n(),
+    n_sbi_negative = sum(sbi_present_num == 0, na.rm = TRUE),
+    n_sbi_positive = sum(sbi_present_num == 1, na.rm = TRUE),
+    sbi_neg_prevalence = n_sbi_negative / n_encounters,
+    sbi_pos_prevalence = n_sbi_positive / n_encounters
+  )
+
+# Recreate sbi_neg_prevalence_df using rf_future_df.
+sbi_neg_prevalence_df <- sbi_neg_prevalence_df_future
+sbi_neg_prevalence_future <- sbi_neg_prevalence_df$sbi_neg_prevalence
+sbi_neg_prevalence_label_future <- paste0(
+  "Future SBI-negative prevalence = ",
+  scales::percent(sbi_neg_prevalence_future, accuracy = 1)
+)
+
+sbi_neg_prevalence_df
+
+# -----------------------------
+# Plot helpers
+# -----------------------------
+plot_npv_by_hour <- function(plot_df, plot_title, show_legend = FALSE) {
+  ggplot2::ggplot(
+    plot_df,
+    ggplot2::aes(x = hours_since_picu_adm, color = dataset, fill = dataset)
+  ) +
+    ggplot2::geom_ribbon(
+      ggplot2::aes(ymin = npv_lower, ymax = npv_upper),
+      alpha = 0.25,
+      color = NA,
+      na.rm = TRUE
+    ) +
+    ggplot2::geom_line(
+      ggplot2::aes(y = npv),
+      linewidth = 0.9,
+      na.rm = TRUE
+    ) +
+    ggplot2::geom_point(
+      ggplot2::aes(y = npv),
+      size = 2.5,
+      na.rm = TRUE
+    ) +
+    ggplot2::geom_line(
+      ggplot2::aes(y = pct_sbi_neg_identified, linetype = dataset),
+      linewidth = 0.9,
+      na.rm = TRUE
+    ) +
+    ggplot2::geom_point(
+      ggplot2::aes(y = pct_sbi_neg_identified),
+      size = 2.3,
+      shape = 17,
+      na.rm = TRUE
+    ) +
+    ggplot2::scale_x_continuous(breaks = 1:24) +
+    ggplot2::scale_y_continuous(
+      limits = c(0, 1.05),
+      breaks = seq(0, 1, by = 0.1),
+      expand = ggplot2::expansion(mult = c(0.01, 0.10)),
+      name = "NPV",
+      sec.axis = ggplot2::sec_axis(
+        transform = ~ . * 100,
+        name = "% of SBI-negative patients correctly identified"
+      )
+    ) +
+    ggplot2::scale_color_manual(values = c("Test set" = "gray35", "Future test set" = "blue3")) +
+    ggplot2::scale_fill_manual(values = c("Test set" = "gray70", "Future test set" = "lightblue")) +
+    ggplot2::labs(
+      title = plot_title,
+      x = "Hours Since PICU Admission",
+      color = "Dataset",
+      fill = "Dataset",
+      linetype = "Dataset"
+    ) +
+    ggplot2::theme_minimal(base_size = 14) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
+      axis.title.x = ggplot2::element_text(face = "bold"),
+      axis.title.y.left = ggplot2::element_text(face = "bold"),
+      axis.title.y.right = ggplot2::element_text(face = "bold"),
+      panel.grid.minor = ggplot2::element_blank(),
+      legend.position = if (show_legend) "bottom" else "none"
+    )
+}
+
+plot_discrimination_by_hour <- function(plot_df, metric, lower, upper, label, plot_title, y_axis_label, show_legend = FALSE) {
+  ggplot2::ggplot(
+    plot_df,
+    ggplot2::aes(x = hours_since_picu_adm, y = .data[[metric]], color = dataset, fill = dataset)
+  ) +
+    ggplot2::geom_ribbon(
+      ggplot2::aes(ymin = .data[[lower]], ymax = .data[[upper]]),
+      alpha = 0.25,
+      color = NA,
+      na.rm = TRUE
+    ) +
+    ggplot2::geom_line(
+      linewidth = 0.9,
+      na.rm = TRUE
+    ) +
+    ggplot2::geom_point(
+      size = 2.5,
+      na.rm = TRUE
+    ) +
+    ggplot2::geom_text(
+      ggplot2::aes(label = .data[[label]]),
+      vjust = -0.8,
+      size = 3.5,
+      show.legend = FALSE,
+      na.rm = TRUE
+    ) +
+    ggplot2::scale_x_continuous(breaks = 1:24) +
+    ggplot2::scale_y_continuous(
+      limits = c(0, 1.05),
+      breaks = seq(0, 1, by = 0.1),
+      expand = ggplot2::expansion(mult = c(0.01, 0.08))
+    ) +
+    ggplot2::scale_color_manual(values = c("Test set" = "gray35", "Future test set" = "blue3")) +
+    ggplot2::scale_fill_manual(values = c("Test set" = "gray70", "Future test set" = "lightblue")) +
+    ggplot2::labs(
+      title = plot_title,
+      x = "Hours Since PICU Admission",
+      y = y_axis_label,
+      color = "Dataset",
+      fill = "Dataset"
+    ) +
+    ggplot2::theme_minimal(base_size = 14) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
+      axis.title = ggplot2::element_text(face = "bold"),
+      panel.grid.minor = ggplot2::element_blank(),
+      legend.position = if (show_legend) "bottom" else "none"
+    )
+}
+
+rf_future_plot_df <- rf_future_hourly_metrics_boot %>%
+  dplyr::mutate(dataset = "Future test set")
+
+rf_test_future_plot_df <- dplyr::bind_rows(
+  rf_test_hourly_metrics_boot %>% dplyr::mutate(dataset = "Test set"),
+  rf_future_plot_df
+) %>%
+  dplyr::mutate(
+    dataset = factor(dataset, levels = c("Test set", "Future test set"))
+  )
+
+# NPV plots: future-only and test-set comparison
+p_npv_future <- plot_npv_by_hour(
+  rf_future_plot_df,
+  "Negative Predictive Value by PICU Hour: Future Test Set"
+)
+p_npv_future
+
+p_npv_test_vs_future <- plot_npv_by_hour(
+  rf_test_future_plot_df,
+  "Negative Predictive Value by PICU Hour: Test vs Future Test Set",
+  show_legend = TRUE
+)
+p_npv_test_vs_future
+
+# AUROC plots: future-only and test-set comparison. SBI-negative patients are the
+# case/event class because calc_hour_metrics_boot() calls calc_metrics_once().
+p_auroc_future <- plot_discrimination_by_hour(
+  rf_future_plot_df,
+  metric = "auroc",
+  lower = "auroc_lower",
+  upper = "auroc_upper",
+  label = "auroc_label",
+  plot_title = "AUROC by PICU Hour: Future Test Set",
+  y_axis_label = "AUROC"
+)
+p_auroc_future
+
+p_auroc_test_vs_future <- plot_discrimination_by_hour(
+  rf_test_future_plot_df,
+  metric = "auroc",
+  lower = "auroc_lower",
+  upper = "auroc_upper",
+  label = "auroc_label",
+  plot_title = "AUROC by PICU Hour: Test vs Future Test Set",
+  y_axis_label = "AUROC",
+  show_legend = TRUE
+)
+p_auroc_test_vs_future
+
+# AUPRC plots: future-only and test-set comparison. SBI-negative patients are the
+# case/event class, so prevalence reference lines use SBI-negative prevalence.
+p_auprc_future <- plot_discrimination_by_hour(
+  rf_future_plot_df,
+  metric = "auprc",
+  lower = "auprc_lower",
+  upper = "auprc_upper",
+  label = "auprc_label",
+  plot_title = "AUPRC by PICU Hour: Future Test Set",
+  y_axis_label = "AUPRC"
+) +
+  ggplot2::geom_hline(
+    yintercept = sbi_neg_prevalence_future,
+    linetype = "dashed",
+    color = "black",
+    linewidth = 0.8
+  ) +
+  ggplot2::annotate(
+    "text",
+    x = 24,
+    y = sbi_neg_prevalence_future,
+    label = sbi_neg_prevalence_label_future,
+    hjust = 1,
+    vjust = -0.6,
+    size = 3.8,
+    color = "black",
+    fontface = "bold"
+  )
+p_auprc_future
+
+sbi_neg_prevalence_test <- patient_level_outcome %>%
+  dplyr::summarise(
+    sbi_neg_prevalence = mean(sbi_present_num == 0, na.rm = TRUE)
+  ) %>%
+  dplyr::pull(sbi_neg_prevalence)
+
+p_auprc_test_vs_future <- plot_discrimination_by_hour(
+  rf_test_future_plot_df,
+  metric = "auprc",
+  lower = "auprc_lower",
+  upper = "auprc_upper",
+  label = "auprc_label",
+  plot_title = "AUPRC by PICU Hour: Test vs Future Test Set",
+  y_axis_label = "AUPRC",
+  show_legend = TRUE
+) +
+  ggplot2::geom_hline(
+    yintercept = sbi_neg_prevalence_test,
+    linetype = "dashed",
+    color = "gray35",
+    linewidth = 0.8
+  ) +
+  ggplot2::geom_hline(
+    yintercept = sbi_neg_prevalence_future,
+    linetype = "dashed",
+    color = "blue3",
+    linewidth = 0.8
+  )
+p_auprc_test_vs_future
