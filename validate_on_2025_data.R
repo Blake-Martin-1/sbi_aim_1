@@ -652,3 +652,43 @@ pros_all$ever_cx_neg_sepsis[pros_all$micro_sbi_1_0 == 1] <- 0
 colAUC(pros_all$pred_sbi, pros_all$sbi_present, plotROC = TRUE) # determine AUROC in test set = 0.83
 
 # Rename df and column to enable cuse of prior code to evaluate future set performance
+rf_future_df <- pros_all %>% rename(rf_prob = pred_sbi)
+
+# Create similar SBI column
+rf_future_df <- rf_future_df %>%
+  dplyr::mutate(
+    SBI = dplyr::case_when(
+      sbi_present == 1 ~ "pos",
+      sbi_present == 0 ~ "neg",
+      TRUE ~ NA_character_
+    ),
+    SBI = factor(
+      SBI,
+      levels = levels(rf_test_df$SBI)
+    )
+  )
+
+# Change study_id to factor to match rf_test_df structure
+rf_future_df$study_id <- as.factor(rf_future_df$study_id)
+
+# Create hours_since_picu_adm column
+rf_future_df <- rf_future_df %>%
+  dplyr::mutate(
+    hours_since_picu_adm = as.numeric(
+      round(
+        as.numeric(
+          difftime(
+            score_time,
+            picu_adm_date_time,
+            units = "hours"
+          )
+        ),
+        digits = 0
+      )
+    )
+  )
+
+# Filter out any predictions made before PICU admission
+rf_future_df <- rf_future_df %>% filter(hours_since_picu_adm >= 0)
+
+
