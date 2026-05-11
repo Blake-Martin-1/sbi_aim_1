@@ -805,7 +805,7 @@ overall_sbi_neg_timepoint_summary_future <- rf_future_hour_df %>%
       n_correctly_identified_sbi_negative_timepoint_pairs / n_predicted_sbi_negative_timepoint_pairs
   )
 
-overall_sbi_neg_timepoint_summary_future
+overall_sbi_neg_timepoint_summary_future # NPV 0.94 and 48% of SBI- pt-timepoint pairs identified
 
 # Recreate overall_sbi_neg_timepoint_summary using rf_future_df.
 overall_sbi_neg_timepoint_summary <- overall_sbi_neg_timepoint_summary_future
