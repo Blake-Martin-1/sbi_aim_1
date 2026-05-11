@@ -650,3 +650,5 @@ pros_all$ever_cx_neg_sepsis[pros_all$micro_sbi_1_0 == 1] <- 0
 
 # Evaluate predictions
 colAUC(pros_all$pred_sbi, pros_all$sbi_present, plotROC = TRUE) # determine AUROC in test set = 0.83
+
+# Rename df and column to enable cuse of prior code to evaluate future set performance
