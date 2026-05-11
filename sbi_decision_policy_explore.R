@@ -569,6 +569,23 @@ best_policy <- valid_grid_ranked %>%
 top_valid_policies
 best_policy
 
+print(best_policy, width = Inf)
+
+# Best policy printed out
+# # A tibble: 1 × 36
+# policy_id min_ruleout_hour low_threshold low_rule    low_k low_m low_n high_threshold high_rule        high_k high_m high_n n_patients n_true_neg n_true_pos n_ruled_out
+# <int>            <dbl>         <dbl> <chr>       <int> <int> <int>          <dbl> <chr>             <int>  <int>  <int>      <int>      <int>      <int>       <int>
+#   1      2629                1           0.1 consecutive     2    NA    NA            0.4 consecutive_high      2     NA     NA        620        470        150         246
+# n_ruled_out_true_neg n_ruled_out_false_neg   npv npv_lower npv_upper prop_all_patients_ruled_out prop_true_neg_ruled_out prop_true_pos_ruleout_error median_hour_ruleout_all
+# <int>                 <int> <dbl>     <dbl>     <dbl>                       <dbl>                   <dbl>                       <dbl>                   <dbl>
+#   1                  234                    12 0.951     0.916     0.975                       0.397                   0.498                        0.08                       2
+# median_hour_ruleout_true_neg n_not_eligible prop_true_pos_not_eligible prop_true_neg_not_eligible ppv_not_eligible prop_indeterminate prop_true_neg_indeterminate
+# <dbl>          <int>                      <dbl>                      <dbl>            <dbl>              <dbl>                       <dbl>
+#   1                            2            162                       0.62                      0.147            0.574              0.342                       0.355
+# prop_true_pos_indeterminate meets_npv_target coverage_score speed_score
+# <dbl> <lgl>                     <dbl>       <dbl>
+#   1                         0.3 TRUE                      0.498           2
+
 ### ---------------------------------------------------------
 ### 8) Apply the single winning policy to VALIDATION and TEST
 ### ---------------------------------------------------------
@@ -600,7 +617,7 @@ best_policy_performance <- dplyr::bind_rows(
   test_best_summary
 )
 
-View(best_policy_performance)
+best_policy_performance
 
 ### ---------------------------------------------------------
 ### 9) Optional: inspect encounter-level decisions from best policy
