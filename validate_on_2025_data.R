@@ -693,6 +693,267 @@ rf_future_df <- rf_future_df %>% filter(hours_since_picu_adm >= 0)
 
 
 
+######### Future decision-policy evaluation #############
+# This section applies the single best policy selected in
+# sbi_decision_policy_explore.R to the 2025 future test set. It assumes that the
+# decision-policy script has already been run in the current R session so that
+# best_policy and the policy helper functions are available.
+required_policy_objects <- c(
+  "best_policy",
+  "prep_seq_data",
+  "build_patient_list",
+  "apply_policy_dataset",
+  "summarise_policy"
+)
+missing_policy_objects <- required_policy_objects[
+  !vapply(required_policy_objects, exists, logical(1), inherits = TRUE)
+]
+
+if (length(missing_policy_objects) > 0) {
+  stop(
+    "Run sbi_decision_policy_explore.R before this section. Missing objects: ",
+    paste(missing_policy_objects, collapse = ", ")
+  )
+}
+
+# Rebuild the complete patient-hour interval dataframe using the same helper
+# used for rf_test_df in sbi_decision_policy_explore.R. Missing hours remain NA
+# and therefore break multi-hour rules.
+rf_future_seq <- prep_seq_data(rf_future_df)
+future_patients <- build_patient_list(rf_future_seq)
+
+future_decisions_best <- apply_policy_dataset(
+  patient_list = future_patients,
+  params = best_policy
+)
+
+future_best_summary <- summarise_policy(
+  decisions_df = future_decisions_best,
+  params = best_policy
+) %>%
+  dplyr::mutate(
+    dataset = "future_test",
+    meets_npv_target = !is.na(npv) & npv >= 0.95,
+    coverage_score = dplyr::if_else(
+      is.na(prop_true_neg_ruled_out),
+      -Inf,
+      prop_true_neg_ruled_out
+    ),
+    speed_score = dplyr::if_else(
+      is.na(median_hour_ruleout_true_neg),
+      Inf,
+      median_hour_ruleout_true_neg
+    )
+  )
+
+# Table analogous to best_policy, but evaluated on rf_future_df rather than the
+# validation set used to identify the policy.
+best_policy_future_performance <- future_best_summary %>%
+  dplyr::select(
+    policy_id,
+    min_ruleout_hour,
+    low_threshold,
+    low_rule,
+    low_k,
+    low_m,
+    low_n,
+    high_threshold,
+    high_rule,
+    high_k,
+    high_m,
+    high_n,
+    n_patients,
+    n_true_neg,
+    n_true_pos,
+    n_ruled_out,
+    n_ruled_out_true_neg,
+    n_ruled_out_false_neg,
+    npv,
+    npv_lower,
+    npv_upper,
+    prop_all_patients_ruled_out,
+    prop_true_neg_ruled_out,
+    prop_true_pos_ruleout_error,
+    median_hour_ruleout_all,
+    median_hour_ruleout_true_neg,
+    n_not_eligible,
+    prop_true_pos_not_eligible,
+    prop_true_neg_not_eligible,
+    ppv_not_eligible,
+    prop_indeterminate,
+    prop_true_neg_indeterminate,
+    prop_true_pos_indeterminate,
+    meets_npv_target,
+    coverage_score,
+    speed_score,
+    dataset
+  )
+
+best_policy_future_performance
+
+future_trajectories_with_decision <- rf_future_seq %>%
+  dplyr::left_join(
+    future_decisions_best,
+    by = c("study_id", "sbi_present")
+  )
+
+## -----------------------------
+## Prep labels for final states
+## -----------------------------
+future_plot_decisions <- future_decisions_best %>%
+  dplyr::mutate(
+    truth_label = dplyr::case_when(
+      sbi_present == 0 ~ "SBI-negative",
+      sbi_present == 1 ~ "SBI-positive",
+      TRUE ~ NA_character_
+    ),
+    final_state_label = dplyr::case_when(
+      final_state == "ruled_out" ~ "Ruled out",
+      final_state == "not_eligible" ~ "High-risk / not eligible",
+      final_state == "indeterminate" ~ "Indeterminate",
+      TRUE ~ final_state
+    ),
+    truth_label = factor(truth_label, levels = c("SBI-negative", "SBI-positive")),
+    final_state_label = factor(
+      final_state_label,
+      levels = c("Ruled out", "High-risk / not eligible", "Indeterminate")
+    )
+  )
+
+## -----------------------------
+## Panel A: disposition by truth
+## -----------------------------
+future_panel_a_df <- future_plot_decisions %>%
+  dplyr::count(truth_label, final_state_label, name = "n") %>%
+  dplyr::group_by(truth_label) %>%
+  dplyr::mutate(
+    prop = n / sum(n),
+    label = paste0(scales::percent(prop, accuracy = 1), "\n(n=", n, ")")
+  ) %>%
+  dplyr::ungroup()
+
+p_policy_future_a <- ggplot2::ggplot(
+  future_panel_a_df,
+  ggplot2::aes(x = truth_label, y = prop, fill = final_state_label)
+) +
+  ggplot2::geom_col(width = 0.7, color = "white", linewidth = 0.6) +
+  ggplot2::geom_text(
+    ggplot2::aes(label = label),
+    position = ggplot2::position_stack(vjust = 0.5),
+    size = 4.2,
+    lineheight = 0.95,
+    fontface = "bold"
+  ) +
+  ggplot2::scale_fill_manual(
+    values = c(
+      "Ruled out" = "forestgreen",
+      "High-risk / not eligible" = "orange",
+      "Indeterminate" = "grey70"
+    )
+  ) +
+  ggplot2::scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    expand = ggplot2::expansion(mult = c(0, 0.02))
+  ) +
+  ggplot2::labs(
+    x = NULL,
+    y = "Patients within true SBI group",
+    fill = NULL,
+    title = "Future test set policy disposition by true SBI status"
+  ) +
+  ggplot2::theme_bw(base_size = 14) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold", size = 15),
+    axis.title = ggplot2::element_text(face = "bold", size = 14),
+    axis.text = ggplot2::element_text(size = 12),
+    legend.text = ggplot2::element_text(size = 12),
+    panel.grid.major = ggplot2::element_blank(),
+    panel.grid.minor = ggplot2::element_blank(),
+    legend.position = "bottom"
+  )
+
+## ----------------------------------------
+## Panel B: cumulative rule-out over time
+## ----------------------------------------
+future_cum_df <- future_plot_decisions %>%
+  dplyr::filter(!is.na(truth_label)) %>%
+  dplyr::select(study_id, truth_label, final_state, decision_hour)
+
+future_hours_df <- tidyr::expand_grid(
+  study_id = unique(future_cum_df$study_id),
+  hour = 0:24
+) %>%
+  dplyr::left_join(
+    future_cum_df,
+    by = "study_id"
+  ) %>%
+  dplyr::mutate(
+    cum_ruled_out = dplyr::case_when(
+      final_state == "ruled_out" & !is.na(decision_hour) & decision_hour <= hour ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+future_panel_b_df <- future_hours_df %>%
+  dplyr::group_by(truth_label, hour) %>%
+  dplyr::summarise(
+    prop_cum_ruled_out = mean(cum_ruled_out, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+p_policy_future_b <- ggplot2::ggplot(
+  future_panel_b_df,
+  ggplot2::aes(x = hour, y = prop_cum_ruled_out)
+) +
+  ggplot2::geom_area(
+    data = future_panel_b_df %>% dplyr::filter(truth_label == "SBI-negative"),
+    fill = "blue",
+    alpha = 0.18
+  ) +
+  ggplot2::geom_area(
+    data = future_panel_b_df %>% dplyr::filter(truth_label == "SBI-positive"),
+    fill = "red",
+    alpha = 0.22
+  ) +
+  ggplot2::geom_line(
+    ggplot2::aes(color = truth_label),
+    linewidth = 1.2
+  ) +
+  ggplot2::geom_point(
+    ggplot2::aes(color = truth_label),
+    size = 2.2
+  ) +
+  ggplot2::scale_color_manual(
+    values = c("SBI-negative" = "blue", "SBI-positive" = "red")
+  ) +
+  ggplot2::scale_x_continuous(breaks = 0:24) +
+  ggplot2::scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1),
+    expand = ggplot2::expansion(mult = c(0, 0.02))
+  ) +
+  ggplot2::labs(
+    x = "Hours since PICU admission",
+    y = "Cumulative proportion ruled out",
+    color = NULL,
+    title = "Future test set cumulative rule-out over time"
+  ) +
+  ggplot2::theme_bw(base_size = 14) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold", size = 15),
+    axis.title = ggplot2::element_text(face = "bold", size = 14),
+    axis.text = ggplot2::element_text(size = 11),
+    legend.text = ggplot2::element_text(size = 12),
+    panel.grid.major = ggplot2::element_blank(),
+    panel.grid.minor = ggplot2::element_blank(),
+    legend.position = "bottom"
+  )
+
+policy_future_figure <- p_policy_future_a + p_policy_future_b +
+  patchwork::plot_layout(widths = c(1, 1.15))
+
+policy_future_figure
+
 
 ######### Future test set performance analyses #############
 # These analyses mirror the rf_test_df evaluations from create_new_pros_model.R,
