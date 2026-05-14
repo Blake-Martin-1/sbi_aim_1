@@ -1709,7 +1709,164 @@ metric_3_preventable_duration_future <- policy_true_neg_future %>%
     q3_preventable_abx_days = stats::quantile(abx_duration_after_score_capped, probs = 0.75, na.rm = TRUE)
   )
 
-# 4) Proportion of SBI-negative encounters with first-24h PICU antibiotics that
+
+# 4) Indications for antibiotics among true SBI-negative encounters ruled out by
+# the policy that nevertheless received antibiotics after the policy rule-out.
+# To keep encounter counts mutually exclusive for the manuscript figure, each
+# encounter is assigned the indication documented on the first antibiotic
+# administration after the policy decision time. The five most common first
+# indications are shown individually; all remaining indications are grouped as
+# "Other".
+if (!"medical_cond_name" %in% names(abx_df)) {
+  abx_df[, medical_cond_name := NA_character_]
+}
+
+policy_true_neg_with_abx_windows_future <- policy_true_neg_future %>%
+  dplyr::filter(abx_duration_after_score_capped > 0) %>%
+  dplyr::mutate(study_id = as.character(study_id)) %>%
+  dplyr::left_join(
+    picu_24h_windows_future %>%
+      dplyr::as_tibble() %>%
+      dplyr::transmute(
+        study_id = as.character(study_id),
+        pat_enc_csn_id = as.character(pat_enc_csn_id),
+        picu_adm_date_time = as.POSIXct(picu_adm_date_time)
+      ),
+    by = "study_id"
+  ) %>%
+  dplyr::mutate(
+    decision_time = picu_adm_date_time + lubridate::hours(decision_hour),
+    indication_window_end = decision_time + lubridate::days(cap_days)
+  )
+
+sbi_negative_abx_total_future <- dplyr::n_distinct(
+  policy_true_neg_with_abx_windows_future$study_id
+)
+
+sbi_negative_abx_indication_events_future <- abx_df %>%
+  dplyr::as_tibble() %>%
+  dplyr::mutate(
+    pat_enc_csn_id = as.character(pat_enc_csn_id),
+    taken_time = as.POSIXct(taken_time),
+    medical_cond_name = dplyr::na_if(
+      stringr::str_squish(as.character(medical_cond_name)),
+      ""
+    ),
+    medical_cond_name = dplyr::case_when(
+      is.na(medical_cond_name) ~ "No indication documented",
+      stringr::str_to_upper(medical_cond_name) == "NULL" ~ "No indication documented",
+      TRUE ~ medical_cond_name
+    )
+  ) %>%
+  dplyr::inner_join(
+    policy_true_neg_with_abx_windows_future %>%
+      dplyr::select(
+        study_id,
+        pat_enc_csn_id,
+        decision_time,
+        indication_window_end
+      ),
+    by = "pat_enc_csn_id"
+  ) %>%
+  dplyr::filter(
+    !is.na(taken_time),
+    !is.na(decision_time),
+    taken_time >= decision_time,
+    taken_time <= indication_window_end
+  )
+
+sbi_negative_first_abx_indication_future <- sbi_negative_abx_indication_events_future %>%
+  dplyr::arrange(study_id, taken_time, medical_cond_name) %>%
+  dplyr::group_by(study_id) %>%
+  dplyr::summarise(
+    first_abx_time_after_ruleout = dplyr::first(taken_time),
+    first_abx_indication = dplyr::first(medical_cond_name),
+    .groups = "drop"
+  ) %>%
+  dplyr::right_join(
+    policy_true_neg_with_abx_windows_future %>%
+      dplyr::select(study_id),
+    by = "study_id"
+  ) %>%
+  dplyr::mutate(
+    first_abx_indication = dplyr::coalesce(
+      first_abx_indication,
+      "No post-rule-out indication found"
+    )
+  )
+
+top_5_sbi_negative_abx_indications_future <- sbi_negative_first_abx_indication_future %>%
+  dplyr::count(first_abx_indication, name = "n_patients") %>%
+  dplyr::arrange(dplyr::desc(n_patients), first_abx_indication) %>%
+  dplyr::slice_head(n = 5) %>%
+  dplyr::pull(first_abx_indication)
+
+sbi_negative_abx_indication_summary_future <- sbi_negative_first_abx_indication_future %>%
+  dplyr::mutate(
+    indication_group = dplyr::if_else(
+      first_abx_indication %in% top_5_sbi_negative_abx_indications_future,
+      first_abx_indication,
+      "Other"
+    )
+  ) %>%
+  dplyr::count(indication_group, name = "n_patients") %>%
+  dplyr::mutate(
+    pct_patients = n_patients / sbi_negative_abx_total_future,
+    label = paste0(
+      scales::percent(pct_patients, accuracy = 1),
+      "\n(n=",
+      n_patients,
+      ")"
+    ),
+    indication_group = stats::reorder(indication_group, n_patients)
+  )
+
+p_sbi_negative_abx_indications_future <- ggplot2::ggplot(
+  sbi_negative_abx_indication_summary_future,
+  ggplot2::aes(x = indication_group, y = n_patients)
+) +
+  ggplot2::geom_col(
+    width = 0.72,
+    fill = "#2B6C9E",
+    color = "white",
+    linewidth = 0.4
+  ) +
+  ggplot2::geom_text(
+    ggplot2::aes(label = label),
+    hjust = -0.08,
+    size = 3.8,
+    lineheight = 0.9,
+    fontface = "bold"
+  ) +
+  ggplot2::coord_flip(clip = "off") +
+  ggplot2::scale_y_continuous(
+    expand = ggplot2::expansion(mult = c(0, 0.18))
+  ) +
+  ggplot2::labs(
+    title = "Antibiotic Indications Among SBI-Negative Policy Rule-Out Encounters",
+    subtitle = paste0(
+      "Total SBI-negative policy rule-out encounters receiving post-rule-out antibiotics: n = ",
+      scales::comma(sbi_negative_abx_total_future),
+      "; bars show first documented post-rule-out antibiotic indication"
+    ),
+    x = NULL,
+    y = "Number of encounters",
+    caption = "Top five indications shown separately; all remaining first indications grouped as Other."
+  ) +
+  ggplot2::theme_classic(base_size = 14) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold", size = 15),
+    plot.subtitle = ggplot2::element_text(size = 11, color = "gray25"),
+    plot.caption = ggplot2::element_text(size = 9, color = "gray35", hjust = 0),
+    axis.title.x = ggplot2::element_text(face = "bold"),
+    axis.text.y = ggplot2::element_text(size = 11, color = "black"),
+    axis.text.x = ggplot2::element_text(color = "black"),
+    plot.margin = ggplot2::margin(t = 8, r = 28, b = 8, l = 8)
+  )
+
+p_sbi_negative_abx_indications_future
+
+# 5) Proportion of SBI-negative encounters with first-24h PICU antibiotics that
 # were ruled out by the model + policy before the first PICU antibiotic dose.
 first_picu_abx_timing_future <- abx_first_24h_overlaps_future %>%
   dplyr::as_tibble() %>%
@@ -1770,6 +1927,8 @@ policy_impact_on_abx_future <- list(
   metric_1_timing = metric_1_timing_future,
   metric_2_preventable_count_prop = metric_2_preventable_count_prop_future,
   metric_3_preventable_duration = metric_3_preventable_duration_future,
+  antibiotic_indication_summary = sbi_negative_abx_indication_summary_future,
+  antibiotic_indication_plot = p_sbi_negative_abx_indications_future,
   metric_4_identified_before_first_picu_abx = metric_4_identified_before_first_picu_abx_future,
   patient_level = policy_abx_future
 )
@@ -1777,6 +1936,7 @@ policy_impact_on_abx_future <- list(
 metric_1_timing_future
 metric_2_preventable_count_prop_future
 metric_3_preventable_duration_future
+sbi_negative_abx_indication_summary_future
 metric_4_identified_before_first_picu_abx_future
 
 # Make table suitable for manuscript
