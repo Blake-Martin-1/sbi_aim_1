@@ -1,5 +1,65 @@
 ### Code to create new model from prospective data ###
 
+# Rerun initial setup code to be able to start from new model
+# aim_1_main.R
+# Script to evaluate changes over time in input availability, input values, and patient mix. To be used for prospective validation paper looking at reasons why the model had poor
+# performance when evaluated prospectively.
+
+
+# Call setup script to import needed filepaths
+setwd(dir = "/phi/sbi/sbi_blake/aim_1_paper_materials/")
+
+source("setup_aim_1.R")
+
+# Load additional scripts
+library(scales)
+library(gbm)
+library(lubridate)
+library(data.table)
+library(pedbp)
+library(DescTools)
+library(stringi)
+library(stringr)
+library(readxl)
+library(devtools)
+library(rriskDistributions)
+library(mltools)
+library(tidyr)
+library(rsample)
+library(parsnip)
+library(ranger)
+library(pROC)      # ROC + AUC
+library(caret)
+library(iml)
+library(purrr)
+library(glmnet)
+library(tidyverse)
+library(survey)
+library(forcats)
+library(gtsummary)
+library(flextable)
+library(officer)
+library(ggplot2)
+library(dplyr)
+library(tibble)
+library(yardstick)
+library(patchwork)
+library(PRROC)     # PR curve + AUPRC
+library(WeightIt)
+library(cobalt)
+library(emmeans)
+library(ggrepel)
+library(WeightedROC)
+library(gtsummary)
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(tidyr)
+library(ggplot2)
+library(forcats)
+library(scales)
+
 
 pros_one_model <- read_csv(file = "/phi/sbi/sbi_blake/pros_all_just_b4_modeling_10_14_25.csv")
 # pros_all <- read_csv(file = "/phi/sbi/sbi_blake/pros_all_just_b4_modeling_1_15_26_all_models.csv")
