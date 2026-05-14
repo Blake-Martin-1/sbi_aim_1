@@ -547,7 +547,7 @@ pros_full_data <- pros_all # store full dataset in case needed
 pros_all <- pros_all %>% filter(score_time <= study_end) %>% filter (score_time >= study_start_time)# filter for end of study period
 
 # Load in antibiotic data
-source(file = "/phi/sbi/sbi_blake/abx_pros_2025.R")
+source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/abx_pros_2025.R")
 
 # Filter out predictions that occur >24 hours after picu admission
 pros_all<- pros_all %>% mutate(t_diff = difftime(score_time, picu_adm_date_time, units = "hours"))
@@ -1798,7 +1798,7 @@ sbi_negative_first_abx_indication_future <- sbi_negative_abx_indication_events_f
 top_5_sbi_negative_abx_indications_future <- sbi_negative_first_abx_indication_future %>%
   dplyr::count(first_abx_indication, name = "n_patients") %>%
   dplyr::arrange(dplyr::desc(n_patients), first_abx_indication) %>%
-  dplyr::slice_head(n = 5) %>%
+  dplyr::slice_head(n = 20) %>%
   dplyr::pull(first_abx_indication)
 
 sbi_negative_abx_indication_summary_future <- sbi_negative_first_abx_indication_future %>%
