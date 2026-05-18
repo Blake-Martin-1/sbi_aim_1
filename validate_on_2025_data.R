@@ -557,8 +557,8 @@ antimicrobial_class_lookup_2025 <- abx_df %>%
   dplyr::mutate(medication_name = as.character(medication_name)) %>%
   dplyr::group_by(medication_name) %>%
   dplyr::summarise(
-    class = dplyr::first(
-      as.character(class[!is.na(class)]),
+    medication_class = dplyr::first(
+      as.character(medication_class[!is.na(medication_class)]),
       default = NA_character_
     ),
     .groups = "drop"
@@ -1505,7 +1505,7 @@ abx_df$pat_enc_csn_id <- as.character(abx_df$pat_enc_csn_id)
 # Reattach the medication class from abx_pros_2025.R after reloading abx_df,
 # so downstream antibiotic-only summaries can distinguish antibiotics from
 # antifungals, antivirals, and other antimicrobials.
-if (!"class" %in% names(abx_df)) {
+if (!"medication_class" %in% names(abx_df)) {
   abx_df <- abx_df %>%
     dplyr::mutate(medication_name = as.character(medication_name)) %>%
     dplyr::left_join(antimicrobial_class_lookup_2025, by = "medication_name")
@@ -1745,8 +1745,8 @@ if (!"medical_cond_name" %in% names(abx_df)) {
   abx_df[, medical_cond_name := NA_character_]
 }
 
-if (!"class" %in% names(abx_df)) {
-  abx_df[, class := NA_character_]
+if (!"medication_class" %in% names(abx_df)) {
+  abx_df[, medication_class := NA_character_]
 }
 
 policy_true_neg_with_abx_windows_future <- policy_true_neg_future %>%
@@ -1772,7 +1772,7 @@ sbi_negative_abx_indication_events_future <- abx_df %>%
   dplyr::mutate(
     pat_enc_csn_id = as.character(pat_enc_csn_id),
     taken_time = as.POSIXct(taken_time),
-    class = stringr::str_to_lower(stringr::str_squish(as.character(class))),
+    medication_class = stringr::str_to_lower(stringr::str_squish(as.character(medication_class))),
     medical_cond_name = dplyr::na_if(
       stringr::str_squish(as.character(medical_cond_name)),
       ""
@@ -1783,7 +1783,7 @@ sbi_negative_abx_indication_events_future <- abx_df %>%
       TRUE ~ medical_cond_name
     )
   ) %>%
-  dplyr::filter(class == "antibiotics") %>%
+  dplyr::filter(medication_class %in% c("antibiotic", "antibiotics")) %>%
   dplyr::inner_join(
     policy_true_neg_with_abx_windows_future %>%
       dplyr::select(
