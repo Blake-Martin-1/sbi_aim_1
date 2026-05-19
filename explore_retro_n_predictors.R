@@ -136,6 +136,8 @@ best_params <- rf_tuned$bestTune
 cat("Best tuned parameters:\n")
 print(best_params)
 
+# mtry 42 extratrees and mns 1
+
 #-----------------------------
 # 3) Permutation importance ranking on full train
 #-----------------------------
