@@ -1,44 +1,5 @@
 ### Evaluate how predictor count affects AUROC for SBI RF model ###
 
-# First divide the rf_df into the train and test data frames by random 80/20 split
-set.seed(seed = 32313)
-
-train_size <- floor(nrow(rf_df) * 0.8)
-
-train_index <- sample.int(
-  n = nrow(rf_df),
-  size = train_size,
-  replace = FALSE
-)
-
-train_df <- rf_df[train_index, ]
-test_df  <- rf_df[-train_index, ]
-
-predictors_full_retro <- names(
-  train_df %>%
-    dplyr::select(-case_id, -sbi_present)
-)
-
-rf_train_df <- train_df %>%
-  dplyr::select(sbi_present, dplyr::all_of(predictors_full_retro))
-
-rf_model_trial <- caret::train(
-  sbi_present ~ .,
-  data = rf_train_df,
-  method = "ranger",
-  tuneLength = 10,
-  na.action = na.omit,
-  importance = "impurity",
-  respect.unordered.factors = TRUE,
-  trControl = caret::trainControl(
-    method = "cv",
-    number = 5,
-    summaryFunction = caret::twoClassSummary,
-    classProbs = TRUE,
-    verboseIter = TRUE
-  )
-)
-
 suppressPackageStartupMessages({
   library(caret)
   library(ranger)
@@ -55,21 +16,15 @@ idx <- sample.int(n = nrow(rf_df), size = train_size, replace = FALSE)
 train_df <- rf_df[idx, ]
 test_df <- rf_df[-idx, ]
 
-# Ensure outcome is factor and set positive class first for twoClassSummary
-if (!is.factor(train_df$sbi_present)) {
-  train_df$sbi_present <- factor(train_df$sbi_present)
-  test_df$sbi_present <- factor(test_df$sbi_present)
-}
-
-guess_positive_class <- function(x) {
-  lv <- levels(x)
-  hit <- grep("^(yes|y|1|true|positive|pos|sbi)$", lv, ignore.case = TRUE, value = TRUE)
-  if (length(hit) > 0) hit[1] else lv[1]
-}
-
-positive_class <- guess_positive_class(train_df$sbi_present)
+# sbi_present is already a 2-level factor: c("no", "yes")
+# Modeling goal here is SBI-negative identification, so "no" is the event/case class.
+positive_class <- "no"
 train_df$sbi_present <- relevel(train_df$sbi_present, ref = positive_class)
 test_df$sbi_present <- factor(test_df$sbi_present, levels = levels(train_df$sbi_present))
+
+# Never allow encounter identifier to be used as a predictor
+train_df <- train_df[, setdiff(names(train_df), "case_id"), drop = FALSE]
+test_df <- test_df[, setdiff(names(test_df), "case_id"), drop = FALSE]
 
 #-----------------------------
 # 1) Parallel backend (n - 1 cores)
@@ -178,6 +133,20 @@ performance_by_k <- data.frame(
   cv_auroc = roc_by_k
 )
 
+# Plot CV AUROC vs number of predictors
+plot(
+  x = performance_by_k$k,
+  y = performance_by_k$cv_auroc,
+  type = "b",
+  pch = 16,
+  xlab = "Number of predictors (top-k by permutation importance)",
+  ylab = "Cross-validated AUROC",
+  main = "CV AUROC vs Number of Predictors",
+  ylim = c(min(performance_by_k$cv_auroc, na.rm = TRUE), max(performance_by_k$cv_auroc, na.rm = TRUE))
+)
+abline(v = which.max(performance_by_k$cv_auroc), lty = 2, col = "steelblue")
+abline(h = max(performance_by_k$cv_auroc, na.rm = TRUE), lty = 3, col = "darkgray")
+
 # Parsimony rule: smallest k within 10% of max AUROC
 max_auc <- max(performance_by_k$cv_auroc, na.rm = TRUE)
 threshold_auc <- 0.9 * max_auc
@@ -218,6 +187,7 @@ probs <- predict(final_rf, newdata = final_test, type = "prob")[[positive_class]
 roc_obj <- pROC::roc(
   response = final_test$sbi_present,
   predictor = probs,
+  # pROC expects levels = c(control, case); set case to "no" (SBI-negative)
   levels = rev(levels(final_test$sbi_present)),
   direction = "<",
   ci = TRUE
