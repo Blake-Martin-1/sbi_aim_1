@@ -5,7 +5,73 @@ suppressPackageStartupMessages({
   library(ranger)
   library(doParallel)
   library(pROC)
+  library(fst)
+  library(tidyverse)
+  library(tidyr)
+  library(readr)
+  library(dplyr)
+  library(readxl)
+  library(purrr)
+  library(chron)
+  library(stringr)
+  library(stringi)
+  library(stats)
+  library(tibble)
+  library(robustbase) #For colMedians function
+  library(DescTools)
+  library(rriskDistributions)
+  library(tigerstats)
+  library(fst)
+  library(rpart)
+  library(ranger)
+  library(caTools)
+  library(caret)
+  library(pROC)
+  library(pccc)
+  library(stratifyR)
+  library(glmnet)
+  library(regclass)
+  library(devtools)
+  library(recipes)
+  library(ggpubr)
+  library(e1071)
+  library(mltools)
+  library(data.table)
+  library(kernlab)
+  library(MLmetrics)
+  library(OptimalCutpoints)
+  library(qwraps2)
 })
+
+# Load in dataframe
+temp_model_data_df <- read.fst(path = "~/sbi_blake/jan_25_23_model_data_df.fst")
+model_data_df <- temp_model_data_df
+
+# Filter out post-Beaker patients
+t_beaker <- as.POSIXct("2019-10-31 00:00:00 UTC", tz = "UTC")
+vps_pt_list_11_to_17 <- read_excel("/phi/sbi/sbi_data/vps_full_admit_list.xlsx")
+vps_pt_list_18_to_20 <- read_excel(vps_file_path_10_yr, sheet = "Pt List")
+vps_pt_list_full <- bind_rows(vps_pt_list_11_to_17, vps_pt_list_18_to_20)
+vps_pt_list_full <- vps_pt_list_full %>% mutate(mrn = as.character(vps_pt_list_full$mrn),
+                                                case_id = as.character(vps_pt_list_full$case_id),
+                                                har = as.character(vps_pt_list_full$har),
+                                                picu_adm_date_time = as.POSIXct(vps_pt_list_full$picu_adm_date_time, tz = "GMT"),
+                                                picu_dc_date_time = as.POSIXct(vps_pt_list_full$picu_dc_date_time, tz = "GMT"))
+
+case_id_and_picu_adm_date_time <- vps_pt_list_full %>% dplyr::select(case_id, picu_adm_date_time) %>% distinct()
+
+# Create rf_df for use in no abx dataframe
+rf_df <- model_data_df %>% left_join(case_id_and_picu_adm_date_time, by = "case_id")  %>% filter(picu_adm_date_time < t_beaker) %>% filter(abx_exp == "0") %>%
+  dplyr::select(-all_of(c("picu_adm_date_time"))) #n = 8,657
+
+bad_cols <- c("sbi_pneumonia", "sbi", "blood", "abd", "cns", "genital", "nos", "resp", "stool", "tissue", "urine", "sbi_cx_neg_sepsis", "virus_24", "abx_exp", "death_date")
+rf_df <- rf_df %>% dplyr::select(-all_of(bad_cols))
+
+#Fix classes
+rf_df$sbi_present <- as.factor(rf_df$sbi_present)
+
+# Remove impossible values
+rf_df <- rf_df %>% filter(max_sbp <= 100)
 
 #-----------------------------
 # 0) Train / test split
