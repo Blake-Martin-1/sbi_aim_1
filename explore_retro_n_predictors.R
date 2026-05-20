@@ -202,28 +202,79 @@ performance_by_k <- data.frame(
 )
 
 # Plot CV AUROC vs number of predictors
-plot(
-  x = performance_by_k$k,
-  y = performance_by_k$cv_auroc,
-  type = "b",
-  pch = 16,
-  xlab = "Number of predictors (top-k by permutation importance)",
-  ylab = "Cross-validated AUROC",
-  main = "CV AUROC vs Number of Predictors",
-  ylim = c(min(performance_by_k$cv_auroc, na.rm = TRUE), max(performance_by_k$cv_auroc, na.rm = TRUE))
-)
-abline(v = which.max(performance_by_k$cv_auroc), lty = 2, col = "steelblue")
-abline(h = max(performance_by_k$cv_auroc, na.rm = TRUE), lty = 3, col = "darkgray")
+# Identify max AUROC and corresponding k
+# Identify max AUROC and corresponding k
+max_auc <- max(performance_by_k$cv_auroc, na.rm = TRUE)
+
+k_max_auc <- performance_by_k$k[
+  which.max(performance_by_k$cv_auroc)
+]
+
+# Plot CV AUROC vs number of predictors
+ggplot(
+  performance_by_k,
+  aes(x = k, y = cv_auroc)
+) +
+  geom_line(
+    linewidth = 0.8,
+    color = "red"
+  ) +
+  geom_point(
+    size = 2,
+    color = "red"
+  ) +
+  geom_vline(
+    xintercept = k_max_auc,
+    linetype = "dashed",
+    color = "steelblue",
+    linewidth = 0.8
+  ) +
+  geom_hline(
+    yintercept = max_auc,
+    linetype = "dotted",
+    color = "darkgray",
+    linewidth = 0.8
+  ) +
+  scale_x_continuous(
+    breaks = seq(
+      from = 0,
+      to = max(performance_by_k$k, na.rm = TRUE),
+      by = 10
+    )
+  ) +
+  labs(
+    title = "CV AUROC vs Number of Predictors",
+    x = "Number of predictors (top-k by permutation importance)",
+    y = "Cross-validated AUROC"
+  ) +
+  coord_cartesian(
+    ylim = range(performance_by_k$cv_auroc, na.rm = TRUE)
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold")
+  )
 
 # Parsimony rule: smallest k within 10% of max AUROC
 max_auc <- max(performance_by_k$cv_auroc, na.rm = TRUE)
-threshold_auc <- 0.9 * max_auc
+threshold_auc <- 0.99 * max_auc
 selected_k <- min(performance_by_k$k[performance_by_k$cv_auroc >= threshold_auc])
 selected_features <- predictors_ranked[seq_len(selected_k)]
 
 cat(sprintf("Max CV AUROC: %.4f\n", max_auc))
-cat(sprintf("Parsimony threshold (90%% of max): %.4f\n", threshold_auc))
+cat(sprintf("Parsimony threshold (99%% of max): %.4f\n", threshold_auc))
 cat(sprintf("Selected k: %d\n", selected_k))
+
+# View table with k and AUROC
+auroc_by_predictor_table <- performance_by_k %>%
+  dplyr::transmute(
+    n_predictors = k,
+    cv_auroc = round(cv_auroc, 4)
+  )
+
+# Open in RStudio viewer
+View(auroc_by_predictor_table)
 
 #-----------------------------
 # 5) Refit final model on full train with selected k
