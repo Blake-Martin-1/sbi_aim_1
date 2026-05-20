@@ -60,40 +60,191 @@ vps_pt_list_full <- vps_pt_list_full %>% mutate(mrn = as.character(vps_pt_list_f
 
 case_id_and_picu_adm_date_time <- vps_pt_list_full %>% dplyr::select(case_id, picu_adm_date_time) %>% distinct()
 
-# Create rf_df for use in no abx dataframe
-rf_df <- model_data_df %>% left_join(case_id_and_picu_adm_date_time, by = "case_id")  %>% filter(picu_adm_date_time < t_beaker) %>% filter(abx_exp == "0") %>%
-  dplyr::select(-all_of(c("picu_adm_date_time"))) #n = 8,657
+# Create base dataframe for all pre-Beaker PICU encounters
+rf_df_pre_beaker <- model_data_df %>%
+  left_join(case_id_and_picu_adm_date_time, by = "case_id") %>%
+  filter(picu_adm_date_time < t_beaker) %>%
+  dplyr::select(-all_of(c("picu_adm_date_time")))
 
-bad_cols <- c("sbi_pneumonia", "sbi", "blood", "abd", "cns", "genital", "nos", "resp", "stool", "tissue", "urine", "sbi_cx_neg_sepsis", "virus_24", "abx_exp", "death_date")
-rf_df <- rf_df %>% dplyr::select(-all_of(bad_cols))
+cat(sprintf("Cohort size after pre-Beaker filter (all abx exposure statuses): %s\n", format(nrow(rf_df_pre_beaker), big.mark = ",")))
 
-#Fix classes
-rf_df$sbi_present <- as.factor(rf_df$sbi_present)
+run_rf_predictor_sweep <- function(rf_df, cohort_label, workers, positive_class = "no") {
+  bad_cols <- c("sbi_pneumonia", "sbi", "blood", "abd", "cns", "genital", "nos", "resp", "stool", "tissue", "urine", "sbi_cx_neg_sepsis", "virus_24", "abx_exp", "death_date")
+  rf_df <- rf_df %>% dplyr::select(-all_of(bad_cols))
 
-# Remove impossible values
-rf_df <- rf_df %>% filter(max_sbp <= 100)
+  # Fix classes
+  rf_df$sbi_present <- as.factor(rf_df$sbi_present)
+
+  # Remove impossible values
+  rf_df <- rf_df %>% filter(max_sbp <= 100)
+
+  cat(sprintf("\n=== Running cohort: %s (n=%s after cleaning) ===\n", cohort_label, format(nrow(rf_df), big.mark = ",")))
+
+  # 0) Train / test split
+  set.seed(32313)
+  train_size <- floor(nrow(rf_df) * 0.8)
+  idx <- sample.int(n = nrow(rf_df), size = train_size, replace = FALSE)
+  train_df <- rf_df[idx, ]
+  test_df <- rf_df[-idx, ]
+
+  train_df$sbi_present <- relevel(train_df$sbi_present, ref = positive_class)
+  test_df$sbi_present <- factor(test_df$sbi_present, levels = levels(train_df$sbi_present))
+
+  # Never allow encounter identifier to be used as a predictor
+  train_df <- train_df[, setdiff(names(train_df), "case_id"), drop = FALSE]
+  test_df <- test_df[, setdiff(names(test_df), "case_id"), drop = FALSE]
+
+  # 1) Repeated CV for tuning on train only
+  ctrl_repeated <- trainControl(
+    method = "repeatedcv",
+    number = 5,
+    repeats = 2,
+    classProbs = TRUE,
+    summaryFunction = twoClassSummary,
+    allowParallel = TRUE,
+    verboseIter = FALSE
+  )
+
+  # 2) Tune RF
+  set.seed(32313)
+  rf_tuned <- train(
+    sbi_present ~ ., data = train_df, method = "ranger", metric = "ROC",
+    trControl = ctrl_repeated, tuneLength = 20,
+    importance = "permutation", respect.unordered.factors = "order",
+    num.threads = 1, na.action = na.omit
+  )
+
+  best_params <- rf_tuned$bestTune
+  cat(sprintf("Best tuned parameters for %s:\n", cohort_label))
+  print(best_params)
+
+  # 3) Permutation importance ranking on full train
+  set.seed(32313)
+  rf_importance <- ranger(
+    formula = sbi_present ~ ., data = train_df,
+    mtry = best_params$mtry,
+    splitrule = as.character(best_params$splitrule),
+    min.node.size = best_params$min.node.size,
+    num.trees = 500, probability = TRUE,
+    importance = "permutation", respect.unordered.factors = "order",
+    num.threads = workers, na.action = "na.omit"
+  )
+
+  importance_df <- data.frame(
+    feature = names(rf_importance$variable.importance),
+    importance = as.numeric(rf_importance$variable.importance),
+    stringsAsFactors = FALSE
+  ) %>% arrange(desc(importance))
+
+  predictors_ranked <- importance_df$feature
+  p <- length(predictors_ranked)
+
+  # 4) For k = 1..p, fit RF with top-k features via repeated CV
+  roc_by_k <- numeric(p)
+
+  for (k in seq_len(p)) {
+    top_k <- predictors_ranked[seq_len(k)]
+    train_k <- train_df[, c("sbi_present", top_k), drop = FALSE]
+
+    tune_k <- best_params
+    tune_k$mtry <- min(tune_k$mtry, k)
+
+    set.seed(32313 + k)
+    fit_k <- train(
+      sbi_present ~ ., data = train_k, method = "ranger", metric = "ROC",
+      trControl = ctrl_repeated, tuneGrid = tune_k,
+      importance = "none", respect.unordered.factors = "order",
+      num.threads = 1, na.action = na.omit
+    )
+
+    roc_by_k[k] <- max(fit_k$results$ROC, na.rm = TRUE)
+    cat(sprintf("[%s] k=%d/%d, CV AUROC=%.4f\n", cohort_label, k, p, roc_by_k[k]))
+  }
+
+  performance_by_k <- data.frame(k = seq_len(p), cv_auroc = roc_by_k)
+
+  max_auc <- max(performance_by_k$cv_auroc, na.rm = TRUE)
+  k_max_auc <- performance_by_k$k[which.max(performance_by_k$cv_auroc)]
+
+  # 5) Plot
+  print(
+    ggplot(performance_by_k, aes(x = k, y = cv_auroc)) +
+      geom_line(linewidth = 0.8, color = "red") +
+      geom_point(size = 2, color = "red") +
+      geom_vline(xintercept = k_max_auc, linetype = "dashed", color = "steelblue", linewidth = 0.8) +
+      geom_hline(yintercept = max_auc, linetype = "dotted", color = "darkgray", linewidth = 0.8) +
+      scale_x_continuous(breaks = seq(from = 0, to = max(performance_by_k$k, na.rm = TRUE), by = 10)) +
+      labs(
+        title = paste0("CV AUROC vs Number of Predictors (", cohort_label, ")"),
+        x = "Number of predictors (top-k by permutation importance)",
+        y = "Cross-validated AUROC"
+      ) +
+      coord_cartesian(ylim = range(performance_by_k$cv_auroc, na.rm = TRUE)) +
+      theme_minimal(base_size = 14) +
+      theme(plot.title = element_text(face = "bold"), axis.title = element_text(face = "bold"))
+  )
+
+  # 6) Parsimony rule: smallest k within 99% of max AUROC
+  threshold_auc <- 0.99 * max_auc
+  selected_k <- min(performance_by_k$k[performance_by_k$cv_auroc >= threshold_auc])
+  selected_features <- predictors_ranked[seq_len(selected_k)]
+
+  cat(sprintf("[%s] Max CV AUROC: %.4f\n", cohort_label, max_auc))
+  cat(sprintf("[%s] Parsimony threshold (99%% of max): %.4f\n", cohort_label, threshold_auc))
+  cat(sprintf("[%s] Selected k: %d\n", cohort_label, selected_k))
+
+  auroc_by_predictor_table <- performance_by_k %>%
+    dplyr::transmute(n_predictors = k, cv_auroc = round(cv_auroc, 4))
+
+  View(auroc_by_predictor_table)
+
+  # 7) Refit final model on full train with selected k
+  final_train <- train_df[, c("sbi_present", selected_features), drop = FALSE]
+  final_tune <- best_params
+  final_tune$mtry <- min(final_tune$mtry, selected_k)
+
+  set.seed(32313)
+  final_rf <- train(
+    sbi_present ~ ., data = final_train, method = "ranger", metric = "ROC",
+    trControl = trainControl(method = "none", classProbs = TRUE),
+    tuneGrid = final_tune,
+    importance = "none", respect.unordered.factors = "order",
+    num.threads = workers, na.action = na.omit
+  )
+
+  # 8) Evaluate once on test_df (AUROC + CI)
+  final_test <- test_df[, c("sbi_present", selected_features), drop = FALSE]
+  probs <- predict(final_rf, newdata = final_test, type = "prob")[[positive_class]]
+
+  roc_obj <- pROC::roc(
+    response = final_test$sbi_present,
+    predictor = probs,
+    levels = rev(levels(final_test$sbi_present)),
+    direction = "<",
+    ci = TRUE
+  )
+
+  auc_val <- as.numeric(pROC::auc(roc_obj))
+  auc_ci <- as.numeric(pROC::ci.auc(roc_obj))
+
+  cat(sprintf("[%s] Final test AUROC: %.4f\n", cohort_label, auc_val))
+  cat(sprintf("[%s] 95%% CI: [%.4f, %.4f]\n", cohort_label, auc_ci[1], auc_ci[3]))
+
+  list(
+    cohort = cohort_label,
+    tuned_model = rf_tuned,
+    importance = importance_df,
+    performance_by_k = performance_by_k,
+    selected_k = selected_k,
+    selected_features = selected_features,
+    final_model = final_rf,
+    test_auc = auc_val,
+    test_auc_ci = auc_ci
+  )
+}
 
 #-----------------------------
-# 0) Train / test split
-#-----------------------------
-set.seed(32313)
-train_size <- floor(nrow(rf_df) * 0.8)
-idx <- sample.int(n = nrow(rf_df), size = train_size, replace = FALSE)
-train_df <- rf_df[idx, ]
-test_df <- rf_df[-idx, ]
-
-# sbi_present is already a 2-level factor: c("no", "yes")
-# Modeling goal here is SBI-negative identification, so "no" is the event/case class.
-positive_class <- "no"
-train_df$sbi_present <- relevel(train_df$sbi_present, ref = positive_class)
-test_df$sbi_present <- factor(test_df$sbi_present, levels = levels(train_df$sbi_present))
-
-# Never allow encounter identifier to be used as a predictor
-train_df <- train_df[, setdiff(names(train_df), "case_id"), drop = FALSE]
-test_df <- test_df[, setdiff(names(test_df), "case_id"), drop = FALSE]
-
-#-----------------------------
-# 1) Parallel backend (n - 1 cores)
+# Parallel backend (n - 1 cores)
 #-----------------------------
 n_cores <- parallel::detectCores(logical = TRUE)
 workers <- max(1, n_cores - 1)
@@ -104,39 +255,25 @@ on.exit({
   foreach::registerDoSEQ()
 }, add = TRUE)
 
-#-----------------------------
-# 2) Repeated CV for tuning on train only
-#-----------------------------
-ctrl_repeated <- trainControl(
-  method = "repeatedcv",
-  number = 5,
-  repeats = 2,
-  classProbs = TRUE,
-  summaryFunction = twoClassSummary,
-  allowParallel = TRUE,
-  verboseIter = FALSE
+# Run separate analyses by antibiotic exposure status
+rf_df_abx_unexposed <- rf_df_pre_beaker %>% filter(abx_exp == "0")
+rf_df_abx_exposed <- rf_df_pre_beaker %>% filter(abx_exp == "1")
+
+results_abx_unexposed <- run_rf_predictor_sweep(
+  rf_df = rf_df_abx_unexposed,
+  cohort_label = "abx_exp == 0",
+  workers = workers
 )
 
-# Fast but robust random search over RF hyperparameters
-set.seed(32313)
-rf_tuned <- train(
-  sbi_present ~ .,
-  data = train_df,
-  method = "ranger",
-  metric = "ROC",
-  trControl = ctrl_repeated,
-  tuneLength = 20,
-  importance = "permutation",
-  respect.unordered.factors = "order",
-  num.threads = 1,
-  na.action = na.omit
+results_abx_exposed <- run_rf_predictor_sweep(
+  rf_df = rf_df_abx_exposed,
+  cohort_label = "abx_exp == 1",
+  workers = workers
 )
 
 best_params <- rf_tuned$bestTune
 cat("Best tuned parameters:\n")
 print(best_params)
-
-# mtry 42 extratrees and mns 1
 
 #-----------------------------
 # 3) Permutation importance ranking on full train
@@ -318,14 +455,9 @@ auc_ci <- as.numeric(pROC::ci.auc(roc_obj))
 cat(sprintf("Final test AUROC: %.4f\n", auc_val))
 cat(sprintf("95%% CI: [%.4f, %.4f]\n", auc_ci[1], auc_ci[3]))
 
+
 # Optional objects for downstream use
 results <- list(
-  tuned_model = rf_tuned,
-  importance = importance_df,
-  performance_by_k = performance_by_k,
-  selected_k = selected_k,
-  selected_features = selected_features,
-  final_model = final_rf,
-  test_auc = auc_val,
-  test_auc_ci = auc_ci
+  abx_unexposed = results_abx_unexposed,
+  abx_exposed = results_abx_exposed
 )
