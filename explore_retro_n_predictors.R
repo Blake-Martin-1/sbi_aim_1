@@ -256,7 +256,7 @@ ggplot(
     axis.title = element_text(face = "bold")
   )
 
-# Parsimony rule: smallest k within 10% of max AUROC
+# Parsimony rule: smallest k within 1% of max AUROC
 max_auc <- max(performance_by_k$cv_auroc, na.rm = TRUE)
 threshold_auc <- 0.99 * max_auc
 selected_k <- min(performance_by_k$k[performance_by_k$cv_auroc >= threshold_auc])
