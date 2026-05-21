@@ -4,7 +4,8 @@
 
 
 # Call setup script to import needed filepaths
-setwd(dir = "/phi/sbi/sbi_blake/aim_1_paper_materials/")
+wd_string <- readline(prompt = "Enter your working directory: ")
+setwd(dir = wd_string)
 
 source("setup_aim_1.R")
 
