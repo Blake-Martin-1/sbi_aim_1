@@ -167,21 +167,54 @@ run_rf_predictor_sweep <- function(rf_df, cohort_label, workers, positive_class 
   k_max_auc <- performance_by_k$k[which.max(performance_by_k$cv_auroc)]
 
   # 5) Plot
+
+  # Create cleaner label for plot title
+  plot_cohort_label <- dplyr::case_when(
+    cohort_label == "abx_exp == 0" ~ "antibiotic unexposed",
+    cohort_label == "abx_exp == 1" ~ "antibiotic exposed",
+    TRUE ~ cohort_label
+  )
+
   print(
     ggplot(performance_by_k, aes(x = k, y = cv_auroc)) +
       geom_line(linewidth = 0.8, color = "red") +
       geom_point(size = 2, color = "red") +
-      geom_vline(xintercept = k_max_auc, linetype = "dashed", color = "steelblue", linewidth = 0.8) +
-      geom_hline(yintercept = max_auc, linetype = "dotted", color = "darkgray", linewidth = 0.8) +
-      scale_x_continuous(breaks = seq(from = 0, to = max(performance_by_k$k, na.rm = TRUE), by = 10)) +
+      geom_vline(
+        xintercept = k_max_auc,
+        linetype = "dashed",
+        color = "steelblue",
+        linewidth = 0.8
+      ) +
+      geom_hline(
+        yintercept = max_auc,
+        linetype = "dotted",
+        color = "darkgray",
+        linewidth = 0.8
+      ) +
+      scale_x_continuous(
+        breaks = seq(
+          from = 0,
+          to = max(performance_by_k$k, na.rm = TRUE),
+          by = 10
+        )
+      ) +
       labs(
-        title = paste0("CV AUROC vs Number of Predictors (", cohort_label, ")"),
+        title = paste0(
+          "CV AUROC vs Number of Predictors (",
+          plot_cohort_label,
+          ")"
+        ),
         x = "Number of predictors (top-k by permutation importance)",
         y = "Cross-validated AUROC"
       ) +
-      coord_cartesian(ylim = range(performance_by_k$cv_auroc, na.rm = TRUE)) +
+      coord_cartesian(
+        ylim = range(performance_by_k$cv_auroc, na.rm = TRUE)
+      ) +
       theme_minimal(base_size = 14) +
-      theme(plot.title = element_text(face = "bold"), axis.title = element_text(face = "bold"))
+      theme(
+        plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold")
+      )
   )
 
   # 6) Parsimony rule: smallest k within 99% of max AUROC
@@ -380,8 +413,8 @@ ggplot(
     )
   ) +
   labs(
-    title = "CV AUROC vs Number of Predictors",
-    x = "Number of predictors (top-k by permutation importance)",
+    title = "CV AUROC vs Number of Predictors (Antibiotic-Unexposed)",
+    x = "Number of predictors (by permutation importance)",
     y = "Cross-validated AUROC"
   ) +
   coord_cartesian(
@@ -412,6 +445,22 @@ auroc_by_predictor_table <- performance_by_k %>%
 
 # Open in RStudio viewer
 View(auroc_by_predictor_table)
+
+# Do the same thing for abx exposed encounters
+#------------------------------------------------------------
+# View table with number of predictors and CV AUROC
+# for antibiotic-exposed patients: abx_exp == 1
+#------------------------------------------------------------
+
+auroc_by_predictor_table_abx_exposed <- results_abx_exposed$performance_by_k %>%
+  dplyr::transmute(
+    n_predictors = k,
+    cv_auroc = round(cv_auroc, 4)
+  )
+
+# Open in RStudio viewer
+View(auroc_by_predictor_table_abx_exposed)
+
 
 #-----------------------------
 # 5) Refit final model on full train with selected k
