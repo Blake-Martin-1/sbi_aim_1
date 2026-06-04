@@ -107,11 +107,17 @@ run_rf_predictor_sweep <- function(rf_df, cohort_label, workers, positive_class 
 
   # 2) Tune RF
   set.seed(32313)
-  rf_tuned <- train(
-    sbi_present ~ ., data = train_df, method = "ranger", metric = "ROC",
-    trControl = ctrl_repeated, tuneLength = 20,
-    importance = "permutation", respect.unordered.factors = "order",
-    num.threads = 1, na.action = na.omit
+  rf_tuned <- caret::train(
+    sbi_present ~ .,
+    data = train_df,
+    method = "ranger",
+    metric = "ROC",
+    trControl = ctrl_repeated,
+    tuneLength = 20,
+    importance = "none",
+    respect.unordered.factors = "order",
+    num.threads = 1,
+    na.action = na.omit
   )
 
   best_params <- rf_tuned$bestTune
