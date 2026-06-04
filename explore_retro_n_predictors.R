@@ -1,3 +1,4 @@
+source("plot_save_helpers.R")
 ### Evaluate how predictor count affects AUROC for SBI RF model ###
 
 suppressPackageStartupMessages({
@@ -181,8 +182,7 @@ run_rf_predictor_sweep <- function(rf_df, cohort_label, workers, positive_class 
     TRUE ~ cohort_label
   )
 
-  print(
-    ggplot(performance_by_k, aes(x = k, y = cv_auroc)) +
+  p_cv_auroc_by_predictor_count <- ggplot(performance_by_k, aes(x = k, y = cv_auroc)) +
       geom_line(linewidth = 0.8, color = "red") +
       geom_point(size = 2, color = "red") +
       geom_vline(
@@ -221,6 +221,11 @@ run_rf_predictor_sweep <- function(rf_df, cohort_label, workers, positive_class 
         plot.title = element_text(face = "bold"),
         axis.title = element_text(face = "bold")
       )
+
+  print(p_cv_auroc_by_predictor_count)
+  save_aim1_plot(
+    p_cv_auroc_by_predictor_count,
+    paste0("cv_auroc_by_predictor_count_", gsub("[^A-Za-z0-9]+", "_", tolower(plot_cohort_label)), ".tiff")
   )
 
   # 6) Parsimony rule: smallest k within 99% of max AUROC
@@ -387,7 +392,7 @@ k_max_auc <- performance_by_k$k[
 ]
 
 # Plot CV AUROC vs number of predictors
-ggplot(
+p_cv_auroc_antibiotic_unexposed <- ggplot(
   performance_by_k,
   aes(x = k, y = cv_auroc)
 ) +
@@ -431,6 +436,9 @@ ggplot(
     plot.title = element_text(face = "bold"),
     axis.title = element_text(face = "bold")
   )
+
+p_cv_auroc_antibiotic_unexposed
+save_aim1_plot(p_cv_auroc_antibiotic_unexposed, "cv_auroc_by_predictor_count_antibiotic_unexposed.tiff")
 
 # Parsimony rule: smallest k within 1% of max AUROC
 max_auc <- max(performance_by_k$cv_auroc, na.rm = TRUE)

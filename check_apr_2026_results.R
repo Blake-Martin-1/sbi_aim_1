@@ -1,3 +1,4 @@
+source("plot_save_helpers.R")
 #### Apply new nmodel to prospective results from Apr 2026 ####
 
 updated_25 <- readr::read_csv(
@@ -155,7 +156,7 @@ comp_scores_long <- comp_scores %>%
     )
   )
 
-ggplot(comp_scores_long, aes(x = score, color = score_type, fill = score_type)) +
+p_score_density_comparison <- ggplot(comp_scores_long, aes(x = score, color = score_type, fill = score_type)) +
   geom_density(alpha = 0.25, linewidth = 1.1, na.rm = TRUE) +
   scale_color_manual(
     values = c(
@@ -178,6 +179,9 @@ ggplot(comp_scores_long, aes(x = score, color = score_type, fill = score_type)) 
     fill = "Score source"
   ) +
   theme_minimal(base_size = 14)
+
+p_score_density_comparison
+save_aim1_plot(p_score_density_comparison, "epic_auto_vs_local_model_score_density.tiff")
 
 # Now perform analysis of why and when scores differ
 hour_col <- "hours_since_icu_num"
@@ -351,7 +355,7 @@ max_diff_hour_summary <- max_diff_per_csn %>%
 max_diff_hour_summary
 
 # Plot differences
-ggplot(score_diff_df, aes(x = diff)) +
+p_score_diff_density <- ggplot(score_diff_df, aes(x = diff)) +
   geom_density(fill = "gray80", color = "black", alpha = 0.6, na.rm = TRUE) +
   geom_vline(xintercept = 0, linetype = "dashed") +
   labs(
@@ -361,8 +365,11 @@ ggplot(score_diff_df, aes(x = diff)) +
   ) +
   theme_minimal(base_size = 14)
 
+p_score_diff_density
+save_aim1_plot(p_score_diff_density, "local_minus_epic_auto_score_difference_density.tiff")
+
 # Absolute mean difference plot
-ggplot(score_diff_df, aes(x = abs_diff)) +
+p_abs_score_diff_density <- ggplot(score_diff_df, aes(x = abs_diff)) +
   geom_density(fill = "gray80", color = "black", alpha = 0.6, na.rm = TRUE) +
   labs(
     title = "Distribution of Absolute Differences Between Scores",
@@ -371,8 +378,11 @@ ggplot(score_diff_df, aes(x = abs_diff)) +
   ) +
   theme_minimal(base_size = 14)
 
+p_abs_score_diff_density
+save_aim1_plot(p_abs_score_diff_density, "absolute_score_difference_density.tiff")
+
 # Pot of mean differences by hour
-ggplot(diff_by_hour, aes(x = hour, y = mean_diff)) +
+p_mean_diff_by_hour <- ggplot(diff_by_hour, aes(x = hour, y = mean_diff)) +
   geom_ribbon(
     aes(ymin = lower_95_mean_diff, ymax = upper_95_mean_diff),
     alpha = 0.2
@@ -388,8 +398,11 @@ ggplot(diff_by_hour, aes(x = hour, y = mean_diff)) +
   ) +
   theme_minimal(base_size = 14)
 
+p_mean_diff_by_hour
+save_aim1_plot(p_mean_diff_by_hour, "mean_local_minus_epic_auto_score_difference_by_picu_hour.tiff")
+
 # Plot boxplots of differences by hour
-ggplot(score_diff_df, aes(x = factor(hour), y = diff)) +
+p_diff_boxplot_by_hour <- ggplot(score_diff_df, aes(x = factor(hour), y = diff)) +
   geom_boxplot(outlier.alpha = 0.2) +
   geom_hline(yintercept = 0, linetype = "dashed") +
   labs(
@@ -398,6 +411,9 @@ ggplot(score_diff_df, aes(x = factor(hour), y = diff)) +
     y = "Local score - Epic auto score"
   ) +
   theme_minimal(base_size = 14)
+
+p_diff_boxplot_by_hour
+save_aim1_plot(p_diff_boxplot_by_hour, "local_minus_epic_auto_score_difference_boxplot_by_picu_hour.tiff")
 
 # Bland altman plot
 ba_limits <- score_diff_df %>%
@@ -408,7 +424,7 @@ ba_limits <- score_diff_df %>%
     upper_limit = mean_diff + 1.96 * sd_diff
   )
 
-ggplot(score_diff_df, aes(x = mean_score, y = diff)) +
+p_bland_altman_scores <- ggplot(score_diff_df, aes(x = mean_score, y = diff)) +
   geom_point(alpha = 0.15, size = 0.8) +
   geom_hline(
     yintercept = ba_limits$mean_diff,
@@ -429,8 +445,11 @@ ggplot(score_diff_df, aes(x = mean_score, y = diff)) +
   ) +
   theme_minimal(base_size = 14)
 
+p_bland_altman_scores
+save_aim1_plot(p_bland_altman_scores, "bland_altman_local_vs_epic_auto_scores.tiff")
+
 # Scatterplot
-ggplot(score_diff_df, aes(x = auto_score, y = local_score)) +
+p_auto_vs_local_scatter <- ggplot(score_diff_df, aes(x = auto_score, y = local_score)) +
   geom_point(alpha = 0.15, size = 0.8) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
   coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
@@ -440,6 +459,9 @@ ggplot(score_diff_df, aes(x = auto_score, y = local_score)) +
     y = "Local model score"
   ) +
   theme_minimal(base_size = 14)
+
+p_auto_vs_local_scatter
+save_aim1_plot(p_auto_vs_local_scatter, "epic_auto_vs_local_model_score_scatter.tiff")
 
 # Single summary list of difference measures
 score_comparison_results <- list(
@@ -473,7 +495,7 @@ score_diff_hourly <- comp_scores %>%
     !is.na(local_score)
   )
 
-ggplot(score_diff_hourly, aes(x = hour_bin, y = score_diff)) +
+p_hourly_score_diff_boxplot <- ggplot(score_diff_hourly, aes(x = hour_bin, y = score_diff)) +
   geom_boxplot(outlier.alpha = 0.15, outlier.size = 0.6) +
   geom_hline(yintercept = 0, linetype = "dashed") +
   labs(
@@ -482,6 +504,9 @@ ggplot(score_diff_hourly, aes(x = hour_bin, y = score_diff)) +
     y = "Local score - Epic auto score"
   ) +
   theme_minimal(base_size = 14)
+
+p_hourly_score_diff_boxplot
+save_aim1_plot(p_hourly_score_diff_boxplot, "hourly_local_minus_epic_auto_score_difference_boxplot.tiff")
 
 # Make a table behind this plot for hourly differences
 hourly_diff_summary <- score_diff_hourly %>%

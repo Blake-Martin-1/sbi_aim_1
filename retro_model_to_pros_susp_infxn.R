@@ -1,3 +1,4 @@
+source("plot_save_helpers.R")
 # Script to run retrospective models on prospective data
 # and evaluate performance restricted to prospective patients with suspected infection.
 
@@ -368,3 +369,8 @@ plot_pr_yes <- ggplot(pr_yes, aes(x = recall, y = precision, color = cohort)) +
 
 rf_curve_comparison_plot <- (plot_roc_no | plot_roc_yes) / (plot_pr_no | plot_pr_yes)
 print(rf_curve_comparison_plot)
+save_aim1_plot(plot_roc_no, "suspicion_infection_no_antibiotics_roc_curve.tiff")
+save_aim1_plot(plot_roc_yes, "suspicion_infection_yes_antibiotics_roc_curve.tiff")
+save_aim1_plot(plot_pr_no, "suspicion_infection_no_antibiotics_precision_recall_curve.tiff")
+save_aim1_plot(plot_pr_yes, "suspicion_infection_yes_antibiotics_precision_recall_curve.tiff")
+save_aim1_plot(rf_curve_comparison_plot, "suspicion_infection_roc_precision_recall_curve_comparison.tiff", width = 12, height = 10)
