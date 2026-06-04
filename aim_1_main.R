@@ -2837,7 +2837,7 @@ p_calibration <- ggplot2::ggplot(
   ggplot2::geom_text(
     ggplot2::aes(label = paste0("n=", n)),
     vjust = -0.8,
-    size = 3.5,
+    size = 3.0,
     show.legend = FALSE
   ) +
   ggplot2::facet_wrap(~ scenario, ncol = 2) +
@@ -2860,7 +2860,7 @@ p_calibration <- ggplot2::ggplot(
     labels = scales::label_number(accuracy = 0.1)
   ) +
   ggplot2::labs(
-    title = "Calibration plots by scenario",
+    title = "Phase 1 and Phase 2 Calibration Plots",
     x = "Mean predicted probability within bin",
     y = "Observed event rate within bin"
   ) +
@@ -2875,7 +2875,7 @@ p_calibration <- ggplot2::ggplot(
   )
 
 p_calibration
-save_aim1_plot(p_calibration, "aim1_calibration_by_scenario.tiff")
+save_aim1_plot(p_calibration, "aim1_calibration_by_scenario.tiff", width = 10, height = 6)
 
 
 # ----------------------------
@@ -3005,21 +3005,21 @@ roc_plot <- ggplot(roc_df, aes(x = fpr, y = tpr, color = cohort_type)) +
   ) +
   geom_text(
     data = metrics_df,
-    aes(x = 0.22, y = 0.10, label = roc_label),
+    aes(x = 0.18, y = 0.10, label = roc_label),
     inherit.aes = FALSE,
     hjust = 0,
-    size = 4
+    size = 3.6
   ) +
   theme_bw() +
   theme(
-    plot.title = element_text(size = 18, face = "bold"),
+    plot.title = element_text(size = 16, face = "bold"),
     strip.text = element_text(size = 14, face = "bold"),
     axis.title = element_text(size = 14, face = "bold"),
     axis.text = element_text(size = 8),
     legend.position = "none"
   )
 
-save_aim1_plot(roc_plot, "aim1_roc_curves_by_scenario.tiff")
+save_aim1_plot(roc_plot, "aim1_roc_curves_by_scenario.tiff", width = 10, height = 6)
 
 pr_plot <- ggplot2::ggplot(pr_df, ggplot2::aes(x = recall, y = precision, color = cohort_type)) +
   ggplot2::geom_line(linewidth = 1) +
@@ -3040,17 +3040,17 @@ pr_plot <- ggplot2::ggplot(pr_df, ggplot2::aes(x = recall, y = precision, color 
   ) +
   ggplot2::geom_text(
     data = metrics_df,
-    ggplot2::aes(x = 0.55, y = 0.43, label = pr_label),
+    ggplot2::aes(x = 0.45, y = 0.43, label = pr_label),
     inherit.aes = FALSE,
     hjust = 0,
-    size = 4
+    size = 3.6
   ) +
   ggplot2::geom_text(
     data = metrics_df,
-    ggplot2::aes(x = 0.55, y = 0.33, label = prev_neg_label),
+    ggplot2::aes(x = 0.45, y = 0.33, label = prev_neg_label),
     inherit.aes = FALSE,
     hjust = 0,
-    size = 4
+    size = 3.6
   ) +
   ggplot2::theme_bw() +
   ggplot2::theme(
@@ -3063,7 +3063,7 @@ pr_plot <- ggplot2::ggplot(pr_df, ggplot2::aes(x = recall, y = precision, color 
 
 print(roc_plot)
 print(pr_plot)
-save_aim1_plot(pr_plot, "aim1_precision_recall_curves_by_scenario.tiff")
+save_aim1_plot(pr_plot, "aim1_precision_recall_curves_by_scenario.tiff", width = 10, height = 6)
 metrics_df
 
 # ----------------------------
@@ -3191,21 +3191,21 @@ roc_plot_susp <- ggplot(roc_df_susp, aes(x = fpr, y = tpr, color = cohort_type))
   ) +
   geom_text(
     data = metrics_df_susp,
-    aes(x = 0.22, y = 0.10, label = roc_label),
+    aes(x = 0.18, y = 0.10, label = roc_label),
     inherit.aes = FALSE,
     hjust = 0,
-    size = 4
+    size = 3.6
   ) +
   theme_bw() +
   theme(
-    plot.title = element_text(size = 18, face = "bold"),
+    plot.title = element_text(size = 16, face = "bold"),
     strip.text = element_text(size = 14, face = "bold"),
     axis.title = element_text(size = 14, face = "bold"),
     axis.text = element_text(size = 8),
     legend.position = "none"
   )
 
-save_aim1_plot(roc_plot_susp, "aim1_suspicion_infection_roc_curves_by_scenario.tiff")
+save_aim1_plot(roc_plot_susp, "aim1_suspicion_infection_roc_curves_by_scenario.tiff", width = 10, height = 6)
 
 pr_plot_susp <- ggplot2::ggplot(pr_df_susp, ggplot2::aes(x = recall, y = precision, color = cohort_type)) +
   ggplot2::geom_line(linewidth = 1) +
@@ -3226,17 +3226,17 @@ pr_plot_susp <- ggplot2::ggplot(pr_df_susp, ggplot2::aes(x = recall, y = precisi
   ) +
   ggplot2::geom_text(
     data = metrics_df_susp,
-    ggplot2::aes(x = 0.60, y = 0.37, label = pr_label),
+    ggplot2::aes(x = 0.48, y = 0.37, label = pr_label),
     inherit.aes = FALSE,
     hjust = 0,
-    size = 4
+    size = 3.6
   ) +
   ggplot2::geom_text(
     data = metrics_df_susp,
-    ggplot2::aes(x = 0.60, y = 0.27, label = prev_neg_label),
+    ggplot2::aes(x = 0.48, y = 0.27, label = prev_neg_label),
     inherit.aes = FALSE,
     hjust = 0,
-    size = 4
+    size = 3.6
   ) +
   ggplot2::theme_bw() +
   ggplot2::theme(
@@ -3249,7 +3249,7 @@ pr_plot_susp <- ggplot2::ggplot(pr_df_susp, ggplot2::aes(x = recall, y = precisi
 
 print(roc_plot_susp)
 print(pr_plot_susp)
-save_aim1_plot(pr_plot_susp, "aim1_suspicion_infection_precision_recall_curves_by_scenario.tiff")
+save_aim1_plot(pr_plot_susp, "aim1_suspicion_infection_precision_recall_curves_by_scenario.tiff", width = 10, height = 6)
 metrics_df_susp
 
 
@@ -3452,7 +3452,7 @@ ruleout_stats_one <- function(df, scenario, score_col, y_col, threshold,
 }
 
 cohort_tbl <- tibble(
-  cohort = c("All encounters", "Suspected infection only"),
+  cohort = c("All encounters", "SOI Encounters"),
   include_all_comers = c(TRUE, FALSE)
 )
 
@@ -3588,10 +3588,14 @@ p_pros_npv_rf_abx <- plot_npv_vs_threshold(
 )
 
 p_pros_npv_pair <- p_pros_npv_rf_no_abx + p_pros_npv_rf_abx +
-  patchwork::plot_layout(ncol = 2)
+  patchwork::plot_layout(ncol = 2) +
+  patchwork::plot_annotation(
+    title = "NPV vs. Threshold for Antibiotic-Unexposed (Left) and -Exposed (Right) models"
+  ) &
+  theme(plot.title = element_text(size = 13, face = "bold", hjust = 0.5))
 
 p_pros_npv_pair
-save_aim1_plot(p_pros_npv_pair, "prospective_model_npv_threshold_pairs.tiff")
+save_aim1_plot(p_pros_npv_pair, "prospective_model_npv_threshold_pairs.tiff", width = 11, height = 6)
 
 quad_df <- quad_df %>%
   mutate(
@@ -3676,7 +3680,7 @@ p_quadrant <-
   ) +
   theme_bw() +
   theme(
-    plot.title = element_text(size = 18, face = "bold"),
+    plot.title = element_text(size = 16, face = "bold"),
     axis.title = element_text(size = 15, face = "bold"),
     axis.text = element_text(size = 13),
     strip.text = element_text(size = 14, face = "bold"),
@@ -3688,7 +3692,7 @@ p_quadrant <-
   )
 
 p_quadrant
-save_aim1_plot(p_quadrant, "retrospective_vs_prospective_score_quadrant.tiff")
+save_aim1_plot(p_quadrant, "retrospective_vs_prospective_score_quadrant.tiff", width = 10, height = 7)
 
 # Now plot the distribution of scores
 # ----------------------------
@@ -3799,14 +3803,14 @@ p_dist <-
     labels = scales::label_number(accuracy = 0.1)
   ) +
   ggplot2::labs(
-    title = "Distribution of predicted SBI probabilities by epoch and antibiotic exposure",
+    title = "Distribution of predicted SBI probabilities by time period and model",
     subtitle = "Dashed line = fixed rule-out threshold (Abx-: 0.05, Abx+: 0.074)",
     x = "Predicted SBI probability",
     y = "Density"
   ) +
   ggplot2::theme_bw() +
   ggplot2::theme(
-    plot.title = ggplot2::element_text(size = 16, face = "bold"),
+    plot.title = ggplot2::element_text(size = 14, face = "bold"),
     plot.subtitle = ggplot2::element_text(size = 12),
     axis.title = ggplot2::element_text(size = 14, face = "bold"),
     axis.text = ggplot2::element_text(size = 12),
@@ -3815,7 +3819,7 @@ p_dist <-
   )
 
 p_dist
-save_aim1_plot(p_dist, "score_distribution_by_epoch.tiff")
+save_aim1_plot(p_dist, "score_distribution_by_epoch.tiff", width = 10, height = 6)
 
 to_truth01 <- function(x) {
   if (is.factor(x)) x <- as.character(x)
@@ -3878,7 +3882,7 @@ p_dist_by_truth <-
   ) +
   ggplot2::scale_fill_manual(values = c("SBI-" = "#6E6E6E", "SBI+" = "#E69F00")) +
   ggplot2::labs(
-    title = "Distribution of predicted SBI probability by epoch, antibiotic exposure, and true SBI status",
+    title = "Distribution of predicted SBI probabilities by time period and model",
     subtitle = "Dashed line = fixed rule-out threshold (Abx-: 0.05, Abx+: 0.074)",
     x = "Predicted SBI probability",
     y = "Count",
@@ -3886,7 +3890,7 @@ p_dist_by_truth <-
   ) +
   ggplot2::theme_bw() +
   ggplot2::theme(
-    plot.title = ggplot2::element_text(size = 16, face = "bold"),
+    plot.title = ggplot2::element_text(size = 14, face = "bold"),
     plot.subtitle = ggplot2::element_text(size = 12),
     axis.title = ggplot2::element_text(size = 14, face = "bold"),
     axis.text = ggplot2::element_text(size = 12),
@@ -3897,7 +3901,7 @@ p_dist_by_truth <-
   )
 
 p_dist_by_truth
-save_aim1_plot(p_dist_by_truth, "score_distribution_by_truth.tiff")
+save_aim1_plot(p_dist_by_truth, "score_distribution_by_truth.tiff", width = 10, height = 6)
 
 
 # Fix all of the race categories to be the same and match prospective (more condensed)
@@ -5537,6 +5541,38 @@ is_excluded_density_var <- function(variable, variable_plot = NA_character_) {
     stringr::str_detect(variable_plot_clean, "^n\\b|^n\\s|^number\\b|count$")
 }
 
+format_shift_plot_title <- function(stratum_name, plot_type) {
+  dplyr::case_when(
+    plot_type == "abs_smd" & stratum_name == "Antibiotics prior to prediction" ~
+      "Most shifted predictors by |SMD| – Antibiotic-Exposed",
+    plot_type == "density" & stratum_name == "Antibiotics prior to prediction" ~
+      "Top shifted continuous predictors – Antibiotic-Exposed",
+    plot_type %in% c("abs_smd", "density") & stratum_name == "Antibiotics prior to prediction: retrospective vs prospective SI+ subset" ~
+      "Most shifted predictors by |SMD| – Antibiotic Exposed (SOI Encounters Only)",
+    plot_type == "density" & stratum_name == "No antibiotics prior to prediction" ~
+      "Top shifted continuous predictors – Antibiotic-Unexposed",
+    TRUE ~ paste0(
+      dplyr::case_when(
+        plot_type == "density" ~ "Top shifted continuous predictors – ",
+        plot_type == "abs_smd" ~ "Most shifted predictors by |SMD| – ",
+        plot_type == "signed_smd" ~ "Most shifted predictors by signed SMD – ",
+        TRUE ~ ""
+      ),
+      stratum_name
+    )
+  )
+}
+
+format_signed_smd_title <- function(stratum_name) {
+  dplyr::case_when(
+    stratum_name == "Antibiotics prior to prediction" ~
+      "Most shifted predictors by signed SMD – Antibiotic-Exposed",
+    stratum_name == "No antibiotics prior to prediction" ~
+      "Most shifted predictors by signed SMD – Antibiotic-Unexposed",
+    TRUE ~ format_shift_plot_title(stratum_name, "signed_smd")
+  )
+}
+
 plot_density_overlays <- function(df_retro, df_pros, shift_tbl, stratum_name) {
 
   shift_tbl_density <- shift_tbl %>%
@@ -5578,16 +5614,16 @@ plot_density_overlays <- function(df_retro, df_pros, shift_tbl, stratum_name) {
     scale_color_manual(values = c("Retro" = "#D55E00", "Prospective" = "#0072B2")) +
     scale_fill_manual(values = c("Retro" = "#D55E00", "Prospective" = "#0072B2")) +
     labs(
-      title = paste0("Top shifted continuous predictors — ", stratum_name),
+      title = format_shift_plot_title(stratum_name, "density"),
       subtitle = "Density overlays comparing retrospective vs prospective cohorts",
       x = NULL,
       y = "Density",
-      color = "Epoch",
-      fill = "Epoch"
+      color = "Time Period",
+      fill = "Time Period"
     ) +
     theme_minimal(base_size = 13) +
     theme(
-      plot.title = element_text(face = "bold"),
+      plot.title = element_text(size = 13, face = "bold"),
       strip.text = element_text(face = "bold"),
       legend.position = "bottom"
     )
@@ -5677,14 +5713,14 @@ plot_abs_smd <- function(shift_tbl, stratum_name) {
       expand = expansion(mult = c(0, 0.08))
     ) +
     labs(
-      title = paste0("Most shifted predictors by |SMD| — ", stratum_name),
+      title = format_shift_plot_title(stratum_name, "abs_smd"),
       subtitle = "Dashed line marks |SMD| = 0.10",
       x = NULL,
       y = "|Standardized Mean Difference|"
     ) +
     theme_minimal(base_size = 14) +
     theme(
-      plot.title = element_text(face = "bold"),
+      plot.title = element_text(size = 13, face = "bold"),
       strip.text = element_text(face = "bold"),
       axis.text.y = element_text(face = "bold"),
       legend.position = "bottom",
@@ -5733,14 +5769,14 @@ plot_signed_smd <- function(shift_tbl, stratum_name) {
       expand = expansion(mult = c(0.10, 0.10))
     ) +
     labs(
-      title = paste0("Most shifted predictors by signed SMD — ", stratum_name),
+      title = format_signed_smd_title(stratum_name),
       subtitle = "Bars show direction of shift; dashed lines mark SMD = ±0.10",
       x = NULL,
       y = "STANDARDIZED MEAN DIFFERENCE"
     ) +
     theme_minimal(base_size = 14) +
     theme(
-      plot.title = element_text(face = "bold"),
+      plot.title = element_text(size = 13, face = "bold"),
       strip.text = element_text(face = "bold"),
       axis.text.y = element_text(face = "bold"),
       legend.position = "bottom",
@@ -5790,14 +5826,14 @@ run_stratum <- function(df_retro, df_pros, stratum_name) {
 
   if (!is.null(p_density)) {
     print(p_density)
-    save_aim1_plot(p_density, paste0(stratum_name, "_predictor_value_density_overlap.tiff"))
+    save_aim1_plot(p_density, paste0(stratum_name, "_predictor_value_density_overlap.tiff"), width = 10, height = 6)
   }
   if (!is.null(p_avail)) {
     print(p_avail)
     save_aim1_plot(p_avail, paste0(stratum_name, "_predictor_availability_difference.tiff"))
   }
   print(p_smd)
-  save_aim1_plot(p_smd, paste0(stratum_name, "_absolute_smd_predictor_balance.tiff"))
+  save_aim1_plot(p_smd, paste0(stratum_name, "_absolute_smd_predictor_balance.tiff"), width = 10, height = 6)
 
   list(
     shift_table = shift_tbl,
@@ -5850,9 +5886,9 @@ p_yes_abx_smd_signed <- plot_signed_smd(
 )
 
 p_no_abx_smd_signed
-save_aim1_plot(p_no_abx_smd_signed, "no_antibiotics_signed_smd_predictor_balance.tiff")
+save_aim1_plot(p_no_abx_smd_signed, "no_antibiotics_signed_smd_predictor_balance.tiff", width = 10, height = 6)
 p_yes_abx_smd_signed
-save_aim1_plot(p_yes_abx_smd_signed, "antibiotics_signed_smd_predictor_balance.tiff")
+save_aim1_plot(p_yes_abx_smd_signed, "antibiotics_signed_smd_predictor_balance.tiff", width = 10, height = 6)
 
 
 ##### Repeat all above plots with only the suspicion of infection plots #####
@@ -7039,7 +7075,7 @@ p_abx_subgroup_stacked_2 <- ggplot(
   geom_text(
     aes(label = label_both),
     position = position_stack(vjust = 0.5),
-    size = 3.5,
+    size = 3.0,
     fontface = "bold",
     color = "white",
     lineheight = 0.9
@@ -7071,7 +7107,7 @@ p_abx_subgroup_stacked_2 <- ggplot(
   )
 
 p_abx_subgroup_stacked_2
-save_aim1_plot(p_abx_subgroup_stacked_2, "sbi_negative_antibiotic_use_after_picu_2h_proportions_by_subgroup.tiff")
+save_aim1_plot(p_abx_subgroup_stacked_2, "sbi_negative_antibiotic_use_after_picu_2h_proportions_by_subgroup.tiff", width = 10, height = 6)
 
 # Create plotting dataframe for duration boxplots
 # Uses SBI-negative encounters who received antibiotics

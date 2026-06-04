@@ -448,7 +448,7 @@ p_calibration <- ggplot2::ggplot(
     labels = scales::percent_format(accuracy = 1)
   ) +
   ggplot2::labs(
-    title = "Calibration Plot for New Prospective Random Forest Model",
+    title = "Calibration Plot for Updated SBI Predictive Model",
     subtitle = "Test set; points represent deciles of predicted SBI risk",
     x = "Mean predicted probability of SBI",
     y = "Observed SBI rate"
@@ -926,7 +926,7 @@ p_npv <- ggplot2::ggplot(
     ggplot2::aes(y = npv, label = npv_label),
     color = "blue3",
     vjust = -0.8,
-    size = 3.5,
+    size = 2.8,
     na.rm = TRUE
   ) +
   ggplot2::geom_line(
@@ -950,7 +950,7 @@ p_npv <- ggplot2::ggplot(
     ),
     color = "firebrick3",
     vjust = 1.5,
-    size = 3.5,
+    size = 2.8,
     na.rm = TRUE
   ) +
   ggplot2::scale_x_continuous(breaks = 1:24) +
@@ -980,7 +980,7 @@ p_npv <- ggplot2::ggplot(
   )
 
 p_npv
-save_aim1_plot(p_npv, "new_prospective_model_npv_by_picu_hour.tiff")
+save_aim1_plot(p_npv, "new_prospective_model_npv_by_picu_hour.tiff", width = 10, height = 6)
 
 ## Plot AUROC ##
 p_auroc <- ggplot2::ggplot(
