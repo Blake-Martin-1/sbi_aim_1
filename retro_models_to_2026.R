@@ -334,8 +334,8 @@ npv_retro_no_abx # NPV 0.93
 # 3) Attach to the test_df inputs
 test_df_with_pred <- test_df %>%
   mutate(rowIndex = dplyr::row_number()) %>%
-  left_join(test_preds %>% select(rowIndex, model_score), by = "rowIndex") %>%
-  select(-rowIndex) %>%
+  left_join(test_preds %>% dplyr::select(rowIndex, model_score), by = "rowIndex") %>%
+  dplyr::select(-rowIndex) %>%
   relocate(case_id, sbi_present, model_score)
 
 # Sanity checks
@@ -692,8 +692,8 @@ npv_retro_yes_abx # NPV 0.83
 
 test_df_with_pred_abx <- test_df_abx %>%
   mutate(rowIndex = dplyr::row_number()) %>%
-  left_join(test_preds_abx %>% select(rowIndex, model_score), by = "rowIndex") %>%
-  select(-rowIndex) %>%
+  left_join(test_preds_abx %>% dplyr::select(rowIndex, model_score), by = "rowIndex") %>%
+  dplyr::select(-rowIndex) %>%
   relocate(case_id, sbi_present, model_score)
 
 # Sanity checks

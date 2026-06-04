@@ -3471,7 +3471,7 @@ quad_df <- tidyr::crossing(
       }
     )
   ) %>%
-  select(-include_all_comers) %>%
+  dplyr::select(-include_all_comers) %>%
   tidyr::unnest(stats)
 
 # ------------------------------------------------------------
@@ -3599,7 +3599,7 @@ quad_df <- quad_df %>%
   )
 
 seg_df <- quad_df %>%
-  select(cohort, abx, epoch, x_plot, y_plot) %>%
+  dplyr::select(cohort, abx, epoch, x_plot, y_plot) %>%
   tidyr::pivot_wider(names_from = epoch, values_from = c(x_plot, y_plot)) %>%
   filter(!is.na(x_plot_Retro), !is.na(x_plot_Pros)) %>%
   transmute(
@@ -5760,7 +5760,7 @@ run_stratum <- function(df_retro, df_pros, stratum_name) {
   cat("============================================================\n")
   print(
     shift_tbl %>%
-      select(variable, variable_plot, type, retro_summary, pros_summary,
+      dplyr::select(variable, variable_plot, type, retro_summary, pros_summary,
              retro_avail, pros_avail, avail_diff, smd, abs_smd, ks_stat) %>%
       slice_head(n = 50)
   )
@@ -6549,11 +6549,11 @@ pros_all_1st_infxn_abx <- pros_all_1st_infxn %>%
 #-----------------------------
 pros_no_abx_1st_infxn_abx <- pros_all_1st_infxn_abx %>%
   filter(source_df == "pros_no_abx") %>%
-  select(-source_df)
+  dplyr::select(-source_df)
 
 pros_yes_abx_1st_infxn_abx <- pros_all_1st_infxn_abx %>%
   filter(source_df == "pros_yes_abx") %>%
-  select(-source_df)
+  dplyr::select(-source_df)
 
 #-----------------------------
 # QC
@@ -6570,7 +6570,7 @@ all_abx_by_encounter %>%
   )
 
 window_hits %>%
-  select(study_id, csn, picu_adm_date_time, taken_time, GENERIC_NAME, in_target_window) %>%
+  dplyr::select(study_id, csn, picu_adm_date_time, taken_time, GENERIC_NAME, in_target_window) %>%
   arrange(study_id, taken_time) %>%
   slice_head(n = 20)
 
@@ -7658,3 +7658,5 @@ source(file = "create_new_pros_model.R")
 source(file = "sbi_decision_policy_explore.R")
 
 source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/policy_impact_on_abx.R")
+
+source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/explore_retro_n_predictors.R")
