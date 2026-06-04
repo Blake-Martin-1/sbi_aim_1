@@ -804,7 +804,7 @@ p_b <- ggplot2::ggplot(
   ggplot2::theme(
     plot.title = ggplot2::element_text(face = "bold", size = 15),
     axis.title = ggplot2::element_text(face = "bold", size = 14),
-    axis.text = ggplot2::element_text(size = 11),
+    axis.text = ggplot2::element_text(size = 9),
     legend.text = ggplot2::element_text(size = 12),
     panel.grid.major = ggplot2::element_blank(),
     panel.grid.minor = ggplot2::element_blank(),
@@ -816,9 +816,9 @@ p_b <- ggplot2::ggplot(
 ## ----------------------------------------
 save_aim1_plot(p_b, "decision_policy_cumulative_rule_out_by_hour.tiff")
 
-policy_figure <- p_a + p_b + patchwork::plot_layout(widths = c(1, 1.15))
+policy_figure <- p_a + p_b + patchwork::plot_layout(widths = c(1, 1.25))
 
 policy_figure
-save_aim1_plot(policy_figure, "decision_policy_combined_disposition_and_rule_out.tiff")
+save_aim1_plot(policy_figure, "decision_policy_combined_disposition_and_rule_out.tiff", width = 10, height = 6)
 
 future::plan(future::sequential)

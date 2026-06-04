@@ -345,7 +345,7 @@ p_npv_facet <- ggplot(npv_plot_df, aes(x = picu_hour, y = npv)) +
     aes(label = tn_label),
     na.rm = TRUE,
     vjust = -0.9,
-    size = 3.5,
+    size = 3.0,
     color = "darkblue"
   ) +
   facet_wrap(~ facet_label, ncol = 1) +
@@ -371,7 +371,7 @@ p_npv_facet <- ggplot(npv_plot_df, aes(x = picu_hour, y = npv)) +
 
 
 p_npv_facet
-save_aim1_plot(p_npv_facet, "retrospective_models_npv_by_picu_hour_faceted.tiff")
+save_aim1_plot(p_npv_facet, "retrospective_models_npv_by_picu_hour_faceted.tiff", width = 10, height = 6)
 
 
 ### Repeat but for AUROC and AUPRC by hour ###
@@ -569,7 +569,15 @@ auroc_yes_abx <- make_metric_by_hour_aim1(
 
 auroc_plot_df <- dplyr::bind_rows(auroc_no_abx, auroc_yes_abx) %>%
   dplyr::mutate(
-    facet_label = group
+    facet_label = dplyr::case_when(
+      group == "Antibiotic exposure before PICU" ~ "Antibiotic-Exposed Model",
+      group == "No antibiotic exposure before PICU" ~ "Antibiotic-Unexposed Model",
+      TRUE ~ group
+    ),
+    facet_label = factor(
+      facet_label,
+      levels = c("Antibiotic-Exposed Model", "Antibiotic-Unexposed Model")
+    )
   )
 
 #------------------------------------------------------------
@@ -592,7 +600,15 @@ auprc_yes_abx <- make_metric_by_hour_aim1(
 
 auprc_plot_df <- dplyr::bind_rows(auprc_no_abx, auprc_yes_abx) %>%
   dplyr::mutate(
-    facet_label = group
+    facet_label = dplyr::case_when(
+      group == "Antibiotic exposure before PICU" ~ "Antibiotic-Exposed Model",
+      group == "No antibiotic exposure before PICU" ~ "Antibiotic-Unexposed Model",
+      TRUE ~ group
+    ),
+    facet_label = factor(
+      facet_label,
+      levels = c("Antibiotic-Exposed Model", "Antibiotic-Unexposed Model")
+    )
   )
 
 #------------------------------------------------------------
@@ -601,12 +617,18 @@ auprc_plot_df <- dplyr::bind_rows(auprc_no_abx, auprc_yes_abx) %>%
 
 auroc_plot_df <- auroc_plot_df %>%
   dplyr::mutate(
-    facet_label = group
+    facet_label = factor(
+      facet_label,
+      levels = c("Antibiotic-Exposed Model", "Antibiotic-Unexposed Model")
+    )
   )
 
 auprc_plot_df <- auprc_plot_df %>%
   dplyr::mutate(
-    facet_label = group
+    facet_label = factor(
+      facet_label,
+      levels = c("Antibiotic-Exposed Model", "Antibiotic-Unexposed Model")
+    )
   )
 
 
@@ -703,11 +725,11 @@ p_auroc_facet <- ggplot(auroc_plot_df, aes(x = picu_hour, y = metric_value)) +
 auprc_prev_df <- dplyr::bind_rows(
   pred_df_pros_no_abx_24_matched %>%
     dplyr::distinct(study_id, sbi_present) %>%
-    dplyr::mutate(facet_label = "No antibiotic exposure before PICU"),
+    dplyr::mutate(facet_label = "Antibiotic-Unexposed Model"),
 
   pred_df_pros_yes_abx_24_matched %>%
     dplyr::distinct(study_id, sbi_present) %>%
-    dplyr::mutate(facet_label = "Antibiotic exposure before PICU")
+    dplyr::mutate(facet_label = "Antibiotic-Exposed Model")
 ) %>%
   dplyr::mutate(
     sbi_present_num = to_truth01(sbi_present),
@@ -777,12 +799,13 @@ p_auprc_facet <- ggplot(auprc_plot_df, aes(x = picu_hour, y = metric_value)) +
   facet_wrap(~ facet_label, ncol = 1) +
   scale_x_continuous(breaks = 1:24) +
   scale_y_continuous(
-    limits = c(0, 1),
+    limits = c(0.5, 1),
     labels = scales::number_format(accuracy = 0.01)
   ) +
+  coord_cartesian(clip = "off") +
   labs(
     title = "AUPRC over PICU time",
-    subtitle = "Shaded ribbons show 95% bootstrap confidence intervals; dashed line shows SBI\u2212 prevalence",
+    subtitle = "Shaded ribbons show 95% confidence intervals",
     x = "PICU hour",
     y = "AUPRC"
   ) +
@@ -820,4 +843,4 @@ p_auprc_facet <- p_auprc_facet +
 p_auroc_facet
 save_aim1_plot(p_auroc_facet, "retrospective_models_auroc_by_picu_hour_faceted.tiff")
 p_auprc_facet
-save_aim1_plot(p_auprc_facet, "retrospective_models_auprc_by_picu_hour_faceted.tiff")
+save_aim1_plot(p_auprc_facet, "retrospective_models_auprc_by_picu_hour_faceted.tiff", width = 10, height = 6)
