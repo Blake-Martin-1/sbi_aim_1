@@ -1,3 +1,4 @@
+source("plot_save_helpers.R")
 ### Code to create new model from prospective data ###
 
 # Rerun initial setup code to be able to start from new model
@@ -326,7 +327,7 @@ top40 <- imp_tbl %>%
   slice_head(n = 10)
 
 # Change names
-top40 %>%
+p_variable_importance_top10 <- top40 %>%
   mutate(predictor = predictor %>%
            str_replace_all("_", " ") %>%    # replace underscores with spaces
            str_to_upper()) %>%              # make all uppercase
@@ -347,7 +348,8 @@ top40 %>%
     axis.text = element_text(size = 11)                    # slightly larger tick labels
   )
 
-
+p_variable_importance_top10
+save_aim1_plot(p_variable_importance_top10, "new_prospective_model_top10_variable_importance.tiff")
 
 # Apply to training and test sets
 rf_pred_prob_train <- predict(rf_tune, train_df %>% dplyr::select(-study_id, -sbi_present, -abx_exp, -rowid, -SBI), type = "prob")[, "pos"]
@@ -460,6 +462,7 @@ p_calibration <- ggplot2::ggplot(
   )
 
 p_calibration
+save_aim1_plot(p_calibration, "new_prospective_model_calibration.tiff")
 
 
 ######### Now plot NPV, AUROC, and AUPRC by hour #############
@@ -977,6 +980,7 @@ p_npv <- ggplot2::ggplot(
   )
 
 p_npv
+save_aim1_plot(p_npv, "new_prospective_model_npv_by_picu_hour.tiff")
 
 ## Plot AUROC ##
 p_auroc <- ggplot2::ggplot(
@@ -1025,6 +1029,7 @@ p_auroc <- ggplot2::ggplot(
   )
 
 p_auroc
+save_aim1_plot(p_auroc, "new_prospective_model_auroc_by_picu_hour.tiff")
 
 
 ## AUPRC plot ##
@@ -1093,3 +1098,4 @@ p_auprc <- ggplot2::ggplot(
   )
 
 p_auprc
+save_aim1_plot(p_auprc, "new_prospective_model_auprc_by_picu_hour.tiff")

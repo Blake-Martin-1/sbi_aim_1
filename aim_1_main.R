@@ -1,3 +1,4 @@
+source("plot_save_helpers.R")
 # aim_1_main.R
 # Script to evaluate changes over time in input availability, input values, and patient mix. To be used for prospective validation paper looking at reasons why the model had poor
 # performance when evaluated prospectively.
@@ -2874,6 +2875,7 @@ p_calibration <- ggplot2::ggplot(
   )
 
 p_calibration
+save_aim1_plot(p_calibration, "aim1_calibration_by_scenario.tiff")
 
 
 # ----------------------------
@@ -3017,6 +3019,8 @@ roc_plot <- ggplot(roc_df, aes(x = fpr, y = tpr, color = cohort_type)) +
     legend.position = "none"
   )
 
+save_aim1_plot(roc_plot, "aim1_roc_curves_by_scenario.tiff")
+
 pr_plot <- ggplot2::ggplot(pr_df, ggplot2::aes(x = recall, y = precision, color = cohort_type)) +
   ggplot2::geom_line(linewidth = 1) +
   ggplot2::geom_hline(
@@ -3059,6 +3063,7 @@ pr_plot <- ggplot2::ggplot(pr_df, ggplot2::aes(x = recall, y = precision, color 
 
 print(roc_plot)
 print(pr_plot)
+save_aim1_plot(pr_plot, "aim1_precision_recall_curves_by_scenario.tiff")
 metrics_df
 
 # ----------------------------
@@ -3200,6 +3205,8 @@ roc_plot_susp <- ggplot(roc_df_susp, aes(x = fpr, y = tpr, color = cohort_type))
     legend.position = "none"
   )
 
+save_aim1_plot(roc_plot_susp, "aim1_suspicion_infection_roc_curves_by_scenario.tiff")
+
 pr_plot_susp <- ggplot2::ggplot(pr_df_susp, ggplot2::aes(x = recall, y = precision, color = cohort_type)) +
   ggplot2::geom_line(linewidth = 1) +
   ggplot2::geom_hline(
@@ -3242,6 +3249,7 @@ pr_plot_susp <- ggplot2::ggplot(pr_df_susp, ggplot2::aes(x = recall, y = precisi
 
 print(roc_plot_susp)
 print(pr_plot_susp)
+save_aim1_plot(pr_plot_susp, "aim1_suspicion_infection_precision_recall_curves_by_scenario.tiff")
 metrics_df_susp
 
 
@@ -3583,6 +3591,7 @@ p_pros_npv_pair <- p_pros_npv_rf_no_abx + p_pros_npv_rf_abx +
   patchwork::plot_layout(ncol = 2)
 
 p_pros_npv_pair
+save_aim1_plot(p_pros_npv_pair, "prospective_model_npv_threshold_pairs.tiff")
 
 quad_df <- quad_df %>%
   mutate(
@@ -3679,6 +3688,7 @@ p_quadrant <-
   )
 
 p_quadrant
+save_aim1_plot(p_quadrant, "retrospective_vs_prospective_score_quadrant.tiff")
 
 # Now plot the distribution of scores
 # ----------------------------
@@ -3805,6 +3815,7 @@ p_dist <-
   )
 
 p_dist
+save_aim1_plot(p_dist, "score_distribution_by_epoch.tiff")
 
 to_truth01 <- function(x) {
   if (is.factor(x)) x <- as.character(x)
@@ -3886,6 +3897,7 @@ p_dist_by_truth <-
   )
 
 p_dist_by_truth
+save_aim1_plot(p_dist_by_truth, "score_distribution_by_truth.tiff")
 
 
 # Fix all of the race categories to be the same and match prospective (more condensed)
@@ -4891,11 +4903,17 @@ p_yesabx_m3 <- plot_ps_curves_one_run(
 
 # Print individually
 p_noabx_m1
+save_aim1_plot(p_noabx_m1, "no_antibiotics_model_1_roc_pr_curves.tiff")
 p_noabx_m2
+save_aim1_plot(p_noabx_m2, "no_antibiotics_model_2_roc_pr_curves.tiff")
 p_noabx_m3
+save_aim1_plot(p_noabx_m3, "no_antibiotics_model_3_roc_pr_curves.tiff")
 p_yesabx_m1
+save_aim1_plot(p_yesabx_m1, "antibiotics_model_1_roc_pr_curves.tiff")
 p_yesabx_m2
+save_aim1_plot(p_yesabx_m2, "antibiotics_model_2_roc_pr_curves.tiff")
 p_yesabx_m3
+save_aim1_plot(p_yesabx_m3, "antibiotics_model_3_roc_pr_curves.tiff")
 
 
 ####### Do some  Table 1 creation ##########
@@ -5770,9 +5788,16 @@ run_stratum <- function(df_retro, df_pros, stratum_name) {
   cat("PLOTS — ", stratum_name, "\n", sep = "")
   cat("============================================================\n")
 
-  if (!is.null(p_density)) print(p_density)
-  if (!is.null(p_avail)) print(p_avail)
+  if (!is.null(p_density)) {
+    print(p_density)
+    save_aim1_plot(p_density, paste0(stratum_name, "_predictor_value_density_overlap.tiff"))
+  }
+  if (!is.null(p_avail)) {
+    print(p_avail)
+    save_aim1_plot(p_avail, paste0(stratum_name, "_predictor_availability_difference.tiff"))
+  }
   print(p_smd)
+  save_aim1_plot(p_smd, paste0(stratum_name, "_absolute_smd_predictor_balance.tiff"))
 
   list(
     shift_table = shift_tbl,
@@ -5825,7 +5850,9 @@ p_yes_abx_smd_signed <- plot_signed_smd(
 )
 
 p_no_abx_smd_signed
+save_aim1_plot(p_no_abx_smd_signed, "no_antibiotics_signed_smd_predictor_balance.tiff")
 p_yes_abx_smd_signed
+save_aim1_plot(p_yes_abx_smd_signed, "antibiotics_signed_smd_predictor_balance.tiff")
 
 
 ##### Repeat all above plots with only the suspicion of infection plots #####
@@ -5871,7 +5898,9 @@ p_yes_abx_smd_signed_si <- plot_signed_smd(
 )
 
 p_no_abx_smd_signed_si
+save_aim1_plot(p_no_abx_smd_signed_si, "no_antibiotics_suspicion_infection_signed_smd_predictor_balance.tiff")
 p_yes_abx_smd_signed_si
+save_aim1_plot(p_yes_abx_smd_signed_si, "antibiotics_suspicion_infection_signed_smd_predictor_balance.tiff")
 
 
 #### Now will plot components of suspicion of infection over time: CRP, PCT, CXR, micro
@@ -6002,8 +6031,11 @@ p_joint <- make_testing_plot(
 )
 
 p_yes_abx
+save_aim1_plot(p_yes_abx, "prospective_yes_antibiotics_suspicion_testing_rates.tiff")
 p_no_abx
+save_aim1_plot(p_no_abx, "prospective_no_antibiotics_suspicion_testing_rates.tiff")
 p_joint
+save_aim1_plot(p_joint, "prospective_joint_suspicion_testing_rates.tiff")
 
 ### Now repeat plot for the prospective group ###
 # Add year of admit and fix micro column name to work with function
@@ -6020,6 +6052,7 @@ p_no_abx_pros <- make_testing_plot(
 )
 
 p_no_abx_pros
+save_aim1_plot(p_no_abx_pros, "prospective_only_no_antibiotics_suspicion_testing_rates.tiff")
 
 ### Repeat for abx exposed group and then full cohort ###
 # Add year of admit and fix micro column name to work with function
@@ -6036,6 +6069,7 @@ p_yes_abx_pros <- make_testing_plot(
 )
 
 p_yes_abx_pros
+save_aim1_plot(p_yes_abx_pros, "prospective_only_yes_antibiotics_suspicion_testing_rates.tiff")
 
 ### Make joint df and plot
 joint_pros <- bind_rows(pros_susp_elements_to_plot_no_abx, pros_susp_elements_to_plot_yes_abx)
@@ -6046,6 +6080,7 @@ p_joint_pros <- make_testing_plot(
 )
 
 p_joint_pros
+save_aim1_plot(p_joint_pros, "prospective_only_joint_suspicion_testing_rates.tiff")
 
 #### Additional plot: counts of suspicion-of-infection components over time (full cohorts)
 # Build full retrospective and prospective datasets with the same columns
@@ -6141,6 +6176,7 @@ susp_counts_all_epochs <- bind_rows(retro_susp_counts_df, pros_susp_counts_df)
 p_suspicion_counts_faceted <- make_testing_count_plot(susp_counts_all_epochs)
 
 p_suspicion_counts_faceted
+save_aim1_plot(p_suspicion_counts_faceted, "suspicion_infection_testing_encounter_counts.tiff")
 
 
 ##Finally will eval number of SBI neg patient who got abx, what proportion predicted to
@@ -6987,6 +7023,7 @@ p_abx_subgroup_stacked <- ggplot(
   )
 
 p_abx_subgroup_stacked
+save_aim1_plot(p_abx_subgroup_stacked, "sbi_negative_antibiotic_use_after_picu_2h_counts_by_subgroup.tiff")
 
 
 abx_prop_plot_df <- abx_prop_plot_df %>%
@@ -7034,6 +7071,7 @@ p_abx_subgroup_stacked_2 <- ggplot(
   )
 
 p_abx_subgroup_stacked_2
+save_aim1_plot(p_abx_subgroup_stacked_2, "sbi_negative_antibiotic_use_after_picu_2h_proportions_by_subgroup.tiff")
 
 # Create plotting dataframe for duration boxplots
 # Uses SBI-negative encounters who received antibiotics
@@ -7154,6 +7192,7 @@ p_abx_duration_subgroups <- ggplot(
   )
 
 p_abx_duration_subgroups
+save_aim1_plot(p_abx_duration_subgroups, "sbi_negative_first_antibiotic_course_duration_by_subgroup.tiff")
 
 
 #### Determine p values using Mood's Median test ####

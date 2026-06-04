@@ -1,3 +1,4 @@
+source("plot_save_helpers.R")
 ###### Code to test the model developed on prospective 2023-2024 data on the first 4-5 months of 2025 ###
 library(dplyr)
 library(tidyr)
@@ -361,6 +362,7 @@ p_pred_density <- ggplot(
   )
 
 p_pred_density
+save_aim1_plot(p_pred_density, "future_predicted_probability_density.tiff")
 
 
 ## Join the test data from 2025 with the predicted probabilities
@@ -787,6 +789,7 @@ p_calibration_future <- ggplot2::ggplot(
   )
 
 p_calibration_future
+save_aim1_plot(p_calibration_future, "future_test_set_calibration.tiff")
 
 # -----------------------------
 # Future test set timepoint-level summary at the same 0.12 threshold
@@ -1094,6 +1097,7 @@ p_npv_future <- plot_npv_by_hour(
   "Negative Predictive Value by PICU Hour: Future Test Set"
 )
 p_npv_future
+save_aim1_plot(p_npv_future, "future_test_set_npv_by_picu_hour.tiff")
 
 p_npv_test_vs_future <- plot_npv_by_hour(
   rf_test_future_plot_df,
@@ -1101,6 +1105,7 @@ p_npv_test_vs_future <- plot_npv_by_hour(
   show_legend = TRUE
 )
 p_npv_test_vs_future
+save_aim1_plot(p_npv_test_vs_future, "test_vs_future_npv_by_picu_hour.tiff")
 
 # AUROC plots: future-only and test-set comparison. SBI-negative patients are the
 # case/event class because calc_hour_metrics_boot() calls calc_metrics_once().
@@ -1114,6 +1119,7 @@ p_auroc_future <- plot_discrimination_by_hour(
   y_axis_label = "AUROC"
 )
 p_auroc_future
+save_aim1_plot(p_auroc_future, "future_test_set_auroc_by_picu_hour.tiff")
 
 p_auroc_test_vs_future <- plot_discrimination_by_hour(
   rf_test_future_plot_df,
@@ -1126,6 +1132,7 @@ p_auroc_test_vs_future <- plot_discrimination_by_hour(
   show_legend = TRUE
 )
 p_auroc_test_vs_future
+save_aim1_plot(p_auroc_test_vs_future, "test_vs_future_auroc_by_picu_hour.tiff")
 
 # AUPRC plots: future-only and test-set comparison. SBI-negative patients are the
 # case/event class, so prevalence reference lines use SBI-negative prevalence.
@@ -1156,6 +1163,7 @@ p_auprc_future <- plot_discrimination_by_hour(
     fontface = "bold"
   )
 p_auprc_future
+save_aim1_plot(p_auprc_future, "future_test_set_auprc_by_picu_hour.tiff")
 
 sbi_neg_prevalence_test <- patient_level_outcome %>%
   dplyr::summarise(
@@ -1186,6 +1194,7 @@ p_auprc_test_vs_future <- plot_discrimination_by_hour(
     linewidth = 0.8
   )
 p_auprc_test_vs_future
+save_aim1_plot(p_auprc_test_vs_future, "test_vs_future_auprc_by_picu_hour.tiff")
 
 
 ###### Section to apply decision policy to new future data ######
@@ -1368,6 +1377,8 @@ p_policy_future_a <- ggplot2::ggplot(
     legend.position = "bottom"
   )
 
+save_aim1_plot(p_policy_future_a, "future_policy_disposition_by_true_sbi_status.tiff")
+
 ## ----------------------------------------
 ## Panel B: cumulative rule-out over time
 ## ----------------------------------------
@@ -1445,10 +1456,13 @@ p_policy_future_b <- ggplot2::ggplot(
     legend.position = "bottom"
   )
 
+save_aim1_plot(p_policy_future_b, "future_policy_cumulative_rule_out_by_hour.tiff")
+
 policy_future_figure <- p_policy_future_a + p_policy_future_b +
   patchwork::plot_layout(widths = c(1, 1.15))
 
 policy_future_figure
+save_aim1_plot(policy_future_figure, "future_policy_combined_disposition_and_rule_out.tiff")
 
 
 
@@ -1884,6 +1898,7 @@ p_sbi_negative_abx_indications_future <- ggplot2::ggplot(
   )
 
 p_sbi_negative_abx_indications_future
+save_aim1_plot(p_sbi_negative_abx_indications_future, "future_sbi_negative_post_rule_out_antibiotic_indications.tiff")
 
 # 5) Proportion of SBI-negative encounters with first-24h PICU antibiotics that
 # were ruled out by the model + policy before the first PICU antibiotic dose.

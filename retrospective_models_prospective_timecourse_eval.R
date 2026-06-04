@@ -1,3 +1,4 @@
+source("plot_save_helpers.R")
 # retrospective_models_prospective_timecourse_eval.R
 # Script to prepare all of the prospective dataset for input into the two random forest models. Specifically we will need to retain all
 # timepoints, not just the point 2 hours after PICU admission. No need to recreate all of the 'suspicion of infection' code since we
@@ -370,6 +371,7 @@ p_npv_facet <- ggplot(npv_plot_df, aes(x = picu_hour, y = npv)) +
 
 
 p_npv_facet
+save_aim1_plot(p_npv_facet, "retrospective_models_npv_by_picu_hour_faceted.tiff")
 
 
 ### Repeat but for AUROC and AUPRC by hour ###
@@ -816,4 +818,6 @@ p_auprc_facet <- p_auprc_facet +
   )
 
 p_auroc_facet
+save_aim1_plot(p_auroc_facet, "retrospective_models_auroc_by_picu_hour_faceted.tiff")
 p_auprc_facet
+save_aim1_plot(p_auprc_facet, "retrospective_models_auprc_by_picu_hour_faceted.tiff")

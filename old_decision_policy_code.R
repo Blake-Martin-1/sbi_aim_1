@@ -1,3 +1,4 @@
+source("plot_save_helpers.R")
 # Old version of decision policy code #
 ##### Probability based decision policy exploration ######
 
@@ -675,6 +676,8 @@ p_a <- ggplot2::ggplot(
     legend.position = "bottom"
   )
 
+save_aim1_plot(p_a, "old_decision_policy_disposition_by_true_sbi_status.tiff")
+
 ## ----------------------------------------
 ## Panel B: cumulative rule-out over time
 ## ----------------------------------------
@@ -758,8 +761,11 @@ p_b <- ggplot2::ggplot(
 ## ----------------------------------------
 ## Combine panels
 ## ----------------------------------------
+save_aim1_plot(p_b, "old_decision_policy_cumulative_rule_out_by_hour.tiff")
+
 policy_figure <- p_a + p_b + patchwork::plot_layout(widths = c(1, 1.15))
 
 policy_figure
+save_aim1_plot(policy_figure, "old_decision_policy_combined_disposition_and_rule_out.tiff")
 
 future::plan(future::sequential)
