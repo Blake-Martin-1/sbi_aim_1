@@ -4497,52 +4497,54 @@ df_noabx %>% count(epoch, sbi_present)
 df_yesabx %>% count(epoch, sbi_present)
 
 # ============================================================
-# RUN MODELS
-# ============================================================
-
-ps_noabx_results <- run_ps_model_suite(
-  df = df_noabx,
-  stratum_label = "Abx-",
-  ps_trim = c(0.01, 0.99),
-  weight_cap = 20
-)
-
-ps_yesabx_results <- run_ps_model_suite(
-  df = df_yesabx,
-  stratum_label = "Abx+",
-  ps_trim = c(0.01, 0.99),
-  weight_cap = 20
-)
-
-# ============================================================
-# COMBINED OUTPUTS
-# ============================================================
-
-ps_ruleout_results <- bind_rows(
-  ps_noabx_results$ruleout,
-  ps_yesabx_results$ruleout
-) %>%
-  arrange(stratum, ps_model, factor(weighting, levels = c("Unweighted", "Weighted to Retro")), epoch)
-
-ps_discrimination_results <- bind_rows(
-  ps_noabx_results$discrimination,
-  ps_yesabx_results$discrimination
-) %>%
-  arrange(stratum, ps_model, factor(weighting, levels = c("Unweighted", "Weighted to Retro")), epoch)
-
-ps_covariates_used <- bind_rows(
-  ps_noabx_results$covariates,
-  ps_yesabx_results$covariates
-)
-
-ps_ruleout_results
-ps_discrimination_results
-ps_covariates_used
-
-# Optional: write out
-# readr::write_csv(ps_ruleout_results, "ps_ruleout_results_models_1_2_3.csv")
-# readr::write_csv(ps_discrimination_results, "ps_discrimination_results_models_1_2_3.csv")
-# readr::write_csv(ps_covariates_used, "ps_covariates_used_models_1_2_3.csv")
+# Propensity-score model fitting and tabular summaries commented out to avoid PS compute.
+# # RUN MODELS
+# # ============================================================
+#
+# ps_noabx_results <- run_ps_model_suite(
+#   df = df_noabx,
+#   stratum_label = "Abx-",
+#   ps_trim = c(0.01, 0.99),
+#   weight_cap = 20
+# )
+#
+# ps_yesabx_results <- run_ps_model_suite(
+#   df = df_yesabx,
+#   stratum_label = "Abx+",
+#   ps_trim = c(0.01, 0.99),
+#   weight_cap = 20
+# )
+#
+# # ============================================================
+# # COMBINED OUTPUTS
+# # ============================================================
+#
+# ps_ruleout_results <- bind_rows(
+#   ps_noabx_results$ruleout,
+#   ps_yesabx_results$ruleout
+# ) %>%
+#   arrange(stratum, ps_model, factor(weighting, levels = c("Unweighted", "Weighted to Retro")), epoch)
+#
+# ps_discrimination_results <- bind_rows(
+#   ps_noabx_results$discrimination,
+#   ps_yesabx_results$discrimination
+# ) %>%
+#   arrange(stratum, ps_model, factor(weighting, levels = c("Unweighted", "Weighted to Retro")), epoch)
+#
+# ps_covariates_used <- bind_rows(
+#   ps_noabx_results$covariates,
+#   ps_yesabx_results$covariates
+# )
+#
+# ps_ruleout_results
+# ps_discrimination_results
+# ps_covariates_used
+#
+# # Optional: write out
+# # readr::write_csv(ps_ruleout_results, "ps_ruleout_results_models_1_2_3.csv")
+# # readr::write_csv(ps_discrimination_results, "ps_discrimination_results_models_1_2_3.csv")
+# # readr::write_csv(ps_covariates_used, "ps_covariates_used_models_1_2_3.csv")
+# END Propensity-score model fitting and tabular summaries commented out to avoid PS compute.
 
 
 #### Plot weighted and unweighted pros charts
@@ -4900,52 +4902,54 @@ plot_ps_curves_one_run <- function(run_obj, title_suffix = "") {
 }
 
 # ============================================================
-# BUILD SIX PLOTS: 2 STRATA x 3 MODELS
-# ============================================================
-
-p_noabx_m1 <- plot_ps_curves_one_run(
-  ps_noabx_results$full_runs[["Model 1: Demographics/comorbidity"]],
-  title_suffix = "Abx- | Model 1"
-)
-
-p_noabx_m2 <- plot_ps_curves_one_run(
-  ps_noabx_results$full_runs[["Model 2: + Encounter context / pre-ICU"]],
-  title_suffix = "Abx- | Model 2"
-)
-
-p_noabx_m3 <- plot_ps_curves_one_run(
-  ps_noabx_results$full_runs[["Model 3: + Physiology / lab distribution"]],
-  title_suffix = "Abx- | Model 3"
-)
-
-p_yesabx_m1 <- plot_ps_curves_one_run(
-  ps_yesabx_results$full_runs[["Model 1: Demographics/comorbidity"]],
-  title_suffix = "Abx+ | Model 1"
-)
-
-p_yesabx_m2 <- plot_ps_curves_one_run(
-  ps_yesabx_results$full_runs[["Model 2: + Encounter context / pre-ICU"]],
-  title_suffix = "Abx+ | Model 2"
-)
-
-p_yesabx_m3 <- plot_ps_curves_one_run(
-  ps_yesabx_results$full_runs[["Model 3: + Physiology / lab distribution"]],
-  title_suffix = "Abx+ | Model 3"
-)
-
-# Print individually
-p_noabx_m1
-save_aim1_plot(p_noabx_m1, "no_antibiotics_model_1_roc_pr_curves.tiff")
-p_noabx_m2
-save_aim1_plot(p_noabx_m2, "no_antibiotics_model_2_roc_pr_curves.tiff")
-p_noabx_m3
-save_aim1_plot(p_noabx_m3, "no_antibiotics_model_3_roc_pr_curves.tiff")
-p_yesabx_m1
-save_aim1_plot(p_yesabx_m1, "antibiotics_model_1_roc_pr_curves.tiff")
-p_yesabx_m2
-save_aim1_plot(p_yesabx_m2, "antibiotics_model_2_roc_pr_curves.tiff")
-p_yesabx_m3
-save_aim1_plot(p_yesabx_m3, "antibiotics_model_3_roc_pr_curves.tiff")
+# Propensity-score ROC/PR chart generation commented out to avoid PS plots.
+# # BUILD SIX PLOTS: 2 STRATA x 3 MODELS
+# # ============================================================
+#
+# p_noabx_m1 <- plot_ps_curves_one_run(
+#   ps_noabx_results$full_runs[["Model 1: Demographics/comorbidity"]],
+#   title_suffix = "Abx- | Model 1"
+# )
+#
+# p_noabx_m2 <- plot_ps_curves_one_run(
+#   ps_noabx_results$full_runs[["Model 2: + Encounter context / pre-ICU"]],
+#   title_suffix = "Abx- | Model 2"
+# )
+#
+# p_noabx_m3 <- plot_ps_curves_one_run(
+#   ps_noabx_results$full_runs[["Model 3: + Physiology / lab distribution"]],
+#   title_suffix = "Abx- | Model 3"
+# )
+#
+# p_yesabx_m1 <- plot_ps_curves_one_run(
+#   ps_yesabx_results$full_runs[["Model 1: Demographics/comorbidity"]],
+#   title_suffix = "Abx+ | Model 1"
+# )
+#
+# p_yesabx_m2 <- plot_ps_curves_one_run(
+#   ps_yesabx_results$full_runs[["Model 2: + Encounter context / pre-ICU"]],
+#   title_suffix = "Abx+ | Model 2"
+# )
+#
+# p_yesabx_m3 <- plot_ps_curves_one_run(
+#   ps_yesabx_results$full_runs[["Model 3: + Physiology / lab distribution"]],
+#   title_suffix = "Abx+ | Model 3"
+# )
+#
+# # Print individually
+# p_noabx_m1
+# save_aim1_plot(p_noabx_m1, "no_antibiotics_model_1_roc_pr_curves.tiff")
+# p_noabx_m2
+# save_aim1_plot(p_noabx_m2, "no_antibiotics_model_2_roc_pr_curves.tiff")
+# p_noabx_m3
+# save_aim1_plot(p_noabx_m3, "no_antibiotics_model_3_roc_pr_curves.tiff")
+# p_yesabx_m1
+# save_aim1_plot(p_yesabx_m1, "antibiotics_model_1_roc_pr_curves.tiff")
+# p_yesabx_m2
+# save_aim1_plot(p_yesabx_m2, "antibiotics_model_2_roc_pr_curves.tiff")
+# p_yesabx_m3
+# save_aim1_plot(p_yesabx_m3, "antibiotics_model_3_roc_pr_curves.tiff")
+# END Propensity-score ROC/PR chart generation commented out to avoid PS plots.
 
 
 ####### Do some  Table 1 creation ##########
