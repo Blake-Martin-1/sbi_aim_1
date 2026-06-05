@@ -3034,7 +3034,7 @@ pr_plot <- ggplot2::ggplot(pr_df, ggplot2::aes(x = recall, y = precision, color 
   ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
   ggplot2::scale_color_manual(values = c("Retrospective" = "red", "Prospective" = "blue", "Other" = "black")) +
   ggplot2::labs(
-    title = "Precision–Recall Curves (Retrospective TEST + Prospective)",
+    title = "Precision-Recall Curves by Time Period",
     x = "Recall",
     y = "Precision"
   ) +
@@ -3605,7 +3605,7 @@ quad_df <- quad_df %>%
       has_low ~ paste0(
         "NPV=", percent(y_npv, 0.1), "\n",
         "SBI- captured=", percent(x_prop_sbineg_low, 0.1), "\n",
-        "low-risk n=", n_low, " (FN=", n_low_sbi1, ")"
+        "low-risk n=", n_low, " (False Negatives = ", n_low_sbi1, ")"
       ),
       TRUE ~ paste0("No patients < threshold\nlow-risk n=0")
     )
@@ -3676,7 +3676,7 @@ p_quadrant <-
     title = "Clinical rule-out performance at fixed SBI risk thresholds",
     x = "Proportion of SBI-negative encounters classified as low risk",
     y = "Negative predictive value (NPV)",
-    color = "Epoch"
+    color = "Time Period"
   ) +
   theme_bw() +
   theme(
@@ -5582,7 +5582,8 @@ plot_density_overlays <- function(df_retro, df_pros, shift_tbl, stratum_name) {
     dplyr::filter(
       type == "continuous",
       is.finite(abs_smd),
-      !exclude_from_density
+      !exclude_from_density,
+      !(stratum_name == "No antibiotics prior to prediction" & variable == "prism_3_score")
     )
 
   top_vars <- shift_tbl_density %>%
@@ -6954,8 +6955,8 @@ make_abx_prop_plot_df <- function(df) {
 
   subgroup_definitions <- list(
     "Overall" = sbi_neg_df,
-    "PCCC = 0" = sbi_neg_df %>% dplyr::filter(pccc == 0),
-    "PCCC = 1" = sbi_neg_df %>% dplyr::filter(pccc == 1),
+    "PCCC Absent" = sbi_neg_df %>% dplyr::filter(pccc == 0),
+    "PCCC Present" = sbi_neg_df %>% dplyr::filter(pccc == 1),
     "Malignancy PCCC = 0" = sbi_neg_df %>% dplyr::filter(malignancy_pccc == 0),
     "Malignancy PCCC = 1" = sbi_neg_df %>% dplyr::filter(malignancy_pccc == 1),
     "Age >=3 months to <6 months" = sbi_neg_df %>% dplyr::filter(age_years >= 3/12, age_years < 6/12),
@@ -6988,8 +6989,8 @@ make_abx_prop_plot_df <- function(df) {
         subgroup,
         levels = c(
           "Overall",
-          "PCCC = 0",
-          "PCCC = 1",
+          "PCCC Absent",
+          "PCCC Present",
           "Malignancy PCCC = 0",
           "Malignancy PCCC = 1",
           "Age >=3 months to <6 months",
@@ -7075,10 +7076,10 @@ p_abx_subgroup_stacked_2 <- ggplot(
   geom_text(
     aes(label = label_both),
     position = position_stack(vjust = 0.5),
-    size = 3.0,
+    size = 2.6,
     fontface = "bold",
     color = "white",
-    lineheight = 0.9
+    lineheight = 0.85
   ) +
   scale_y_continuous(
     labels = scales::percent_format(accuracy = 1),
@@ -7098,7 +7099,7 @@ p_abx_subgroup_stacked_2 <- ggplot(
   ) +
   theme_minimal(base_size = 14) +
   theme(
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
     axis.title = element_text(size = 14, face = "bold"),
     axis.text.x = element_text(size = 11, face = "bold", angle = 35, hjust = 1),
     axis.text.y = element_text(size = 12, face = "bold"),
@@ -7125,10 +7126,10 @@ make_abx_duration_plot_df <- function(df) {
 
   subgroup_definitions <- list(
     "Overall" = sbi_neg_df,
-    "PCCC = 0" = sbi_neg_df %>% dplyr::filter(as.character(pccc) == "0"),
-    "PCCC = 1" = sbi_neg_df %>% dplyr::filter(as.character(pccc) == "1"),
-    "Malignancy = 0" = sbi_neg_df %>% dplyr::filter(as.character(malignancy_pccc) == "0"),
-    "Malignancy = 1" = sbi_neg_df %>% dplyr::filter(as.character(malignancy_pccc) == "1"),
+    "PCCC Absent" = sbi_neg_df %>% dplyr::filter(as.character(pccc) == "0"),
+    "PCCC Present" = sbi_neg_df %>% dplyr::filter(as.character(pccc) == "1"),
+    "Malignancy Absent" = sbi_neg_df %>% dplyr::filter(as.character(malignancy_pccc) == "0"),
+    "Malignancy Present" = sbi_neg_df %>% dplyr::filter(as.character(malignancy_pccc) == "1"),
     "Age >=3 months to <6 months" = sbi_neg_df %>% dplyr::filter(age_years >= 3/12, age_years < 6/12),
     "Age >=6 months to <1 year" = sbi_neg_df %>% dplyr::filter(age_years >= 6/12, age_years < 1),
     "Age >=1 year to <5 years" = sbi_neg_df %>% dplyr::filter(age_years >= 1, age_years < 5),
@@ -7150,10 +7151,10 @@ make_abx_duration_plot_df <- function(df) {
         subgroup,
         levels = c(
           "Overall",
-          "PCCC = 0",
-          "PCCC = 1",
-          "Malignancy = 0",
-          "Malignancy = 1",
+          "PCCC Absent",
+          "PCCC Present",
+          "Malignancy Absent",
+          "Malignancy Present",
           "Age >=3 months to <6 months",
           "Age >=6 months to <1 year",
           "Age >=1 year to <5 years",
@@ -7302,8 +7303,8 @@ run_moods_median_pair <- function(data, group_a, group_b) {
 #--------------------------------------------
 comparisons_to_run <- tribble(
   ~group_a,                       ~group_b,
-  "PCCC = 0",                     "PCCC = 1",
-  "Malignancy = 0",               "Malignancy = 1",
+  "PCCC Absent",                  "PCCC Present",
+  "Malignancy Absent",            "Malignancy Present",
   "Age >=3 months to <6 months",  "Age >=5 years",
   "Age >=6 months to <1 year",    "Age >=5 years",
   "Age >=1 year to <5 years",     "Age >=5 years"
