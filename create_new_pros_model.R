@@ -448,8 +448,8 @@ p_calibration <- ggplot2::ggplot(
     labels = scales::percent_format(accuracy = 1)
   ) +
   ggplot2::labs(
-    title = "Calibration Plot for Updated SBI Predictive Model",
-    subtitle = "Test set; points represent deciles of predicted SBI risk",
+    title = "Calibration Plot for Updated Model in Test Set",
+    subtitle = "Points Represent deciles of predicted SBI risk",
     x = "Mean predicted probability of SBI",
     y = "Observed SBI rate"
   ) +
