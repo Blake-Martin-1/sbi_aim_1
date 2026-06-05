@@ -3598,6 +3598,8 @@ p_pros_npv_pair
 save_aim1_plot(p_pros_npv_pair, "prospective_model_npv_threshold_pairs.tiff", width = 11, height = 6)
 
 quad_df <- quad_df %>%
+  group_by(cohort, abx) %>%
+  arrange(epoch, .by_group = TRUE) %>%
   mutate(
     x_plot = ifelse(is.na(x_prop_sbineg_low), 0, x_prop_sbineg_low),
     y_plot = ifelse(is.na(y_npv), 1, y_npv),
@@ -3608,8 +3610,10 @@ quad_df <- quad_df %>%
         "low-risk n=", n_low, " (False Negatives = ", n_low_sbi1, ")"
       ),
       TRUE ~ paste0("No patients < threshold\nlow-risk n=0")
-    )
-  )
+    ),
+    label_side = ifelse(row_number() %% 2 == 1, -1, 1)
+  ) %>%
+  ungroup()
 
 seg_df <- quad_df %>%
   dplyr::select(cohort, abx, epoch, x_plot, y_plot) %>%
@@ -3656,20 +3660,44 @@ p_quadrant <-
   ) +
 
   ggrepel::geom_text_repel(
+    data = dplyr::filter(quad_df, label_side == -1),
     aes(label = note),
-    size = 4.2,
+    size = 3.2,
     show.legend = FALSE,
-    box.padding = 0.35,
-    point.padding = 0.25,
+    box.padding = 0.2,
+    point.padding = 0.15,
     min.segment.length = 0,
     segment.alpha = 0.5,
+    max.overlaps = Inf,
+    nudge_x = -0.06,
     nudge_y = 0.005,
+    direction = "y",
+    hjust = 1,
+    seed = 1
+  ) +
+  ggrepel::geom_text_repel(
+    data = dplyr::filter(quad_df, label_side == 1),
+    aes(label = note),
+    size = 3.2,
+    show.legend = FALSE,
+    box.padding = 0.2,
+    point.padding = 0.15,
+    min.segment.length = 0,
+    segment.alpha = 0.5,
+    max.overlaps = Inf,
+    nudge_x = 0.06,
+    nudge_y = 0.005,
+    direction = "y",
+    hjust = 0,
     seed = 1
   ) +
 
   facet_grid(cohort ~ abx) +
-  scale_x_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
-  coord_cartesian(ylim = c(y_lo, y_hi)) +
+  scale_x_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    expand = expansion(mult = c(0.05, 0.15))
+  ) +
+  coord_cartesian(xlim = c(0, 1), ylim = c(y_lo, y_hi), clip = "off") +
   scale_y_continuous(labels = scales::percent_format(accuracy = 0.5)) +
 
   labs(
@@ -3692,7 +3720,7 @@ p_quadrant <-
   )
 
 p_quadrant
-save_aim1_plot(p_quadrant, "retrospective_vs_prospective_score_quadrant.tiff", width = 10, height = 7)
+save_aim1_plot(p_quadrant, "retrospective_vs_prospective_score_quadrant.tiff", width = 14, height = 9)
 
 # Now plot the distribution of scores
 # ----------------------------
