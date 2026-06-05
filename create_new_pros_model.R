@@ -923,9 +923,12 @@ p_npv <- ggplot2::ggplot(
     na.rm = TRUE
   ) +
   ggplot2::geom_text(
-    ggplot2::aes(y = npv, label = npv_label),
+    ggplot2::aes(
+      y = npv,
+      label = npv_label,
+      vjust = dplyr::if_else(hours_since_picu_adm %% 2 == 1, -0.8, 1.6)
+    ),
     color = "blue3",
-    vjust = -0.8,
     size = 2.8,
     na.rm = TRUE
   ) +
