@@ -2860,7 +2860,7 @@ p_calibration <- ggplot2::ggplot(
     labels = scales::label_number(accuracy = 0.1)
   ) +
   ggplot2::labs(
-    title = "Phase 1 and Phase 2 Calibration Plots",
+    title = "Model Calibration by Time Period",
     x = "Mean predicted probability within bin",
     y = "Observed event rate within bin"
   ) +
@@ -2875,7 +2875,7 @@ p_calibration <- ggplot2::ggplot(
   )
 
 p_calibration
-save_aim1_plot(p_calibration, "aim1_calibration_by_scenario.tiff", width = 10, height = 6)
+save_aim1_plot(p_calibration, "aim1_calibration_by_scenario.tiff", width = 10, height = 6.75)
 
 
 # ----------------------------
@@ -2999,7 +2999,7 @@ roc_plot <- ggplot(roc_df, aes(x = fpr, y = tpr, color = cohort_type)) +
   coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
   scale_color_manual(values = c("Retrospective" = "red", "Prospective" = "blue", "Other" = "black")) +
   labs(
-    title = "ROC Curves (Retrospective TEST + Prospective)",
+    title = "ROC Curves by Time Period",
     x = "False Positive Rate (1 - Specificity)",
     y = "True Positive Rate (Sensitivity)"
   ) +
@@ -3577,20 +3577,20 @@ plot_npv_vs_threshold <- function(npv_tbl, model_label, curve_color = "blue", la
 
 p_pros_npv_rf_no_abx <- plot_npv_vs_threshold(
   npv_tbl = pros_npv_table_rf_no_abx,
-  model_label = "Prospective NPV vs Threshold (Antibiotic Unexposed)",
+  model_label = "Antibiotic-Unexposed Model",
   curve_color = "blue"
 )
 
 p_pros_npv_rf_abx <- plot_npv_vs_threshold(
   npv_tbl = pros_npv_table_rf_abx,
-  model_label = "Prospective NPV vs Threshold (Antibiotic Exposed)",
+  model_label = "Antibiotic-Exposed Model",
   curve_color = "blue"
 )
 
 p_pros_npv_pair <- p_pros_npv_rf_no_abx + p_pros_npv_rf_abx +
   patchwork::plot_layout(ncol = 2) +
   patchwork::plot_annotation(
-    title = "NPV vs. Threshold for Antibiotic-Unexposed (Left) and -Exposed (Right) models"
+    title = "Association between prospective NPV and threshold used"
   ) &
   theme(plot.title = element_text(size = 13, face = "bold", hjust = 0.5))
 
@@ -5572,13 +5572,13 @@ is_excluded_density_var <- function(variable, variable_plot = NA_character_) {
 format_shift_plot_title <- function(stratum_name, plot_type) {
   dplyr::case_when(
     plot_type == "abs_smd" & stratum_name == "Antibiotics prior to prediction" ~
-      "Most shifted predictors by |SMD| – Antibiotic-Exposed",
+      "Most shifted predictors by |SMD| – Antibiotic-Exposed Model",
     plot_type == "density" & stratum_name == "Antibiotics prior to prediction" ~
-      "Top shifted continuous predictors – Antibiotic-Exposed",
+      "Top shifted continuous predictors – Antibiotic-Exposed Model",
     plot_type %in% c("abs_smd", "density") & stratum_name == "Antibiotics prior to prediction: retrospective vs prospective SI+ subset" ~
       "Most shifted predictors by |SMD| – Antibiotic Exposed (SOI Encounters Only)",
     plot_type == "density" & stratum_name == "No antibiotics prior to prediction" ~
-      "Top shifted continuous predictors – Antibiotic-Unexposed",
+      "Top shifted continuous predictors – Antibiotic-Unexposed Model",
     TRUE ~ paste0(
       dplyr::case_when(
         plot_type == "density" ~ "Top shifted continuous predictors – ",
@@ -5594,9 +5594,9 @@ format_shift_plot_title <- function(stratum_name, plot_type) {
 format_signed_smd_title <- function(stratum_name) {
   dplyr::case_when(
     stratum_name == "Antibiotics prior to prediction" ~
-      "Most shifted predictors by signed SMD – Antibiotic-Exposed",
+      "Most shifted predictors by signed SMD – Antibiotic-Exposed Model",
     stratum_name == "No antibiotics prior to prediction" ~
-      "Most shifted predictors by signed SMD – Antibiotic-Unexposed",
+      "Most shifted predictors by signed SMD – Antibiotic-Unexposed Model",
     TRUE ~ format_shift_plot_title(stratum_name, "signed_smd")
   )
 }
@@ -5640,11 +5640,16 @@ plot_density_overlays <- function(df_retro, df_pros, shift_tbl, stratum_name) {
   ggplot(long, aes(x = value_plot, color = epoch2, fill = epoch2)) +
     geom_density(alpha = 0.18, linewidth = 1) +
     facet_wrap(~ variable_plot, scales = "free", ncol = 2) +
-    scale_color_manual(values = c("Retro" = "#D55E00", "Prospective" = "#0072B2")) +
-    scale_fill_manual(values = c("Retro" = "#D55E00", "Prospective" = "#0072B2")) +
+    scale_color_manual(
+      values = c("Retro" = "#D55E00", "Prospective" = "#0072B2"),
+      labels = c("Retro" = "Retrospective", "Prospective" = "Prospective")
+    ) +
+    scale_fill_manual(
+      values = c("Retro" = "#D55E00", "Prospective" = "#0072B2"),
+      labels = c("Retro" = "Retrospective", "Prospective" = "Prospective")
+    ) +
     labs(
       title = format_shift_plot_title(stratum_name, "density"),
-      subtitle = "Density overlays comparing retrospective vs prospective cohorts",
       x = NULL,
       y = "Density",
       color = "Time Period",
@@ -6985,8 +6990,8 @@ make_abx_prop_plot_df <- function(df) {
     "Overall" = sbi_neg_df,
     "PCCC Absent" = sbi_neg_df %>% dplyr::filter(pccc == 0),
     "PCCC Present" = sbi_neg_df %>% dplyr::filter(pccc == 1),
-    "Malignancy PCCC = 0" = sbi_neg_df %>% dplyr::filter(malignancy_pccc == 0),
-    "Malignancy PCCC = 1" = sbi_neg_df %>% dplyr::filter(malignancy_pccc == 1),
+    "Malignancy Absent" = sbi_neg_df %>% dplyr::filter(malignancy_pccc == 0),
+    "Malignancy Present" = sbi_neg_df %>% dplyr::filter(malignancy_pccc == 1),
     "Age >=3 months to <6 months" = sbi_neg_df %>% dplyr::filter(age_years >= 3/12, age_years < 6/12),
     "Age >=6 months to <1 year" = sbi_neg_df %>% dplyr::filter(age_years >= 6/12, age_years < 1),
     "Age >=1 year to <5 years" = sbi_neg_df %>% dplyr::filter(age_years >= 1, age_years < 5),
@@ -7019,8 +7024,8 @@ make_abx_prop_plot_df <- function(df) {
           "Overall",
           "PCCC Absent",
           "PCCC Present",
-          "Malignancy PCCC = 0",
-          "Malignancy PCCC = 1",
+          "Malignancy Absent",
+          "Malignancy Present",
           "Age >=3 months to <6 months",
           "Age >=6 months to <1 year",
           "Age >=1 year to <5 years",
