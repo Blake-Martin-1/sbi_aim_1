@@ -1980,6 +1980,10 @@ metric_4_identified_before_first_picu_abx_future
 
 # Make table suitable for manuscript
 fmt_n_pct <- function(n, denom, digits = 1) {
+  if (is.na(n) || is.na(denom) || denom == 0) {
+    return(NA_character_)
+  }
+
   sprintf(
     paste0("%d/%d (%.", digits, "f%%)"),
     n,
@@ -1987,6 +1991,7 @@ fmt_n_pct <- function(n, denom, digits = 1) {
     100 * n / denom
   )
 }
+
 
 fmt_median_iqr <- function(median, q1, q3, digits = 1) {
   sprintf(
@@ -1996,6 +2001,120 @@ fmt_median_iqr <- function(median, q1, q3, digits = 1) {
     q3
   )
 }
+
+# Requested future-test-set summary table. This is one row at the encounter
+# level and combines model rule-out performance with first-24h PICU antibiotic
+# exposure among truly SBI-negative encounters.
+future_encounter_summary <- future_decisions_best %>%
+  dplyr::mutate(study_id = as.character(study_id)) %>%
+  dplyr::distinct(study_id, sbi_present, final_state, decision_hour)
+
+future_sbi_negative_abx_24h_summary <- future_encounter_summary %>%
+  dplyr::filter(sbi_present == 0) %>%
+  dplyr::left_join(
+    rf_future_df_abx %>%
+      dplyr::transmute(
+        study_id = as.character(study_id),
+        abx_in_first_24h_picu = as.integer(abx_in_first_24h_picu)
+      ) %>%
+      dplyr::group_by(study_id) %>%
+      dplyr::summarise(
+        abx_in_first_24h_picu = max(abx_in_first_24h_picu, na.rm = TRUE),
+        .groups = "drop"
+      ),
+    by = "study_id"
+  ) %>%
+  dplyr::mutate(
+    abx_in_first_24h_picu = dplyr::if_else(
+      is.na(abx_in_first_24h_picu),
+      0L,
+      abx_in_first_24h_picu
+    )
+  )
+
+future_test_set_summary_metrics <- tibble::tibble(
+  cohort = prospective_temporal_eval_cohort_label,
+  n_encounters = dplyr::n_distinct(future_encounter_summary$study_id),
+  n_sbi_positive = sum(future_encounter_summary$sbi_present == 1, na.rm = TRUE),
+  pct_sbi_positive = n_sbi_positive / n_encounters,
+  n_sbi_negative = sum(future_encounter_summary$sbi_present == 0, na.rm = TRUE),
+  pct_sbi_negative = n_sbi_negative / n_encounters,
+  n_sbi_negative_correctly_ruled_out = sum(
+    future_encounter_summary$sbi_present == 0 &
+      future_encounter_summary$final_state == "ruled_out",
+    na.rm = TRUE
+  ),
+  pct_sbi_negative_correctly_ruled_out = dplyr::if_else(
+    n_sbi_negative > 0,
+    n_sbi_negative_correctly_ruled_out / n_sbi_negative,
+    NA_real_
+  ),
+  median_ruleout_hour_sbi_negative = stats::median(
+    future_encounter_summary$decision_hour[
+      future_encounter_summary$sbi_present == 0 &
+        future_encounter_summary$final_state == "ruled_out"
+    ],
+    na.rm = TRUE
+  ),
+  q1_ruleout_hour_sbi_negative = stats::quantile(
+    future_encounter_summary$decision_hour[
+      future_encounter_summary$sbi_present == 0 &
+        future_encounter_summary$final_state == "ruled_out"
+    ],
+    probs = 0.25,
+    na.rm = TRUE
+  ),
+  q3_ruleout_hour_sbi_negative = stats::quantile(
+    future_encounter_summary$decision_hour[
+      future_encounter_summary$sbi_present == 0 &
+        future_encounter_summary$final_state == "ruled_out"
+    ],
+    probs = 0.75,
+    na.rm = TRUE
+  ),
+  n_sbi_negative_with_abx_in_first_24h_picu = sum(
+    future_sbi_negative_abx_24h_summary$abx_in_first_24h_picu == 1L,
+    na.rm = TRUE
+  ),
+  pct_sbi_negative_with_abx_in_first_24h_picu = dplyr::if_else(
+    n_sbi_negative > 0,
+    n_sbi_negative_with_abx_in_first_24h_picu / n_sbi_negative,
+    NA_real_
+  ),
+  n_sbi_negative_first24h_abx_ruled_out_before_first_picu_abx =
+    metric_4_identified_before_first_picu_abx_future$n_identified_before_first_picu_abx[1],
+  pct_sbi_negative_first24h_abx_ruled_out_before_first_picu_abx =
+    metric_4_identified_before_first_picu_abx_future$prop_identified_before_first_picu_abx[1]
+)
+
+future_test_set_summary_table <- future_test_set_summary_metrics %>%
+  dplyr::transmute(
+    Cohort = cohort,
+    `Future test set encounters, n` = n_encounters,
+    `Encounters with SBI, %` = fmt_n_pct(n_sbi_positive, n_encounters),
+    `Encounters SBI-negative, %` = fmt_n_pct(n_sbi_negative, n_encounters),
+    `SBI-negative correctly ruled out by model, %` = fmt_n_pct(
+      n_sbi_negative_correctly_ruled_out,
+      n_sbi_negative
+    ),
+    `Rule-out hour among correctly ruled-out SBI-negative encounters, median (IQR)` =
+      fmt_median_iqr(
+        median_ruleout_hour_sbi_negative,
+        q1_ruleout_hour_sbi_negative,
+        q3_ruleout_hour_sbi_negative,
+        digits = 0
+      ),
+    `SBI-negative encounters given antibiotics 0-24h after PICU admission, %` =
+      fmt_n_pct(n_sbi_negative_with_abx_in_first_24h_picu, n_sbi_negative),
+    `First-24h antibiotic SBI-negative encounters ruled out before first PICU antibiotic dose, %` =
+      fmt_n_pct(
+        n_sbi_negative_first24h_abx_ruled_out_before_first_picu_abx,
+        n_sbi_negative_with_abx_in_first_24h_picu
+      )
+  )
+
+policy_impact_on_abx_future$future_test_set_summary_metrics <- future_test_set_summary_metrics
+policy_impact_on_abx_future$future_test_set_summary_table <- future_test_set_summary_table
 
 policy_timing_table_future <- tibble::tibble(
   Cohort = prospective_temporal_eval_cohort_label,
@@ -2062,5 +2181,6 @@ antibiotic_opportunity_table_future <- tibble::tibble(
 )
 
 # Provide the requested table names for interactive use after running this script.
+future_test_set_summary_table
 policy_timing_table_future
 antibiotic_opportunity_table_future
