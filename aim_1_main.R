@@ -3564,7 +3564,7 @@ plot_npv_vs_threshold <- function(npv_tbl, model_label, curve_color = "blue", la
     labs(
       title = model_label,
       x = "Threshold",
-      y = "NPV (Prospective stratum)"
+      y = "NPV"
     ) +
     theme_bw() +
     theme(
