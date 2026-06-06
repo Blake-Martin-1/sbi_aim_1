@@ -319,14 +319,17 @@ library(tibble)
 library(ggplot2)
 library(scales)
 
+heldout_internal_test_cohort_label <- "Held-out internal test cohort"
+prospective_temporal_eval_cohort_label <- "Prospective temporal evaluation cohort"
+
 pred_dist_df <- dplyr::bind_rows(
   tibble::tibble(
     predicted_probability = rf_pred_prob_test,
-    dataset = "Test"
+    dataset = heldout_internal_test_cohort_label
   ),
   tibble::tibble(
     predicted_probability = rf_pred_prob_future,
-    dataset = "Future"
+    dataset = prospective_temporal_eval_cohort_label
   )
 )
 
@@ -348,11 +351,11 @@ p_pred_density <- ggplot(
     limits = c(0, 1)
   ) +
   labs(
-    title = "Distribution of SBI Model-Predicted Probabilities",
+    title = "Distribution of SBI Model-Predicted Probabilities by Cohort",
     x = "Predicted probability of SBI",
     y = "Density",
-    color = "Dataset",
-    fill = "Dataset"
+    color = "Cohort",
+    fill = "Cohort"
   ) +
   theme_bw(base_size = 14) +
   theme(
@@ -776,7 +779,7 @@ p_calibration_future <- ggplot2::ggplot(
   ) +
   ggplot2::labs(
     title = "Calibration Plot for New Prospective Random Forest Model",
-    subtitle = "Future test set; points represent deciles of predicted SBI risk",
+    subtitle = paste0(prospective_temporal_eval_cohort_label, "; points represent deciles of predicted SBI risk"),
     x = "Mean predicted probability of SBI",
     y = "Observed SBI rate"
   ) +
@@ -852,7 +855,7 @@ future_split_performance_row <- calc_split_metrics_boot(
   n_boot = n_boot
 ) %>%
   dplyr::mutate(
-    split = "future test set",
+    split = prospective_temporal_eval_cohort_label,
     `AUROC (95% CI)` = format_metric_ci(auroc, auroc_lower, auroc_upper),
     `AUPRC (95% CI)` = format_metric_ci(auprc, auprc_lower, auprc_upper),
     `NPV (95% CI)` = format_metric_ci(npv, npv_lower, npv_upper),
@@ -863,6 +866,7 @@ future_split_performance_row <- calc_split_metrics_boot(
 split_performance_table <- dplyr::bind_rows(
   split_performance_table_original %>%
     dplyr::filter(split == "test set") %>%
+    dplyr::mutate(split = heldout_internal_test_cohort_label) %>%
     dplyr::select(split, `AUROC (95% CI)`, `AUPRC (95% CI)`, `NPV (95% CI)`),
   future_split_performance_row
 )
@@ -958,7 +962,7 @@ sbi_neg_prevalence_df_future <- future_patient_level_outcome %>%
 sbi_neg_prevalence_df <- sbi_neg_prevalence_df_future
 sbi_neg_prevalence_future <- sbi_neg_prevalence_df$sbi_neg_prevalence
 sbi_neg_prevalence_label_future <- paste0(
-  "Future SBI-negative prevalence = ",
+  prospective_temporal_eval_cohort_label, " SBI-negative prevalence = ",
   scales::percent(sbi_neg_prevalence_future, accuracy = 1)
 )
 
@@ -1010,14 +1014,14 @@ plot_npv_by_hour <- function(plot_df, plot_title, show_legend = FALSE) {
         name = "% of SBI-negative patients correctly identified"
       )
     ) +
-    ggplot2::scale_color_manual(values = c("Test set" = "gray35", "Future test set" = "blue3")) +
-    ggplot2::scale_fill_manual(values = c("Test set" = "gray70", "Future test set" = "lightblue")) +
+    ggplot2::scale_color_manual(values = c("Held-out internal test cohort" = "gray35", "Prospective temporal evaluation cohort" = "blue3")) +
+    ggplot2::scale_fill_manual(values = c("Held-out internal test cohort" = "gray70", "Prospective temporal evaluation cohort" = "lightblue")) +
     ggplot2::labs(
       title = plot_title,
       x = "Hours Since PICU Admission",
-      color = "Dataset",
-      fill = "Dataset",
-      linetype = "Dataset"
+      color = "Cohort",
+      fill = "Cohort",
+      linetype = "Cohort"
     ) +
     ggplot2::theme_minimal(base_size = 14) +
     ggplot2::theme(
@@ -1062,14 +1066,14 @@ plot_discrimination_by_hour <- function(plot_df, metric, lower, upper, label, pl
       breaks = seq(0, 1, by = 0.1),
       expand = ggplot2::expansion(mult = c(0.01, 0.08))
     ) +
-    ggplot2::scale_color_manual(values = c("Test set" = "gray35", "Future test set" = "blue3")) +
-    ggplot2::scale_fill_manual(values = c("Test set" = "gray70", "Future test set" = "lightblue")) +
+    ggplot2::scale_color_manual(values = c("Held-out internal test cohort" = "gray35", "Prospective temporal evaluation cohort" = "blue3")) +
+    ggplot2::scale_fill_manual(values = c("Held-out internal test cohort" = "gray70", "Prospective temporal evaluation cohort" = "lightblue")) +
     ggplot2::labs(
       title = plot_title,
       x = "Hours Since PICU Admission",
       y = y_axis_label,
-      color = "Dataset",
-      fill = "Dataset"
+      color = "Cohort",
+      fill = "Cohort"
     ) +
     ggplot2::theme_minimal(base_size = 14) +
     ggplot2::theme(
@@ -1081,27 +1085,27 @@ plot_discrimination_by_hour <- function(plot_df, metric, lower, upper, label, pl
 }
 
 rf_future_plot_df <- rf_future_hourly_metrics_boot %>%
-  dplyr::mutate(dataset = "Future test set")
+  dplyr::mutate(dataset = prospective_temporal_eval_cohort_label)
 
 rf_test_future_plot_df <- dplyr::bind_rows(
-  rf_test_hourly_metrics_boot %>% dplyr::mutate(dataset = "Test set"),
+  rf_test_hourly_metrics_boot %>% dplyr::mutate(dataset = heldout_internal_test_cohort_label),
   rf_future_plot_df
 ) %>%
   dplyr::mutate(
-    dataset = factor(dataset, levels = c("Test set", "Future test set"))
+    dataset = factor(dataset, levels = c(heldout_internal_test_cohort_label, prospective_temporal_eval_cohort_label))
   )
 
 # NPV plots: future-only and test-set comparison
 p_npv_future <- plot_npv_by_hour(
   rf_future_plot_df,
-  "Negative Predictive Value by PICU Hour: Future Test Set"
+  paste("Negative Predictive Value by PICU Hour:", prospective_temporal_eval_cohort_label)
 )
 p_npv_future
 save_aim1_plot(p_npv_future, "future_test_set_npv_by_picu_hour.tiff")
 
 p_npv_test_vs_future <- plot_npv_by_hour(
   rf_test_future_plot_df,
-  "Negative Predictive Value by PICU Hour: Test vs Future Test Set",
+  paste("Negative Predictive Value by PICU Hour:", heldout_internal_test_cohort_label, "vs", prospective_temporal_eval_cohort_label),
   show_legend = TRUE
 )
 p_npv_test_vs_future
@@ -1115,7 +1119,7 @@ p_auroc_future <- plot_discrimination_by_hour(
   lower = "auroc_lower",
   upper = "auroc_upper",
   label = "auroc_label",
-  plot_title = "AUROC by PICU Hour: Future Test Set",
+  plot_title = paste("AUROC by PICU Hour:", prospective_temporal_eval_cohort_label),
   y_axis_label = "AUROC"
 )
 p_auroc_future
@@ -1127,7 +1131,7 @@ p_auroc_test_vs_future <- plot_discrimination_by_hour(
   lower = "auroc_lower",
   upper = "auroc_upper",
   label = "auroc_label",
-  plot_title = "AUROC by PICU Hour: Test vs Future Test Set",
+  plot_title = paste("AUROC by PICU Hour:", heldout_internal_test_cohort_label, "vs", prospective_temporal_eval_cohort_label),
   y_axis_label = "AUROC",
   show_legend = TRUE
 )
@@ -1142,7 +1146,7 @@ p_auprc_future <- plot_discrimination_by_hour(
   lower = "auprc_lower",
   upper = "auprc_upper",
   label = "auprc_label",
-  plot_title = "AUPRC by PICU Hour: Future Test Set",
+  plot_title = paste("AUPRC by PICU Hour:", prospective_temporal_eval_cohort_label),
   y_axis_label = "AUPRC"
 ) +
   ggplot2::geom_hline(
@@ -1177,7 +1181,7 @@ p_auprc_test_vs_future <- plot_discrimination_by_hour(
   lower = "auprc_lower",
   upper = "auprc_upper",
   label = "auprc_label",
-  plot_title = "AUPRC by PICU Hour: Test vs Future Test Set",
+  plot_title = paste("AUPRC by PICU Hour:", heldout_internal_test_cohort_label, "vs", prospective_temporal_eval_cohort_label),
   y_axis_label = "AUPRC",
   show_legend = TRUE
 ) +
@@ -1237,7 +1241,7 @@ future_best_summary <- summarise_policy(
   params = best_policy
 ) %>%
   dplyr::mutate(
-    dataset = "future_test",
+    dataset = prospective_temporal_eval_cohort_label,
     meets_npv_target = !is.na(npv) & npv >= 0.95,
     coverage_score = dplyr::if_else(
       is.na(prop_true_neg_ruled_out),
@@ -1364,7 +1368,7 @@ p_policy_future_a <- ggplot2::ggplot(
     x = NULL,
     y = "Patients within true SBI group",
     fill = NULL,
-    title = "Future test set policy disposition by true SBI status"
+    title = paste("Policy disposition by true SBI status:", prospective_temporal_eval_cohort_label)
   ) +
   ggplot2::theme_bw(base_size = 14) +
   ggplot2::theme(
@@ -1443,7 +1447,7 @@ p_policy_future_b <- ggplot2::ggplot(
     x = "Hours since PICU admission",
     y = "Cumulative proportion ruled out",
     color = NULL,
-    title = "Future test set cumulative rule-out over time"
+    title = paste("Cumulative rule-out over time:", prospective_temporal_eval_cohort_label)
   ) +
   ggplot2::theme_bw(base_size = 14) +
   ggplot2::theme(
@@ -1876,9 +1880,10 @@ p_sbi_negative_abx_indications_future <- ggplot2::ggplot(
     expand = ggplot2::expansion(mult = c(0, 0.18))
   ) +
   ggplot2::labs(
-    title = "Antibiotic Indications Among SBI-Negative Policy Rule-Out Encounters",
+    title = paste("Antibiotic Indications Among SBI-Negative Policy Rule-Out Encounters:", prospective_temporal_eval_cohort_label),
     subtitle = paste0(
-      "Total SBI-negative policy rule-out encounters receiving post-rule-out antibiotics: n = ",
+      prospective_temporal_eval_cohort_label,
+      "\nTotal SBI-negative policy rule-out encounters receiving post-rule-out antibiotics: n = ",
       scales::comma(sbi_negative_abx_total_future),
       "; bars show first documented post-rule-out antibiotic indication"
     ),
@@ -1993,6 +1998,8 @@ fmt_median_iqr <- function(median, q1, q3, digits = 1) {
 }
 
 policy_timing_table_future <- tibble::tibble(
+  Cohort = prospective_temporal_eval_cohort_label,
+
   `Encounters identified as SBI-negative, n` =
     metric_1_timing_future$n_predicted_sbi_negative[1],
 
@@ -2006,6 +2013,8 @@ policy_timing_table_future <- tibble::tibble(
 )
 
 antibiotic_opportunity_table_future <- tibble::tibble(
+  Cohort = prospective_temporal_eval_cohort_label,
+
   Measure = c(
     "Potentially preventable unnecessary antibiotic exposure",
     "Duration of potentially preventable unnecessary antibiotic exposure",
