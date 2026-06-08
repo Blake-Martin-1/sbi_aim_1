@@ -2226,7 +2226,7 @@ model_policy_ruleout_encounter_performance_table <-
     ),
     `False negative rate, %` = fmt_n_pct(
       n_false_negative_encounters,
-      n_sbi_positive
+      n_ruled_out
     ),
     `False negative encounters, n` = n_false_negative_encounters
   )
