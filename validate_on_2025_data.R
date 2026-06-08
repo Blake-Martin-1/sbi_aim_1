@@ -2184,3 +2184,51 @@ antibiotic_opportunity_table_future <- tibble::tibble(
 future_test_set_summary_table
 policy_timing_table_future
 antibiotic_opportunity_table_future
+
+# Encounter-level model-policy rule-out performance on the future test set.
+# A model-policy "negative" prediction is an encounter ruled out as SBI-negative.
+model_policy_ruleout_encounter_performance_metrics <- future_decisions_best %>%
+  dplyr::distinct(study_id, .keep_all = TRUE) %>%
+  dplyr::summarise(
+    cohort = prospective_temporal_eval_cohort_label,
+    n_encounters = dplyr::n(),
+    n_sbi_positive = sum(sbi_present == 1, na.rm = TRUE),
+    n_ruled_out = sum(final_state == "ruled_out", na.rm = TRUE),
+    n_true_negative_ruleouts = sum(
+      final_state == "ruled_out" & sbi_present == 0,
+      na.rm = TRUE
+    ),
+    n_false_negative_encounters = sum(
+      final_state == "ruled_out" & sbi_present == 1,
+      na.rm = TRUE
+    ),
+    encounter_level_npv = dplyr::if_else(
+      n_ruled_out > 0,
+      n_true_negative_ruleouts / n_ruled_out,
+      NA_real_
+    ),
+    false_negative_rate = dplyr::if_else(
+      n_sbi_positive > 0,
+      n_false_negative_encounters / n_sbi_positive,
+      NA_real_
+    )
+  )
+
+model_policy_ruleout_encounter_performance_table <-
+  model_policy_ruleout_encounter_performance_metrics %>%
+  dplyr::transmute(
+    Cohort = cohort,
+    `Encounters, n` = n_encounters,
+    `Encounters ruled out as SBI-negative, n` = n_ruled_out,
+    `Encounter-level NPV for ruling out SBI, %` = fmt_n_pct(
+      n_true_negative_ruleouts,
+      n_ruled_out
+    ),
+    `False negative rate, %` = fmt_n_pct(
+      n_false_negative_encounters,
+      n_sbi_positive
+    ),
+    `False negative encounters, n` = n_false_negative_encounters
+  )
+
+model_policy_ruleout_encounter_performance_table
