@@ -2234,7 +2234,7 @@ model_policy_ruleout_encounter_performance_table <-
 model_policy_ruleout_encounter_performance_table
 
 
-##### 2025 antibiotic-duration summaries overall and by paper subgroups #####
+#### 2025 antibiotic-duration summaries overall and by paper subgroups #####
 # This block is intentionally placed at the end of the script so it can be run
 # independently after the upstream 2025 validation objects already exist in the
 # R session. It mirrors the subgroup definitions used in aim_1_main.R.
@@ -2269,7 +2269,7 @@ as_binary_0_1 <- function(x) {
 make_2025_abx_duration_source <- function() {
   if (
     exists("pros_combined_for_subgroups") &&
-      all(c("study_id", "first_course_duration_days") %in% names(pros_combined_for_subgroups))
+    all(c("study_id", "first_course_duration_days") %in% names(pros_combined_for_subgroups))
   ) {
     return(
       pros_combined_for_subgroups %>%
@@ -2320,7 +2320,7 @@ make_2025_abx_duration_source <- function() {
 
   if (
     exists("rf_future_df_abx") &&
-      all(c("study_id", "abx_duration_after_score") %in% names(rf_future_df_abx))
+    all(c("study_id", "abx_duration_after_score") %in% names(rf_future_df_abx))
   ) {
     return(
       rf_future_df_abx %>%
@@ -2652,3 +2652,304 @@ if (!is.null(sbi_negative_abx_duration_summary_2025)) {
 
 p_abx_duration_subgroups_2025
 p_sbi_negative_abx_duration_subgroups_2025
+
+##### 2025 SBI-negative first-24h PICU antibiotic-use rates by subgroup #####
+# This plot mirrors the aim_1_main.R SBI-negative antibiotic-use stacked bar
+# chart, but uses antibiotic administrations from PICU admission through 24
+# hours after PICU admission.
+
+make_2025_first24h_abx_source <- function() {
+  if (!exists("rf_future_df")) {
+    stop("rf_future_df is required to build first-24h PICU antibiotic rates.")
+  }
+
+  required_future_cols <- c("study_id", "pat_enc_csn_id", "picu_adm_date_time")
+  if (!all(required_future_cols %in% names(rf_future_df))) {
+    stop(
+      "rf_future_df must contain these columns: ",
+      paste(required_future_cols, collapse = ", ")
+    )
+  }
+
+  if (!exists("abx_df")) {
+    stop("abx_df is required to identify antibiotic administrations.")
+  }
+
+  if (!all(c("pat_enc_csn_id", "taken_time") %in% names(abx_df))) {
+    stop("abx_df must contain pat_enc_csn_id and taken_time.")
+  }
+
+  encounter_windows <- rf_future_df %>%
+    dplyr::mutate(
+      study_id = as.character(study_id),
+      pat_enc_csn_id = as.character(pat_enc_csn_id),
+      picu_adm_date_time = as.POSIXct(picu_adm_date_time),
+      age_years_tmp = if ("age_years" %in% names(.)) {
+        as.numeric(age_years)
+      } else if ("age" %in% names(.)) {
+        as.numeric(age)
+      } else {
+        NA_real_
+      },
+      pccc_num_tmp = if ("pccc" %in% names(.)) {
+        as_binary_0_1(pccc)
+      } else {
+        NA_integer_
+      },
+      malignancy_pccc_num_tmp = if ("malignancy_pccc" %in% names(.)) {
+        as_binary_0_1(malignancy_pccc)
+      } else {
+        NA_integer_
+      },
+      sbi_present_num_tmp = if ("sbi_present" %in% names(.)) {
+        as_binary_0_1(sbi_present)
+      } else {
+        NA_integer_
+      }
+    ) %>%
+    dplyr::filter(
+      !is.na(study_id),
+      !is.na(pat_enc_csn_id),
+      !is.na(picu_adm_date_time)
+    ) %>%
+    dplyr::group_by(study_id) %>%
+    dplyr::summarise(
+      pat_enc_csn_id = first_non_missing_or_na(pat_enc_csn_id),
+      picu_adm_date_time = first_non_missing_or_na(picu_adm_date_time),
+      age_years = first_non_missing_or_na(age_years_tmp),
+      pccc_num = first_non_missing_or_na(pccc_num_tmp),
+      malignancy_pccc_num = first_non_missing_or_na(malignancy_pccc_num_tmp),
+      sbi_present_num = first_non_missing_or_na(sbi_present_num_tmp),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(
+      window_start = picu_adm_date_time,
+      window_end = picu_adm_date_time + lubridate::hours(24)
+    )
+
+  abx_events <- abx_df %>%
+    dplyr::as_tibble() %>%
+    dplyr::mutate(
+      pat_enc_csn_id = as.character(pat_enc_csn_id),
+      taken_time = as.POSIXct(taken_time),
+      medication_class_clean = if ("medication_class" %in% names(.)) {
+        stringr::str_to_lower(stringr::str_squish(as.character(medication_class)))
+      } else {
+        NA_character_
+      }
+    ) %>%
+    dplyr::filter(!is.na(pat_enc_csn_id), !is.na(taken_time))
+
+  if ("medication_class" %in% names(abx_events) && any(!is.na(abx_events$medication_class_clean))) {
+    abx_events <- abx_events %>%
+      dplyr::filter(medication_class_clean %in% c("antibiotic", "antibiotics"))
+  } else {
+    warning(
+      "medication_class was unavailable in abx_df; treating all antinfective administrations as antibiotics."
+    )
+  }
+
+  study_ids_with_first24h_abx <- abx_events %>%
+    dplyr::inner_join(
+      encounter_windows %>%
+        dplyr::select(study_id, pat_enc_csn_id, window_start, window_end),
+      by = "pat_enc_csn_id"
+    ) %>%
+    dplyr::filter(
+      !is.na(taken_time),
+      !is.na(window_start),
+      !is.na(window_end),
+      taken_time >= window_start,
+      taken_time <= window_end
+    ) %>%
+    dplyr::distinct(study_id) %>%
+    dplyr::pull(study_id)
+
+  encounter_windows %>%
+    dplyr::mutate(
+      abx_in_first_24h_picu = dplyr::if_else(
+        study_id %in% study_ids_with_first24h_abx,
+        1L,
+        0L
+      )
+    ) %>%
+    dplyr::select(
+      study_id,
+      pat_enc_csn_id,
+      picu_adm_date_time,
+      age_years,
+      pccc_num,
+      malignancy_pccc_num,
+      sbi_present_num,
+      abx_in_first_24h_picu
+    )
+}
+
+make_first24h_abx_prop_plot_df_2025 <- function(df) {
+  sbi_neg_df <- df %>%
+    dplyr::filter(sbi_present_num == 0L)
+
+  subgroup_dfs <- list(
+    "Overall" = sbi_neg_df,
+    "PCCC Absent" = sbi_neg_df %>% dplyr::filter(pccc_num == 0L),
+    "PCCC Present" = sbi_neg_df %>% dplyr::filter(pccc_num == 1L),
+    "Malignancy Absent" = sbi_neg_df %>% dplyr::filter(malignancy_pccc_num == 0L),
+    "Malignancy Present" = sbi_neg_df %>% dplyr::filter(malignancy_pccc_num == 1L),
+    "Age >=3 months to <6 months" = sbi_neg_df %>% dplyr::filter(age_years >= 3/12, age_years < 6/12),
+    "Age >=6 months to <1 year" = sbi_neg_df %>% dplyr::filter(age_years >= 6/12, age_years < 1),
+    "Age >=1 year to <5 years" = sbi_neg_df %>% dplyr::filter(age_years >= 1, age_years < 5),
+    "Age >=5 years" = sbi_neg_df %>% dplyr::filter(age_years >= 5)
+  )
+
+  dplyr::bind_rows(
+    lapply(
+      names(subgroup_dfs),
+      function(subgroup_name) {
+        sub_df <- subgroup_dfs[[subgroup_name]]
+        den <- dplyr::n_distinct(sub_df$study_id)
+        n_no_abx <- dplyr::n_distinct(sub_df$study_id[sub_df$abx_in_first_24h_picu == 0L])
+        n_yes_abx <- dplyr::n_distinct(sub_df$study_id[sub_df$abx_in_first_24h_picu == 1L])
+
+        tibble::tibble(
+          subgroup = subgroup_name,
+          abx_group = c(
+            "No antibiotics in first 24h of PICU",
+            "Received antibiotics in first 24h of PICU"
+          ),
+          n = c(n_no_abx, n_yes_abx),
+          total = den
+        )
+      }
+    )
+  ) %>%
+    dplyr::mutate(
+      prop = dplyr::if_else(total > 0, n / total, NA_real_),
+      label_n = paste0(n, "/", total),
+      label_both = dplyr::if_else(
+        total > 0,
+        paste0(label_n, "\n", scales::percent(prop, accuracy = 0.1)),
+        paste0(label_n, "\nNA")
+      ),
+      subgroup = factor(subgroup, levels = abx_duration_subgroup_levels_2025),
+      abx_group = factor(
+        abx_group,
+        levels = c(
+          "No antibiotics in first 24h of PICU",
+          "Received antibiotics in first 24h of PICU"
+        )
+      )
+    )
+}
+
+make_first24h_abx_rate_summary_table_2025 <- function(plot_df) {
+  plot_df %>%
+    dplyr::filter(abx_group == "Received antibiotics in first 24h of PICU") %>%
+    dplyr::transmute(
+      subgroup,
+      n_sbi_negative_encounters = total,
+      n_sbi_negative_with_first_24h_picu_antibiotics = n,
+      pct_sbi_negative_with_first_24h_picu_antibiotics = prop,
+      `SBI-negative encounters with antibiotics in first 24h PICU, n (%)` = dplyr::if_else(
+        total > 0,
+        paste0(n, "/", total, " (", scales::percent(prop, accuracy = 0.1), ")"),
+        paste0(n, "/", total, " (NA)")
+      )
+    )
+}
+
+make_first24h_abx_stacked_plot_2025 <- function(plot_df, output_filename = NULL) {
+  if (nrow(plot_df) == 0) {
+    warning("No rows available for first-24h PICU antibiotic-use plot.")
+    return(NULL)
+  }
+
+  p <- ggplot2::ggplot(
+    plot_df,
+    ggplot2::aes(x = subgroup, y = prop, fill = abx_group)
+  ) +
+    ggplot2::geom_col(width = 0.75, color = "black", linewidth = 0.3) +
+    ggplot2::geom_text(
+      ggplot2::aes(label = label_both),
+      position = ggplot2::position_stack(vjust = 0.5),
+      size = 2.6,
+      fontface = "bold",
+      color = "white",
+      lineheight = 0.85
+    ) +
+    ggplot2::scale_x_discrete(
+      labels = function(x) stringr::str_wrap(x, width = 18),
+      drop = FALSE
+    ) +
+    ggplot2::scale_y_continuous(
+      labels = scales::percent_format(accuracy = 1),
+      limits = c(0, 1)
+    ) +
+    ggplot2::scale_fill_manual(
+      values = c(
+        "No antibiotics in first 24h of PICU" = "blue",
+        "Received antibiotics in first 24h of PICU" = "red"
+      ),
+      name = NULL
+    ) +
+    ggplot2::labs(
+      title = "SBI-Negative Encounters: Antibiotic Use in First 24h of PICU by Subgroup",
+      x = NULL,
+      y = "Percent of SBI-negative encounters"
+    ) +
+    ggplot2::theme_minimal(base_size = 14) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(size = 14, face = "bold", hjust = 0.5),
+      axis.title = ggplot2::element_text(size = 14, face = "bold"),
+      axis.text.x = ggplot2::element_text(size = 11, face = "bold", angle = 35, hjust = 1),
+      axis.text.y = ggplot2::element_text(size = 12, face = "bold"),
+      legend.text = ggplot2::element_text(size = 11, face = "bold"),
+      panel.grid.major.x = ggplot2::element_blank()
+    )
+
+  if (!is.null(output_filename)) {
+    if (exists("save_aim1_plot")) {
+      save_aim1_plot(p, output_filename, width = 10, height = 6)
+    } else {
+      warning("save_aim1_plot() is unavailable; returning plot without saving: ", output_filename)
+    }
+  }
+
+  p
+}
+
+first24h_abx_source_2025 <- make_2025_first24h_abx_source()
+
+if (any(!is.na(first24h_abx_source_2025$sbi_present_num))) {
+  sbi_negative_first24h_abx_prop_plot_df_2025 <- make_first24h_abx_prop_plot_df_2025(
+    first24h_abx_source_2025
+  )
+
+  sbi_negative_first24h_abx_rate_summary_2025 <- make_first24h_abx_rate_summary_table_2025(
+    sbi_negative_first24h_abx_prop_plot_df_2025
+  )
+
+  p_sbi_negative_first24h_abx_subgroups_2025 <- make_first24h_abx_stacked_plot_2025(
+    sbi_negative_first24h_abx_prop_plot_df_2025,
+    output_filename = "future_2025_sbi_negative_antibiotic_use_first_24h_picu_by_subgroup.tiff"
+  )
+} else {
+  sbi_negative_first24h_abx_prop_plot_df_2025 <- NULL
+  sbi_negative_first24h_abx_rate_summary_2025 <- NULL
+  p_sbi_negative_first24h_abx_subgroups_2025 <- NULL
+  warning("sbi_present was unavailable; skipping SBI-negative first-24h PICU antibiotic-use plot.")
+}
+
+sbi_negative_first24h_abx_rate_summary_2025
+p_sbi_negative_first24h_abx_subgroups_2025
+
+######### Now analyze the false negative predictions to understand potential impact ######
+# read in the false_negative IDs
+fn_ids <- read.csv(file = "/phi/sbi/sbi_blake/false_neg_ids.csv")
+
+# Identify type of SBI assigned by the SBI framework used in the study
+auto_sbi_cat <- pros_all %>% dplyr::select(study_id, sbi_present, micro_sbi_1_0, pna_1_0, cnss_true) %>% distinct() %>%
+                filter(study_id %in% fn_ids$study_id)
+
+
+
+
