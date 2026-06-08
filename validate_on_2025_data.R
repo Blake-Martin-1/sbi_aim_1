@@ -2232,3 +2232,423 @@ model_policy_ruleout_encounter_performance_table <-
   )
 
 model_policy_ruleout_encounter_performance_table
+
+
+##### 2025 antibiotic-duration summaries overall and by paper subgroups #####
+# This block is intentionally placed at the end of the script so it can be run
+# independently after the upstream 2025 validation objects already exist in the
+# R session. It mirrors the subgroup definitions used in aim_1_main.R.
+
+abx_duration_cap_days_2025 <- 7
+
+max_or_na <- function(x) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) {
+    return(NA_real_)
+  }
+  max(x)
+}
+
+first_non_missing_or_na <- function(x) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) {
+    return(NA)
+  }
+  x[1]
+}
+
+as_binary_0_1 <- function(x) {
+  x_chr <- toupper(trimws(as.character(x)))
+  dplyr::case_when(
+    x_chr %in% c("1", "TRUE", "T", "YES", "Y") ~ 1L,
+    x_chr %in% c("0", "FALSE", "F", "NO", "N") ~ 0L,
+    TRUE ~ NA_integer_
+  )
+}
+
+make_2025_abx_duration_source <- function() {
+  if (
+    exists("pros_combined_for_subgroups") &&
+      all(c("study_id", "first_course_duration_days") %in% names(pros_combined_for_subgroups))
+  ) {
+    return(
+      pros_combined_for_subgroups %>%
+        dplyr::mutate(
+          duration_days = as.numeric(first_course_duration_days),
+          has_abx_duration = if ("abx_in_24h_after_2h_flag" %in% names(.)) {
+            as_binary_0_1(abx_in_24h_after_2h_flag) == 1L
+          } else {
+            !is.na(duration_days) & duration_days > 0
+          },
+          age_years = if ("age_years" %in% names(.)) {
+            as.numeric(age_years)
+          } else if ("age" %in% names(.)) {
+            as.numeric(age)
+          } else {
+            NA_real_
+          },
+          pccc_num = if ("pccc" %in% names(.)) {
+            as_binary_0_1(pccc)
+          } else {
+            NA_integer_
+          },
+          malignancy_pccc_num = if ("malignancy_pccc" %in% names(.)) {
+            as_binary_0_1(malignancy_pccc)
+          } else {
+            NA_integer_
+          },
+          sbi_present_num = if ("sbi_present" %in% names(.)) {
+            as_binary_0_1(sbi_present)
+          } else {
+            NA_integer_
+          },
+          abx_duration_source = "pros_combined_for_subgroups$first_course_duration_days"
+        ) %>%
+        dplyr::select(
+          study_id,
+          duration_days,
+          has_abx_duration,
+          age_years,
+          pccc_num,
+          malignancy_pccc_num,
+          sbi_present_num,
+          abx_duration_source
+        ) %>%
+        dplyr::distinct(study_id, .keep_all = TRUE)
+    )
+  }
+
+  if (
+    exists("rf_future_df_abx") &&
+      all(c("study_id", "abx_duration_after_score") %in% names(rf_future_df_abx))
+  ) {
+    return(
+      rf_future_df_abx %>%
+        dplyr::mutate(
+          duration_days = as.numeric(abx_duration_after_score),
+          age_years_tmp = if ("age_years" %in% names(.)) {
+            as.numeric(age_years)
+          } else if ("age" %in% names(.)) {
+            as.numeric(age)
+          } else {
+            NA_real_
+          },
+          pccc_num_tmp = if ("pccc" %in% names(.)) {
+            as_binary_0_1(pccc)
+          } else {
+            NA_integer_
+          },
+          malignancy_pccc_num_tmp = if ("malignancy_pccc" %in% names(.)) {
+            as_binary_0_1(malignancy_pccc)
+          } else {
+            NA_integer_
+          },
+          sbi_present_num_tmp = if ("sbi_present" %in% names(.)) {
+            as_binary_0_1(sbi_present)
+          } else {
+            NA_integer_
+          }
+        ) %>%
+        dplyr::group_by(study_id) %>%
+        dplyr::summarise(
+          duration_days = max_or_na(duration_days),
+          has_abx_duration = !is.na(duration_days) & duration_days > 0,
+          age_years = first_non_missing_or_na(age_years_tmp),
+          pccc_num = first_non_missing_or_na(pccc_num_tmp),
+          malignancy_pccc_num = first_non_missing_or_na(malignancy_pccc_num_tmp),
+          sbi_present_num = first_non_missing_or_na(sbi_present_num_tmp),
+          abx_duration_source = "rf_future_df_abx$abx_duration_after_score, encounter-level max",
+          .groups = "drop"
+        )
+    )
+  }
+
+  stop(
+    "Could not find an antibiotic-duration source. Expected either ",
+    "pros_combined_for_subgroups$first_course_duration_days or ",
+    "rf_future_df_abx$abx_duration_after_score to exist in the R session."
+  )
+}
+
+safe_median_2025 <- function(x) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) {
+    return(NA_real_)
+  }
+  stats::median(x)
+}
+
+safe_quantile_2025 <- function(x, probs) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) {
+    return(NA_real_)
+  }
+  as.numeric(stats::quantile(x, probs = probs, na.rm = TRUE))
+}
+
+fmt_duration_median_iqr_2025 <- function(median, q1, q3, digits = 2) {
+  if (is.na(median) || is.na(q1) || is.na(q3)) {
+    return(NA_character_)
+  }
+
+  paste0(
+    round(median, digits),
+    " [",
+    round(q1, digits),
+    ", ",
+    round(q3, digits),
+    "]"
+  )
+}
+
+summarise_abx_duration_2025 <- function(df, subgroup_label) {
+  duration_df <- df %>%
+    dplyr::filter(
+      has_abx_duration,
+      !is.na(duration_days),
+      duration_days > 0,
+      duration_days <= abx_duration_cap_days_2025
+    )
+
+  median_days <- safe_median_2025(duration_df$duration_days)
+  q1_days <- safe_quantile_2025(duration_df$duration_days, probs = 0.25)
+  q3_days <- safe_quantile_2025(duration_df$duration_days, probs = 0.75)
+
+  tibble::tibble(
+    subgroup = subgroup_label,
+    n_encounters_in_subgroup = dplyr::n_distinct(df$study_id),
+    n_encounters_with_antibiotic_duration = dplyr::n_distinct(duration_df$study_id),
+    median_duration_days = median_days,
+    q1_duration_days = q1_days,
+    q3_duration_days = q3_days,
+    `Antibiotic duration, days; median [Q1, Q3]` = fmt_duration_median_iqr_2025(
+      median_days,
+      q1_days,
+      q3_days
+    )
+  )
+}
+
+make_abx_duration_summary_table_2025 <- function(df) {
+  subgroup_dfs <- list(
+    "Overall" = df,
+    "PCCC Absent" = df %>% dplyr::filter(pccc_num == 0L),
+    "PCCC Present" = df %>% dplyr::filter(pccc_num == 1L),
+    "Malignancy Absent" = df %>% dplyr::filter(malignancy_pccc_num == 0L),
+    "Malignancy Present" = df %>% dplyr::filter(malignancy_pccc_num == 1L),
+    "Age >=3 months to <6 months" = df %>% dplyr::filter(age_years >= 3/12, age_years < 6/12),
+    "Age >=6 months to <1 year" = df %>% dplyr::filter(age_years >= 6/12, age_years < 1),
+    "Age >=1 year to <5 years" = df %>% dplyr::filter(age_years >= 1, age_years < 5),
+    "Age >=5 years" = df %>% dplyr::filter(age_years >= 5)
+  )
+
+  dplyr::bind_rows(
+    lapply(
+      names(subgroup_dfs),
+      function(subgroup_name) {
+        summarise_abx_duration_2025(subgroup_dfs[[subgroup_name]], subgroup_name)
+      }
+    )
+  )
+}
+
+abx_duration_source_2025 <- make_2025_abx_duration_source()
+
+abx_duration_summary_2025 <- make_abx_duration_summary_table_2025(
+  abx_duration_source_2025
+)
+
+# Matching the aim_1_main.R antibiotic-duration cohort, also provide the same
+# summaries restricted to SBI-negative encounters when sbi_present is available.
+if (any(!is.na(abx_duration_source_2025$sbi_present_num))) {
+  sbi_negative_abx_duration_summary_2025 <- abx_duration_source_2025 %>%
+    dplyr::filter(sbi_present_num == 0L) %>%
+    make_abx_duration_summary_table_2025()
+} else {
+  sbi_negative_abx_duration_summary_2025 <- NULL
+  warning("sbi_present was unavailable; skipping SBI-negative antibiotic-duration summary.")
+}
+
+abx_duration_summary_2025
+sbi_negative_abx_duration_summary_2025
+
+abx_duration_subgroup_levels_2025 <- c(
+  "Overall",
+  "PCCC Absent",
+  "PCCC Present",
+  "Malignancy Absent",
+  "Malignancy Present",
+  "Age >=3 months to <6 months",
+  "Age >=6 months to <1 year",
+  "Age >=1 year to <5 years",
+  "Age >=5 years"
+)
+
+make_abx_duration_boxplot_df_2025 <- function(df) {
+  duration_df <- df %>%
+    dplyr::filter(
+      has_abx_duration,
+      !is.na(duration_days),
+      duration_days > 0,
+      duration_days <= abx_duration_cap_days_2025
+    )
+
+  subgroup_dfs <- list(
+    "Overall" = duration_df,
+    "PCCC Absent" = duration_df %>% dplyr::filter(pccc_num == 0L),
+    "PCCC Present" = duration_df %>% dplyr::filter(pccc_num == 1L),
+    "Malignancy Absent" = duration_df %>% dplyr::filter(malignancy_pccc_num == 0L),
+    "Malignancy Present" = duration_df %>% dplyr::filter(malignancy_pccc_num == 1L),
+    "Age >=3 months to <6 months" = duration_df %>% dplyr::filter(age_years >= 3/12, age_years < 6/12),
+    "Age >=6 months to <1 year" = duration_df %>% dplyr::filter(age_years >= 6/12, age_years < 1),
+    "Age >=1 year to <5 years" = duration_df %>% dplyr::filter(age_years >= 1, age_years < 5),
+    "Age >=5 years" = duration_df %>% dplyr::filter(age_years >= 5)
+  )
+
+  dplyr::bind_rows(
+    lapply(
+      names(subgroup_dfs),
+      function(subgroup_name) {
+        subgroup_dfs[[subgroup_name]] %>%
+          dplyr::transmute(
+            subgroup = subgroup_name,
+            study_id = study_id,
+            duration_days = duration_days
+          )
+      }
+    )
+  ) %>%
+    dplyr::mutate(
+      subgroup = factor(
+        subgroup,
+        levels = abx_duration_subgroup_levels_2025
+      )
+    )
+}
+
+make_abx_duration_boxplot_2025 <- function(plot_df, plot_title, plot_subtitle, output_filename = NULL) {
+  if (nrow(plot_df) == 0) {
+    warning("No antibiotic-duration rows available for boxplot: ", plot_title)
+    return(NULL)
+  }
+
+  n_labels_df <- tibble::tibble(
+    subgroup = factor(
+      abx_duration_subgroup_levels_2025,
+      levels = abx_duration_subgroup_levels_2025
+    )
+  ) %>%
+    dplyr::left_join(
+      plot_df %>%
+        dplyr::group_by(subgroup) %>%
+        dplyr::summarise(
+          n = dplyr::n_distinct(study_id),
+          ymax = max_or_na(duration_days),
+          .groups = "drop"
+        ),
+      by = "subgroup"
+    ) %>%
+    dplyr::mutate(n = dplyr::coalesce(n, 0L))
+
+  overall_ymax <- max_or_na(plot_df$duration_days)
+  if (is.na(overall_ymax) || overall_ymax <= 0) {
+    overall_ymax <- 1
+  }
+
+  n_labels_df <- n_labels_df %>%
+    dplyr::mutate(
+      label = paste0("N = ", n),
+      label_y = dplyr::if_else(
+        is.na(ymax),
+        overall_ymax,
+        ymax + 0.06 * overall_ymax
+      )
+    )
+
+  y_upper <- max(n_labels_df$label_y, na.rm = TRUE) * 1.05
+
+  p <- ggplot2::ggplot(
+    plot_df,
+    ggplot2::aes(x = subgroup, y = duration_days)
+  ) +
+    ggplot2::geom_boxplot(
+      width = 0.7,
+      linewidth = 0.8,
+      outlier.size = 2,
+      na.rm = TRUE
+    ) +
+    ggplot2::geom_text(
+      data = n_labels_df,
+      ggplot2::aes(x = subgroup, y = label_y, label = label),
+      inherit.aes = FALSE,
+      size = 3.8,
+      fontface = "bold"
+    ) +
+    ggplot2::scale_x_discrete(
+      labels = function(x) stringr::str_wrap(x, width = 18),
+      drop = FALSE
+    ) +
+    ggplot2::labs(
+      title = plot_title,
+      subtitle = plot_subtitle,
+      x = NULL,
+      y = "Antibiotic duration (days)"
+    ) +
+    ggplot2::coord_cartesian(ylim = c(0, y_upper)) +
+    ggplot2::theme_minimal(base_size = 14) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(size = 16, face = "bold", hjust = 0.5),
+      plot.subtitle = ggplot2::element_text(size = 12, face = "bold", hjust = 0.5),
+      axis.title = ggplot2::element_text(size = 14, face = "bold"),
+      axis.text.x = ggplot2::element_text(size = 11, face = "bold", angle = 35, hjust = 1),
+      axis.text.y = ggplot2::element_text(size = 12, face = "bold")
+    )
+
+  if (!is.null(output_filename)) {
+    if (exists("save_aim1_plot")) {
+      save_aim1_plot(p, output_filename, width = 10, height = 6)
+    } else {
+      warning("save_aim1_plot() is unavailable; returning plot without saving: ", output_filename)
+    }
+  }
+
+  p
+}
+
+abx_duration_boxplot_df_2025 <- make_abx_duration_boxplot_df_2025(
+  abx_duration_source_2025
+)
+
+p_abx_duration_subgroups_2025 <- make_abx_duration_boxplot_2025(
+  plot_df = abx_duration_boxplot_df_2025,
+  plot_title = "2025 Antibiotic Duration by Subgroup",
+  plot_subtitle = paste0(
+    "Includes encounters with antibiotic duration >0 and <= ",
+    abx_duration_cap_days_2025,
+    " days"
+  ),
+  output_filename = "future_2025_antibiotic_duration_by_subgroup.tiff"
+)
+
+if (!is.null(sbi_negative_abx_duration_summary_2025)) {
+  sbi_negative_abx_duration_boxplot_df_2025 <- abx_duration_source_2025 %>%
+    dplyr::filter(sbi_present_num == 0L) %>%
+    make_abx_duration_boxplot_df_2025()
+
+  p_sbi_negative_abx_duration_subgroups_2025 <- make_abx_duration_boxplot_2025(
+    plot_df = sbi_negative_abx_duration_boxplot_df_2025,
+    plot_title = "2025 Antibiotic Duration by Subgroup Among SBI-Negative Encounters",
+    plot_subtitle = paste0(
+      "Includes SBI-negative encounters with antibiotic duration >0 and <= ",
+      abx_duration_cap_days_2025,
+      " days"
+    ),
+    output_filename = "future_2025_sbi_negative_antibiotic_duration_by_subgroup.tiff"
+  )
+} else {
+  sbi_negative_abx_duration_boxplot_df_2025 <- NULL
+  p_sbi_negative_abx_duration_subgroups_2025 <- NULL
+}
+
+p_abx_duration_subgroups_2025
+p_sbi_negative_abx_duration_subgroups_2025
