@@ -8,7 +8,7 @@ source("plot_save_helpers.R")
 
 
 # Call setup script to import needed filepaths
-setwd(dir = "/phi/sbi/sbi_blake/aim_1_paper_materials/")
+setwd(dir = aim1_paper_materials_path)
 
 source("setup_aim_1.R")
 
@@ -62,8 +62,8 @@ library(forcats)
 library(scales)
 
 
-pros_one_model <- read_csv(file = "/phi/sbi/sbi_blake/pros_all_just_b4_modeling_10_14_25.csv")
-# pros_all <- read_csv(file = "/phi/sbi/sbi_blake/pros_all_just_b4_modeling_1_15_26_all_models.csv")
+pros_one_model <- read_csv(file = file.path(aim1_paper_materials_path, "pros_all_just_b4_modeling_10_14_25.csv"))
+# pros_all <- read_csv(file = file.path(sbi_blake_phi_path, "pros_all_just_b4_modeling_1_15_26_all_models.csv"))
 
 ### Train new models using prospective data ###
 # slim down to just the study_id, predictor info, and sbi outcome for model training
@@ -176,8 +176,8 @@ fold_map <- map2_df(seq_len(v), cv$splits, ~{
 })
 
 # # Save the fold map
-# write.csv(fold_map, "/phi/sbi/sbi_blake/cv_fold_map_by_studyid_10_7_25.csv", row.names = FALSE)
-# write.csv(fold_map, "/phi/sbi/sbi_blake/cv_fold_map_by_studyid_10_15_25.csv", row.names = FALSE)
+# write.csv(fold_map, file.path(sbi_blake_phi_path, "cv_fold_map_by_studyid_10_7_25.csv"), row.names = FALSE)
+# write.csv(fold_map, file.path(sbi_blake_phi_path, "cv_fold_map_by_studyid_10_15_25.csv"), row.names = FALSE)
 
 # Build caret-style indices from the mapping (for the training set only)
 train_fold_map <- fold_map %>%
@@ -277,8 +277,8 @@ split_summary_table <- split_summary_table %>%
 View(split_summary_table)
 
 # # Store csv file with train, test, and validation labels as well as fold labels for training set rows
-# write.csv(split_ledger, "/phi/sbi/sbi_blake/split_ledger_studyid_10_7_25.csv", row.names = FALSE)
-# write.csv(split_ledger, "/phi/sbi/sbi_blake/split_ledger_studyid_10_15_25.csv", row.names = FALSE)
+# write.csv(split_ledger, file.path(sbi_blake_phi_path, "split_ledger_studyid_10_7_25.csv"), row.names = FALSE)
+# write.csv(split_ledger, file.path(sbi_blake_phi_path, "split_ledger_studyid_10_15_25.csv"), row.names = FALSE)
 
 # Only using the previously identified optimal values for the random forest hyperparameters
 rf_grid <- expand.grid(

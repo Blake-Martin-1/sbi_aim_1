@@ -1,6 +1,9 @@
 # Shared helper for saving AIM 1 figures.
-# All plots are written as 600 dpi TIFF images in the shared figures directory.
-aim1_figures_dir <- "/phi/sbi/sbi_blake/figures_aim_1"
+# All plots are written as 600 dpi TIFF images in the configured figures directory.
+if (!exists("load_path_config")) {
+  source("path_config_helpers.R")
+}
+load_path_config()
 
 save_aim1_plot <- function(plot, filename, width = 8, height = 6) {
   if (is.null(plot)) {

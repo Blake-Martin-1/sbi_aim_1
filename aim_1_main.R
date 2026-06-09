@@ -65,7 +65,7 @@ source(file = "retro_models_to_2026.R")
 # Load in similar dataframe for the prospective model data
 prospective_model_data_file_path <- getOption(
   "prospective_model_data_file_path",
-  "/phi/sbi/sbi_blake/pros_all_just_b4_modeling_1_15_26_all_models.csv"
+  file.path(sbi_blake_phi_path, "pros_all_just_b4_modeling_1_15_26_all_models.csv")
 )
 pros_all <- read_csv(file = prospective_model_data_file_path)
 
@@ -111,7 +111,7 @@ pros_rf_same$epoch <- "prospective"
 
 # First need to get back the case_id values (whoops)
 # load model_data_df
-full_retro_df <- read.fst(path = "/home/martinbl/sbi_blake/pre_micro_vps_vitals_11_21_23.fst")
+full_retro_df <- read.fst(path = file.path(sbi_blake_path, "pre_micro_vps_vitals_11_21_23.fst"))
 
 # Change names of columns I'll match on
 full_retro_name_fix <- full_retro_df %>% rename(age = age_years, hr_min = min_hr)
@@ -301,8 +301,8 @@ retro_rf_vs <- retro_rf_vs %>% mutate(fio2_present = ifelse(is.na(n_fio2_rows), 
 retro_rf_vs$n_fio2_rows[is.na(retro_rf_vs$n_fio2_rows)] <- 0
 
 # Now add in lab data
-retro_labs <- read_csv(file = "/home/martinbl/sbi_blake/labs_for_comp.csv")
-# retro_fio2 <- read_csv(file = "/home/martinbl/sbi_blake/fio2_data.csv")
+retro_labs <- read_csv(file = file.path(sbi_blake_path, "labs_for_comp.csv"))
+# retro_fio2 <- read_csv(file = file.path(sbi_blake_path, "fio2_data.csv"))
 
 # Now nead to add in the number of pco2 case_id values that have values and how many
 co2_df <- retro_labs %>% filter(lab_time_taken <= picu_adm_date_time + 60 * 60 * 2) %>%
@@ -368,7 +368,7 @@ pros_rf_same_abx$epoch <- "prospective"
 
 # First need to get back the case_id values (whoops)
 # load model_data_df
-full_retro_df <- read.fst(path = "/home/martinbl/sbi_blake/pre_micro_vps_vitals_11_21_23.fst")
+full_retro_df <- read.fst(path = file.path(sbi_blake_path, "pre_micro_vps_vitals_11_21_23.fst"))
 
 # Change names of columns I'll match on
 full_retro_name_fix <- full_retro_df %>% rename(age = age_years, hr_min = min_hr)
@@ -392,8 +392,8 @@ retro_rf_vs_abx <- retro_rf_vs_abx %>% mutate(fio2_present = ifelse(is.na(n_fio2
 retro_rf_vs_abx$n_fio2_rows[is.na(retro_rf_vs_abx$n_fio2_rows)] <- 0
 
 # Now add in lab data
-retro_labs <- read_csv(file = "/home/martinbl/sbi_blake/labs_for_comp.csv")
-# retro_fio2 <- read_csv(file = "/home/martinbl/sbi_blake/fio2_data.csv")
+retro_labs <- read_csv(file = file.path(sbi_blake_path, "labs_for_comp.csv"))
+# retro_fio2 <- read_csv(file = file.path(sbi_blake_path, "fio2_data.csv"))
 
 # Now nead to add in the number of lactate case_id values that have values and how many
 lactate_df <- retro_labs %>% filter(lab_time_taken <= picu_adm_date_time + 2 * 3600) %>%
@@ -437,7 +437,7 @@ retro_full_abx$n_hematocrit[is.na(retro_full_abx$n_hematocrit)] <- 0
 csn_time <- pros_2hr_rf_ue %>% dplyr::select(study_id, pat_enc_csn_id, hsp_account_id, score_time, picu_adm_date_time) %>% distinct()
 
 # Load needed pros data
-vitals_pros <- read_csv("/phi/sbi/prospective_data/Prospective/data/vitals_export_pros_100125.csv")
+vitals_pros <- read_csv(file.path(prospective_data_path, "vitals_export_pros_100125.csv"))
 
 
 # Copy to avoid modifying originals by reference
@@ -515,12 +515,12 @@ pros_full_no_abx <- pros_full_no_abx %>% mutate(fio2_present = ifelse(n_fio2_row
 
 # Now need to identify the RF labs, which were present, and how many were used for the score
 
-labs_pros <- read_csv(file = "/phi/sbi/prospective_data/Prospective/data/lab_export_pros_100125.csv")
+labs_pros <- read_csv(file = file.path(prospective_data_path, "lab_export_pros_100125.csv"))
 
 
 # Load the prospective data:
 epic_7_23  <- read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_Sep2023.csv",
+  file = file.path(prospective_model_output_path, "model_output_Sep2023.csv"),
   col_types = cols(
     ICU_START_INSTANT = col_character(),
     VALID_START_INSTANT = col_character(),
@@ -544,7 +544,7 @@ epic_7_23  <- read_csv(
 )
 
 epic_9_23 <- read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_Oct2023.csv",
+  file = file.path(prospective_model_output_path, "model_output_Oct2023.csv"),
   col_types = cols(
     ICU_START_INSTANT = col_character(),
     VALID_START_INSTANT = col_character(),
@@ -568,7 +568,7 @@ epic_9_23 <- read_csv(
 )
 
 epic_10_23 <- read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_Nov2023.csv",
+  file = file.path(prospective_model_output_path, "model_output_Nov2023.csv"),
   col_types = cols(
     ICU_START_INSTANT = col_character(),
     VALID_START_INSTANT = col_character(),
@@ -592,7 +592,7 @@ epic_10_23 <- read_csv(
 )
 
 epic_11_23 <- read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_Dec2023.csv",
+  file = file.path(prospective_model_output_path, "model_output_Dec2023.csv"),
   col_types = cols(
     ICU_START_INSTANT = col_character(),
     VALID_START_INSTANT = col_character(),
@@ -616,7 +616,7 @@ epic_11_23 <- read_csv(
 )
 
 epic_12_23  <- read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_Jan2024.csv",
+  file = file.path(prospective_model_output_path, "model_output_Jan2024.csv"),
   col_types = cols(
     ICU_START_INSTANT = col_character(),
     VALID_START_INSTANT = col_character(),
@@ -640,7 +640,7 @@ epic_12_23  <- read_csv(
 )
 
 epic_1_24  <- read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_Feb2024.csv",
+  file = file.path(prospective_model_output_path, "model_output_Feb2024.csv"),
   col_types = cols(
     ICU_START_INSTANT = col_character(),
     VALID_START_INSTANT = col_character(),
@@ -664,7 +664,7 @@ epic_1_24  <- read_csv(
 )
 
 epic_2_24  <- read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_actual_feb2024.csv",
+  file = file.path(prospective_model_output_path, "model_output_actual_feb2024.csv"),
   col_types = cols(
     ICU_START_INSTANT = col_character(),
     VALID_START_INSTANT = col_character(),
@@ -688,7 +688,7 @@ epic_2_24  <- read_csv(
 )
 
 epic_3_24  <- read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_March2024.csv",
+  file = file.path(prospective_model_output_path, "model_output_March2024.csv"),
   col_types = cols(
     ICU_START_INSTANT = col_character(),
     VALID_START_INSTANT = col_character(),
@@ -712,7 +712,7 @@ epic_3_24  <- read_csv(
 )
 
 epic_4_24  <- read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_April2024.csv",
+  file = file.path(prospective_model_output_path, "model_output_April2024.csv"),
   col_types = cols(
     ICU_START_INSTANT = col_character(),
     VALID_START_INSTANT = col_character(),
@@ -736,7 +736,7 @@ epic_4_24  <- read_csv(
 )
 
 epic_5_24  <- read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_May2024.csv",
+  file = file.path(prospective_model_output_path, "model_output_May2024.csv"),
   col_types = cols(
     ICU_START_INSTANT = col_character(),
     VALID_START_INSTANT = col_character(),
@@ -760,7 +760,7 @@ epic_5_24  <- read_csv(
 )
 
 epic_6_24  <- read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_June2024.csv",
+  file = file.path(prospective_model_output_path, "model_output_June2024.csv"),
   col_types = cols(
     ICU_START_INSTANT = col_character(),
     VALID_START_INSTANT = col_character(),
@@ -784,7 +784,7 @@ epic_6_24  <- read_csv(
 )
 
 epic_7_24  <- read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_July2024.csv",
+  file = file.path(prospective_model_output_path, "model_output_July2024.csv"),
   col_types = cols(
     ICU_START_INSTANT = col_character(),
     VALID_START_INSTANT = col_character(),
@@ -808,7 +808,7 @@ epic_7_24  <- read_csv(
 )
 
 epic_8_24  <- read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_August2024.csv",
+  file = file.path(prospective_model_output_path, "model_output_August2024.csv"),
   col_types = cols(
     ICU_START_INSTANT = col_character(),
     VALID_START_INSTANT = col_character(),
@@ -1111,7 +1111,7 @@ setdiff(names(retro_full_abx), names(pros_full_yes_abx_fixed))
 # infection labels (SBI type, viral infections, fungal infections), number of cultures drawn (how many before prediction time), timing of antibiotic initiation,
 
 # First get relevant retrospective data
-add_retro <- read.fst(path = "/phi/sbi/sbi_blake/model_data_w_ids_9_13_24.fst")
+add_retro <- read.fst(path = file.path(sbi_blake_phi_path, "model_data_w_ids_9_13_24.fst"))
 add_slim_retro <- add_retro %>% dplyr::select(case_id, picu_adm_date_time, picu_dc_date_time, icu_los_days, race, ethnicity, death_date,
                                               prism_3_score, pim_2_score, post_op, ccc, cancer, sbi_pneumonia, blood, cns, urine, virus, virus_24,
                                               sbi_cx_neg_sepsis, death, inv_vent)
@@ -1172,7 +1172,7 @@ pros_full_w_vps <- pros_full_no_abx_fixed
 
 
 ### Add in number of cultures sent in 26 hour period as available for blood, urine, csf, start with retro ###
-micro_data_retro <- read_csv("/phi/sbi/updated_retro_data/Retrospective/micro_export_retro_041624_readonly.csv")
+micro_data_retro <- read_csv(file.path(updated_retro_data_path, "micro_export_retro_041624_readonly.csv"))
 
 # Filter to only those cultures I want
 
@@ -1326,7 +1326,7 @@ retro_yes_abx_final <- retro_full_w_vps_w_mrn_abx
 
 
 ######## Now get cultures numbers for prospective cohort ########
-micro_raw_pros <- read_csv(file = "/phi/sbi/prospective_data/Prospective/data/micro_export_pros_100125.csv")
+micro_raw_pros <- read_csv(file = file.path(prospective_data_path, "micro_export_pros_100125.csv"))
 
 View(micro_raw_pros %>% dplyr::select(proc_name, component_name) %>% distinct())
 proc_abx <- c("ANAEROBIC BLOOD BACTERIAL", "ANAEROBIC BLOOD BACTERIAL CULTURE (SECOND)", "BLOOD BACTERIAL CULTURE", "BLOOD BACTERIAL CULTURE-SECOND", "MENINGITIS ENCEPHALITIS PANEL (MEP)",
@@ -1486,7 +1486,7 @@ pros_full_w_vps_w_mrn_abx <- as_tibble(pros_out_abx)
 pros_yes_abx_final <- pros_full_w_vps_w_mrn_abx %>% filter(abx_exp == 1)
 
 ### Ensure the SBI types identified in the retrospective dataset (cns, blood, urine) are replicated in the prospective dataset
-all_pros_micro <- read_csv(file = "/phi/sbi/retro_data/all_pros_micro_w_sites_1_27_26.csv")
+all_pros_micro <- read_csv(file = file.path(retro_data_path, "all_pros_micro_w_sites_1_27_26.csv"))
 
 all_pros_micro$order_time <- force_tz(all_pros_micro$order_time, tz = "America/Denver")
 all_pros_micro$result_time <- force_tz(all_pros_micro$result_time, tz = "America/Denver")
@@ -1711,7 +1711,7 @@ pros_yes_abx_final <- add_suspected_infection(pros_yes_abx_final, micro_dt)
 
 
 # Load in CXR information to incorporate into suspected infection
-cxr_pros <- read_csv(file = "/phi/sbi/prospective_data/Prospective/data/hosp_chest_xray_export_pros_100125.csv")
+cxr_pros <- read_csv(file = file.path(prospective_data_path, "hosp_chest_xray_export_pros_100125.csv"))
 cxr_pros$chest_x_ray_order <- as.POSIXct(x = cxr_pros$chest_x_ray_order, format = "%Y-%m-%d %H:%M:%OS", tz = "America/Denver")
 
 
@@ -1776,7 +1776,7 @@ retro_no_abx_final$picu_dc_date_time <- force_tz(retro_no_abx_final$picu_dc_date
 retro_yes_abx_final$picu_dc_date_time <- force_tz(retro_yes_abx_final$picu_dc_date_time, tz = "America/Denver")
 
 # Add in preicu location stuff to remainder of retrospective dataset
-temp_retro <- read.fst(path = "~/sbi_blake/jan_25_23_model_data_df.fst")
+temp_retro <- read.fst(path = file.path(sbi_blake_path, "jan_25_23_model_data_df.fst"))
 temp_loc <- temp_retro %>% dplyr::select(case_id, pre_icu)
 temp_loc <- data.table(temp_loc)
 temp_loc <- one_hot(dt = temp_loc, cols = c("pre_icu"))
@@ -1795,8 +1795,8 @@ retro_no_abx_final <- retro_no_abx_final %>% rename(pccc = ccc, malignancy_pccc 
 retro_yes_abx_final <- retro_yes_abx_final %>% rename(pccc = ccc, malignancy_pccc = cancer)
 
 # Now get IMV info from flowsheets:
-flowsheet <- read.csv("/phi/sbi/sbi_blake/flo_export_pros_100125.csv")
-demog     <- read.csv("/phi/sbi/sbi_blake/demog_export_pros_100125.csv")
+flowsheet <- read.csv(file.path(sbi_blake_phi_path, "flo_export_pros_100125.csv"))
+demog     <- read.csv(file.path(sbi_blake_phi_path, "demog_export_pros_100125.csv"))
 
 # Helper functions / variablesbvæ
 tz_use <- "America/Denver"
@@ -1986,7 +1986,7 @@ pros_no_abx_final <- pros_no_abx_final %>% dplyr::select(-all_of(rm_from_pros_no
 
 
 # Add biologic sex to the retro dataframes to ensure we have demographic info on everyone.
-get_sex_var <- read.fst(path = "/phi/sbi/sbi_blake/model_data_w_ids_9_13_24.fst") %>% dplyr::select(case_id, sex) %>% distinct()
+get_sex_var <- read.fst(path = file.path(sbi_blake_phi_path, "model_data_w_ids_9_13_24.fst")) %>% dplyr::select(case_id, sex) %>% distinct()
 get_sex_var <- get_sex_var %>% mutate(is_female = ifelse(sex == "Female", yes = 1, no = 0))
 get_sex_var <- get_sex_var %>% dplyr::select(-sex) %>% rename(study_id = case_id)
 
@@ -2096,7 +2096,7 @@ retro_no_abx_final  <- add_pct_pres_dt(retro_no_abx_final,  pct_events)
 retro_yes_abx_final <- add_pct_pres_dt(retro_yes_abx_final, pct_events)
 
 # Load in retro cxr data
-cxr_retro <- read_csv(file = "/phi/sbi/sbi_blake/chest_xray_retro_040524.csv")
+cxr_retro <- read_csv(file = file.path(sbi_blake_phi_path, "chest_xray_retro_040524.csv"))
 cxr_retro$chest_x_ray_order <- force_tz(cxr_retro$chest_x_ray_order, tz = "America/Denver")
 
 cxr_slim_retro <- cxr_retro %>% filter(!is.na(chest_x_ray_order)) %>% dplyr::select(pat_mrn_id, chest_x_ray_order)
@@ -2482,8 +2482,8 @@ pros_yes_abx_1st_infxn$malignancy_pccc <- as.factor(pros_yes_abx_1st_infxn$malig
 
 
 # Calculate score of retro model on prospective data
-source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/retro_model_to_pros_data.R")
-# source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/retro_model_to_pros_susp_infxn.R")
+source(file = file.path(aim1_paper_materials_path, "retro_model_to_pros_data.R"))
+# source(file = file.path(aim1_paper_materials_path, "retro_model_to_pros_susp_infxn.R"))
 
 ### Replace old, incorrect prospective model scores with correct scores ###
 pros_no_abx_1st_infxn <- pros_no_abx_1st_infxn %>%
@@ -2664,7 +2664,7 @@ supp_predictor_table <- supp_predictor_table %>%
   )
 
 ## Write the predictors to eTable 1
-# write.csv(x = supp_predictor_table, file = "/phi/sbi/sbi_blake/aim_1_paper_materials/eTable_1_predictors.csv")
+# write.csv(x = supp_predictor_table, file = file.path(aim1_paper_materials_path, "eTable_1_predictors.csv"))
 
 
 
@@ -3279,13 +3279,13 @@ pros_yes_abx_1st_infxn$model_score <-
   rescale_to_unit(pros_yes_abx_1st_infxn$model_score)
 
 # #Write pros datasets and retro sets to file
-# write_csv(x = retro_no_abx_1st_infxn, "/phi/sbi/sbi_blake/retro_1st_no_abx_2_13_26.csv")
-# write_csv(x = retro_yes_abx_1st_infxn, "/phi/sbi/sbi_blake/retro_1st_yes_abx_2_13_26.csv")
-# write_csv(x = pros_no_abx_1st_infxn, "/phi/sbi/sbi_blake/pros_1st_no_abx_2_13_26.csv")
-# write_csv(x = pros_yes_abx_1st_infxn, "/phi/sbi/sbi_blake/pros_1st_yes_abx_2_13_26.csv")
+# write_csv(x = retro_no_abx_1st_infxn, file.path(sbi_blake_phi_path, "retro_1st_no_abx_2_13_26.csv"))
+# write_csv(x = retro_yes_abx_1st_infxn, file.path(sbi_blake_phi_path, "retro_1st_yes_abx_2_13_26.csv"))
+# write_csv(x = pros_no_abx_1st_infxn, file.path(sbi_blake_phi_path, "pros_1st_no_abx_2_13_26.csv"))
+# write_csv(x = pros_yes_abx_1st_infxn, file.path(sbi_blake_phi_path, "pros_1st_yes_abx_2_13_26.csv"))
 
 ## Add in retrospective and prospective prism, pim, and primary diagnosis information
-extra_vps_raw <- read_excel(path = "/phi/sbi/sbi_blake/vps_pim_prism_dx_pros_2023_2024.xlsx")
+extra_vps_raw <- read_excel(path = file.path(sbi_blake_phi_path, "vps_pim_prism_dx_pros_2023_2024.xlsx"))
 
 vps_match_cols <- extra_vps_raw %>%
   transmute(
@@ -3325,7 +3325,7 @@ pros_no_abx_1st_infxn <- enrich_pros_with_vps(pros_no_abx_1st_infxn, vps_match_c
 pros_yes_abx_1st_infxn <- enrich_pros_with_vps(pros_yes_abx_1st_infxn, vps_match_cols)
 
 ### Read in retrospective file that has prism 3 scores in it
-get_retro_prism <- read.fst(path = "/home/martinbl/sbi_blake/pre_micro_vps_vitals_11_21_23.fst")
+get_retro_prism <- read.fst(path = file.path(sbi_blake_path, "pre_micro_vps_vitals_11_21_23.fst"))
 get_retro_prism <- get_retro_prism %>% rename(study_id = case_id)
 
 # Add prism info
@@ -6261,7 +6261,7 @@ save_aim1_plot(p_suspicion_counts_faceted, "suspicion_infection_testing_encounte
 #-----------------------------
 # Load abx dataset
 #-----------------------------
-abx_raw <- read_csv(file = "/phi/sbi/prospective_data/Prospective/antinfective_export_pros_091225.csv")
+abx_raw <- read_csv(file = file.path(prospective_root_path, "antinfective_export_pros_091225.csv"))
 
 # Exact MEDICATION_NAME values from the new source file
 # Classify each as antibiotic, antifungal, antiviral, or other
@@ -7770,6 +7770,6 @@ source(file = "create_new_pros_model.R")
 
 source(file = "sbi_decision_policy_explore.R")
 
-source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/policy_impact_on_abx.R")
+source(file = file.path(aim1_paper_materials_path, "policy_impact_on_abx.R"))
 
-source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/explore_retro_n_predictors.R")
+source(file = file.path(aim1_paper_materials_path, "explore_retro_n_predictors.R"))

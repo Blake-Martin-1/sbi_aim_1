@@ -8,6 +8,11 @@
 # ---------------------------------------------------------------------------- #
 
 
+if (!exists("load_path_config")) {
+  source("path_config_helpers.R")
+}
+load_path_config()
+
 # ---------------------------------------------------------------------------- #
 # Options and library loads
 # ---------------------------------------------------------------------------- #
@@ -61,15 +66,9 @@ library(OptimalCutpoints)
 library(qwraps2)
 
 
-# Set User path to repo and data
-if (Sys.info()["user"] == "tdbennett") {
-  options(user_path_to_repo = '~/sbi_prediction/',
-          user_data_path = '/media/sf_C_DRIVE/sbi_data/')
-} else {
-  options(user_path_to_repo = "/home/martinbl/sbi_blake/",
-          user_data_path = "/phi/sbi/sbi_data/ten_yr_data/",
-          user_norms_path = "/phi/sbi/sbi_data/")
-}
+options(user_path_to_repo = paste0(sbi_blake_path, .Platform$file.sep),
+        user_data_path = paste0(sbi_ten_year_data_path, .Platform$file.sep),
+        user_norms_path = paste0(sbi_data_path, .Platform$file.sep))
 
 # Guard/fallback for optional user_norms_path configuration
 # Some user setups may not define user_norms_path explicitly; in that case
@@ -100,7 +99,7 @@ hr_norms <- paste0(user_norms_base_path, "hr_percentiles.CSV")
 info_admit_epic <- paste0(getOption("user_data_path"), "admit_info.xlsx")
 options(prospective_model_data_file_path = getOption(
   "prospective_model_data_file_path",
-  "/phi/sbi/sbi_blake/pros_all_just_b4_modeling_1_15_26_all_models.csv"
+  file.path(sbi_blake_phi_path, "pros_all_just_b4_modeling_1_15_26_all_models.csv")
 ))
 
 # Need updated lab info
