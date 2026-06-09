@@ -2953,3 +2953,431 @@ auto_sbi_cat <- pros_all %>% dplyr::select(study_id, sbi_present, micro_sbi_1_0,
 
 
 
+
+##### Future decision-policy antibiotic impact analysis #####
+library(data.table)
+
+# This section mirrors policy_impact_on_abx.R, but evaluates the best policy as
+# applied to rf_future_df/future_decisions_best rather than the earlier
+# pros_one_model era.
+
+# 1) Identify future-study encounters with false SBI-negative policy predictions.
+# These are true SBI-positive encounters that the policy ruled out as SBI-negative.
+future_false_sbi_negative_study_ids <- future_decisions_best %>%
+  dplyr::filter(
+    final_state == "ruled_out",
+    sbi_present == 1
+  ) %>%
+  dplyr::transmute(
+    study_id = as.character(study_id),
+    sbi_present,
+    final_state,
+    decision_hour
+  ) %>%
+  dplyr::distinct()
+
+future_false_sbi_negative_study_ids
+
+### Create flag for whether patient received any antibiotics in the PICU during the first 24 hours.
+abx_raw <- read.csv(file = "/phi/sbi/prospective_data/Prospective/data/antinfective_export_pros_100125_updated.csv")
+
+abx_df <- abx_raw %>%
+  dplyr::mutate(
+    order_inst = as.POSIXct(order_inst, tz = "UTC"),
+    taken_time = as.POSIXct(taken_time, tz = "UTC")
+  )
+
+abx_df <- abx_df %>%
+  dplyr::mutate(
+    order_inst = lubridate::force_tz(order_inst, tzone = "America/Denver"),
+    taken_time = lubridate::force_tz(taken_time, tzone = "America/Denver")
+  )
+
+abx_df$PAT_MRN_ID <- as.character(abx_df$PAT_MRN_ID)
+
+abx_df <- abx_df %>%
+  dplyr::rename(
+    mrn = PAT_MRN_ID,
+    hsp_account_id = HSP_ACCOUNT_ID
+  )
+
+colnames(abx_df) <- stringr::str_to_lower(colnames(abx_df))
+abx_df$pat_enc_csn_id <- as.character(abx_df$pat_enc_csn_id)
+
+data.table::setDT(abx_df)
+abx_df[, taken_time := as.POSIXct(taken_time)]
+
+# ------------------------------------------------------------
+# Create flag for any antibiotic dose during first 24h of PICU
+# ------------------------------------------------------------
+
+# Make a one-row-per-PICU-encounter dataset from the future validation data.
+picu_24h_windows_future <- rf_future_df %>%
+  dplyr::mutate(
+    study_id = as.character(study_id),
+    pat_enc_csn_id = as.character(pat_enc_csn_id)
+  ) %>%
+  dplyr::distinct(
+    study_id,
+    pat_enc_csn_id,
+    picu_adm_date_time
+  ) %>%
+  dplyr::filter(
+    !is.na(study_id),
+    !is.na(pat_enc_csn_id),
+    !is.na(picu_adm_date_time)
+  )
+
+# Convert to data.table
+data.table::setDT(picu_24h_windows_future)
+
+# Ensure PICU admission time is POSIXct and interpreted as Denver local time
+picu_24h_windows_future[, picu_adm_date_time := as.POSIXct(picu_adm_date_time)]
+
+picu_24h_windows_future[, picu_adm_date_time := lubridate::force_tz(
+  picu_adm_date_time,
+  tzone = "America/Denver"
+)]
+
+# Create the first-24h PICU window
+picu_24h_windows_future[, window_start := picu_adm_date_time]
+picu_24h_windows_future[, window_end   := picu_adm_date_time + lubridate::hours(24)]
+
+# Create antibiotic point-event table
+abx_events_future <- data.table::copy(abx_df)
+
+data.table::setDT(abx_events_future)
+
+# Ensure antibiotic administration time is POSIXct and interpreted as Denver local time
+abx_events_future[, taken_time := as.POSIXct(taken_time)]
+
+abx_events_future[, taken_time := lubridate::force_tz(
+  taken_time,
+  tzone = "America/Denver"
+)]
+
+abx_events_future <- abx_events_future[
+  !is.na(pat_enc_csn_id) &
+    !is.na(taken_time)
+]
+
+# Treat each antibiotic administration as a point event
+abx_events_future[, abx_start := taken_time]
+abx_events_future[, abx_end   := taken_time]
+
+# Key the PICU-window table
+data.table::setkey(
+  picu_24h_windows_future,
+  pat_enc_csn_id,
+  window_start,
+  window_end
+)
+
+# Key the antibiotic-event table
+data.table::setkey(
+  abx_events_future,
+  pat_enc_csn_id,
+  abx_start,
+  abx_end
+)
+
+# Find antibiotic administrations that occurred within first 24h of PICU admission
+abx_first_24h_overlaps_future <- data.table::foverlaps(
+  x = abx_events_future,
+  y = picu_24h_windows_future,
+  by.x = c("pat_enc_csn_id", "abx_start", "abx_end"),
+  by.y = c("pat_enc_csn_id", "window_start", "window_end"),
+  type = "within",
+  nomatch = 0L
+)
+
+# Create one-row-per-study_id flag
+abx_first_24h_flag_future <- picu_24h_windows_future[, .(
+  study_id,
+  pat_enc_csn_id,
+  picu_adm_date_time
+)]
+
+abx_first_24h_flag_future[, abx_in_first_24h_picu := 0L]
+
+study_ids_with_abx_first_24h_future <- unique(abx_first_24h_overlaps_future$study_id)
+
+abx_first_24h_flag_future[
+  study_id %in% study_ids_with_abx_first_24h_future,
+  abx_in_first_24h_picu := 1L
+]
+
+# Join flag back onto a future-data copy, keeping rf_future_df unchanged for any
+# downstream analyses that expect the original object.
+rf_future_df_abx <- rf_future_df %>%
+  dplyr::mutate(study_id = as.character(study_id)) %>%
+  dplyr::left_join(
+    abx_first_24h_flag_future %>%
+      dplyr::as_tibble() %>%
+      dplyr::select(
+        study_id,
+        abx_in_first_24h_picu
+      ),
+    by = "study_id"
+  ) %>%
+  dplyr::mutate(
+    abx_in_first_24h_picu = dplyr::if_else(
+      is.na(abx_in_first_24h_picu),
+      0L,
+      abx_in_first_24h_picu
+    )
+  )
+
+cap_days <- 7
+
+# Keep only policy-predicted SBI-negative encounters on the future test set
+policy_sbi_negative_future <- future_decisions_best %>%
+  dplyr::filter(final_state == "ruled_out") %>%
+  dplyr::mutate(study_id = as.character(study_id))
+
+# Pull antibiotic duration at the exact time the policy first rules out SBI
+# (decision_hour), then cap durations at 7 days.
+abx_at_decision_future <- rf_future_df_abx %>%
+  dplyr::transmute(
+    study_id = as.character(study_id),
+    hours_since_picu_adm = as.integer(hours_since_picu_adm),
+    abx_duration_after_score = as.numeric(abx_duration_after_score)
+  ) %>%
+  dplyr::group_by(study_id, hours_since_picu_adm) %>%
+  dplyr::summarise(
+    abx_duration_after_score = dplyr::first(abx_duration_after_score),
+    .groups = "drop"
+  )
+
+policy_abx_future <- policy_sbi_negative_future %>%
+  dplyr::left_join(
+    abx_at_decision_future,
+    by = c("study_id", "decision_hour" = "hours_since_picu_adm")
+  ) %>%
+  dplyr::mutate(
+    abx_duration_after_score_capped = dplyr::if_else(
+      is.na(abx_duration_after_score),
+      NA_real_,
+      pmin(abx_duration_after_score, cap_days)
+    )
+  )
+
+# Restrict "preventable unnecessary antibiotics" numerator calculations to true
+# SBI-negative encounters that the policy ruled out.
+policy_true_neg_future <- policy_abx_future %>%
+  dplyr::filter(sbi_present == 0)
+
+# Denominator cohort: all true SBI-negative encounters (regardless of final policy
+# state), using each encounter's score timepoint (decision_hour), with any
+# antibiotic exposure after that score timepoint.
+sbi_negative_all_abx_future <- future_decisions_best %>%
+  dplyr::filter(sbi_present == 0) %>%
+  dplyr::mutate(study_id = as.character(study_id)) %>%
+  dplyr::left_join(
+    abx_at_decision_future,
+    by = c("study_id", "decision_hour" = "hours_since_picu_adm")
+  ) %>%
+  dplyr::mutate(
+    abx_duration_after_score_capped = dplyr::if_else(
+      is.na(abx_duration_after_score),
+      NA_real_,
+      pmin(abx_duration_after_score, cap_days)
+    )
+  )
+
+# 1) Timing of SBI-negative prediction (rule-out hour)
+metric_1_timing_future <- policy_abx_future %>%
+  dplyr::summarise(
+    n_predicted_sbi_negative = dplyr::n(),
+    median_ruleout_hour = stats::median(decision_hour, na.rm = TRUE),
+    q1_ruleout_hour = stats::quantile(decision_hour, probs = 0.25, na.rm = TRUE),
+    q3_ruleout_hour = stats::quantile(decision_hour, probs = 0.75, na.rm = TRUE)
+  )
+
+# 2) Number and proportion with potentially preventable unnecessary antibiotics
+# Numerator: true SBI-negative ruled-out encounters with >0 capped abx duration after score
+# Denominator: all true SBI-negative encounters with any (>0) abx duration after score.
+metric_2_preventable_count_prop_future <- dplyr::summarise(
+  policy_true_neg_future,
+  n_sbi_negative_with_preventable_unnecessary_abx = sum(abx_duration_after_score_capped > 0, na.rm = TRUE)
+) %>%
+  dplyr::bind_cols(
+    sbi_negative_all_abx_future %>%
+      dplyr::summarise(
+        n_sbi_negative_with_any_abx_after_score = sum(abx_duration_after_score_capped > 0, na.rm = TRUE)
+      ) %>%
+      dplyr::select(n_sbi_negative_with_any_abx_after_score)
+  ) %>%
+  dplyr::mutate(
+    prop_preventable_unnecessary_abx = dplyr::if_else(
+      n_sbi_negative_with_any_abx_after_score > 0,
+      n_sbi_negative_with_preventable_unnecessary_abx / n_sbi_negative_with_any_abx_after_score,
+      NA_real_
+    )
+  )
+
+# 3) Distribution of potentially preventable unnecessary antibiotic duration (days)
+metric_3_preventable_duration_future <- policy_true_neg_future %>%
+  dplyr::filter(abx_duration_after_score_capped > 0) %>%
+  dplyr::summarise(
+    n_with_preventable_unnecessary_abx = dplyr::n(),
+    median_preventable_abx_days = stats::median(abx_duration_after_score_capped, na.rm = TRUE),
+    q1_preventable_abx_days = stats::quantile(abx_duration_after_score_capped, probs = 0.25, na.rm = TRUE),
+    q3_preventable_abx_days = stats::quantile(abx_duration_after_score_capped, probs = 0.75, na.rm = TRUE)
+  )
+
+# 4) Proportion of SBI-negative encounters with first-24h PICU antibiotics that
+# were ruled out by the model + policy before the first PICU antibiotic dose.
+first_picu_abx_timing_future <- abx_first_24h_overlaps_future %>%
+  dplyr::as_tibble() %>%
+  dplyr::transmute(
+    study_id = as.character(study_id),
+    first_picu_abx_time = taken_time
+  ) %>%
+  dplyr::group_by(study_id) %>%
+  dplyr::summarise(
+    first_picu_abx_time = min(first_picu_abx_time, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+sbi_negative_first24h_abx_future <- future_decisions_best %>%
+  dplyr::filter(sbi_present == 0) %>%
+  dplyr::mutate(study_id = as.character(study_id)) %>%
+  dplyr::left_join(
+    rf_future_df_abx %>%
+      dplyr::transmute(
+        study_id = as.character(study_id),
+        picu_adm_date_time = as.POSIXct(picu_adm_date_time),
+        abx_in_first_24h_picu = as.integer(abx_in_first_24h_picu)
+      ) %>%
+      dplyr::group_by(study_id) %>%
+      dplyr::summarise(
+        picu_adm_date_time = dplyr::first(picu_adm_date_time),
+        abx_in_first_24h_picu = max(abx_in_first_24h_picu, na.rm = TRUE),
+        .groups = "drop"
+      ),
+    by = "study_id"
+  ) %>%
+  dplyr::left_join(first_picu_abx_timing_future, by = "study_id") %>%
+  dplyr::filter(abx_in_first_24h_picu == 1L, !is.na(first_picu_abx_time), !is.na(picu_adm_date_time)) %>%
+  dplyr::mutate(
+    first_picu_abx_hour = as.numeric(difftime(first_picu_abx_time, picu_adm_date_time, units = "hours")),
+    identified_before_first_picu_abx = (final_state == "ruled_out") & !is.na(decision_hour) & (decision_hour <= first_picu_abx_hour)
+  )
+
+metric_4_identified_before_first_picu_abx_future <- sbi_negative_first24h_abx_future %>%
+  dplyr::summarise(
+    n_sbi_negative_with_abx_in_first_24h_picu = dplyr::n(),
+    n_identified_before_first_picu_abx = sum(identified_before_first_picu_abx, na.rm = TRUE),
+    prop_identified_before_first_picu_abx = dplyr::if_else(
+      n_sbi_negative_with_abx_in_first_24h_picu > 0,
+      n_identified_before_first_picu_abx / n_sbi_negative_with_abx_in_first_24h_picu,
+      NA_real_
+    ),
+    median_first_picu_abx_hour = stats::median(first_picu_abx_hour, na.rm = TRUE),
+    q1_first_picu_abx_hour = stats::quantile(first_picu_abx_hour, probs = 0.25, na.rm = TRUE),
+    q3_first_picu_abx_hour = stats::quantile(first_picu_abx_hour, probs = 0.75, na.rm = TRUE)
+  )
+
+# Combined output table and component tables for easy downstream use
+policy_impact_on_abx_future <- list(
+  model_name = "future_random_forest",
+  cap_days = cap_days,
+  false_sbi_negative_study_ids = future_false_sbi_negative_study_ids,
+  metric_1_timing = metric_1_timing_future,
+  metric_2_preventable_count_prop = metric_2_preventable_count_prop_future,
+  metric_3_preventable_duration = metric_3_preventable_duration_future,
+  metric_4_identified_before_first_picu_abx = metric_4_identified_before_first_picu_abx_future,
+  patient_level = policy_abx_future
+)
+
+metric_1_timing_future
+metric_2_preventable_count_prop_future
+metric_3_preventable_duration_future
+metric_4_identified_before_first_picu_abx_future
+
+# Make table suitable for manuscript
+fmt_n_pct <- function(n, denom, digits = 1) {
+  sprintf(
+    paste0("%d/%d (%.", digits, "f%%)"),
+    n,
+    denom,
+    100 * n / denom
+  )
+}
+
+fmt_median_iqr <- function(median, q1, q3, digits = 1) {
+  sprintf(
+    paste0("%.", digits, "f (%.", digits, "f–%.", digits, "f)"),
+    median,
+    q1,
+    q3
+  )
+}
+
+policy_timing_table_future <- tibble::tibble(
+  `Encounters identified as SBI-negative, n` =
+    metric_1_timing_future$n_predicted_sbi_negative[1],
+
+  `Rule-out hour, median (IQR)` =
+    fmt_median_iqr(
+      metric_1_timing_future$median_ruleout_hour[1],
+      metric_1_timing_future$q1_ruleout_hour[1],
+      metric_1_timing_future$q3_ruleout_hour[1],
+      digits = 0
+    )
+)
+
+antibiotic_opportunity_table_future <- tibble::tibble(
+  Measure = c(
+    "Potentially preventable unnecessary antibiotic exposure",
+    "Duration of potentially preventable unnecessary antibiotic exposure",
+    "Identified before first PICU antibiotic dose"
+  ),
+
+  Denominator = c(
+    "SBI-negative encounters receiving antibiotics after score/rule-out time",
+    "Encounters with potentially preventable unnecessary antibiotic exposure",
+    "SBI-negative encounters receiving antibiotics within first 24 hours after PICU admission"
+  ),
+
+  Result = c(
+    fmt_n_pct(
+      metric_2_preventable_count_prop_future$n_sbi_negative_with_preventable_unnecessary_abx[1],
+      metric_2_preventable_count_prop_future$n_sbi_negative_with_any_abx_after_score[1]
+    ),
+
+    paste0(
+      "Median ",
+      fmt_median_iqr(
+        metric_3_preventable_duration_future$median_preventable_abx_days[1],
+        metric_3_preventable_duration_future$q1_preventable_abx_days[1],
+        metric_3_preventable_duration_future$q3_preventable_abx_days[1],
+        digits = 1
+      ),
+      " days"
+    ),
+
+    paste0(
+      fmt_n_pct(
+        metric_4_identified_before_first_picu_abx_future$n_identified_before_first_picu_abx[1],
+        metric_4_identified_before_first_picu_abx_future$n_sbi_negative_with_abx_in_first_24h_picu[1]
+      ),
+      "; first PICU antibiotic dose at median ",
+      fmt_median_iqr(
+        metric_4_identified_before_first_picu_abx_future$median_first_picu_abx_hour[1],
+        metric_4_identified_before_first_picu_abx_future$q1_first_picu_abx_hour[1],
+        metric_4_identified_before_first_picu_abx_future$q3_first_picu_abx_hour[1],
+        digits = 1
+      ),
+      " hours"
+    )
+  )
+)
+
+# Provide the requested table names for interactive use after running this script.
+policy_timing_table <- policy_timing_table_future
+antibiotic_opportunity_table <- antibiotic_opportunity_table_future
+
+policy_timing_table_future
+antibiotic_opportunity_table_future
