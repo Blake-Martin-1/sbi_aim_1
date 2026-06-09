@@ -1,6 +1,11 @@
+if (!exists("load_path_config")) {
+  source("path_config_helpers.R")
+}
+load_path_config()
+
 # # Script to load in and tidy all antibiotics to determine antibiotic exposure and administration in the PICU as well as duration
 #
-# abx_raw <- read.csv(file = "/phi/sbi/prospective_data/Prospective/data/antinfective_export_pros_100125_updated.csv")
+# abx_raw <- read.csv(file = file.path(prospective_data_path, "antinfective_export_pros_100125_updated.csv"))
 #
 # abx_df <- abx_raw %>% mutate(order_inst = as.POSIXct(order_inst, tz = "UTC"), taken_time = as.POSIXct(taken_time, tz = "UTC"))
 # abx_df <- abx_df %>% mutate(order_inst = force_tz(order_inst, tzone = "America/Denver"),
@@ -47,7 +52,7 @@
 #
 # # Now abx_exposure information is captured.
 # # Add in info on which medication is an antibiotics
-# drug_class_table <- read.csv(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/unique_antimicrobials_classified.csv")
+# drug_class_table <- read.csv(file = file.path(aim1_paper_materials_path, "unique_antimicrobials_classified.csv"))
 # drug_class_table <- drug_class_table %>% dplyr::select(-source_index)
 #
 # # Join in info using medication_name
@@ -116,13 +121,13 @@
 # abx_df <- abx_df %>% rename(medication_class = "class")
 #
 # # # # Store resulting dataframes for future use
-# # write.fst(x = pros_all, path = "/phi/sbi/sbi_blake/pros_all_2025_validation_after_abx_5_18_25.fst")
-# # write.fst(x = abx_df, path = "/phi/sbi/sbi_blake/abx_df_2025_validation_after_abx_5_18_25.fst")
+# # write.fst(x = pros_all, path = file.path(sbi_blake_phi_path, "pros_all_2025_validation_after_abx_5_18_25.fst"))
+# # write.fst(x = abx_df, path = file.path(sbi_blake_phi_path, "abx_df_2025_validation_after_abx_5_18_25.fst"))
 #
 
 # Skip all prior code and read in the fst files for pros_all at this step and the abd_df dataframe
-pros_all <- read.fst(path = "/phi/sbi/sbi_blake/pros_all_2025_validation_after_abx_5_18_25.fst")
-abx_df <- read.fst(path = "/phi/sbi/sbi_blake/abx_df_2025_validation_after_abx_5_18_25.fst")
+pros_all <- read.fst(path = file.path(sbi_blake_phi_path, "pros_all_2025_validation_after_abx_5_18_25.fst"))
+abx_df <- read.fst(path = file.path(sbi_blake_phi_path, "abx_df_2025_validation_after_abx_5_18_25.fst"))
 
 
 

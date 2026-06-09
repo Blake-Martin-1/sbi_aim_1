@@ -13,11 +13,11 @@
 **Issue found:** In `setup_aim_1.R`, `user_norms_path` is only set in the `else` branch, but later file paths always use `getOption("user_norms_path")`.
 
 **Proposed task:**
-- Set `user_norms_path` in both user branches (including `REDACTED_USERNAME`) or add a guarded fallback.
+- Set `user_norms_path` in every user-specific branch or add a guarded fallback.
 - Add an early assertion that required options (`user_data_path`, `user_norms_path`) are non-NULL before constructing file paths.
 
 **Why it matters:**
-- For users in the `REDACTED_USERNAME` branch, norm-file paths may be built from `NULL`, leading to file read failures.
+- For users in a branch without `user_norms_path`, norm-file paths may be built from `NULL`, leading to file read failures.
 
 ## 3) Comment/documentation discrepancy task
 **Issue found:** The header in `setup_aim_1.R` says `file: setup.R`, but the actual filename is `setup_aim_1.R`.

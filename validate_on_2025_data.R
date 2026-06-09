@@ -10,7 +10,7 @@ library(lubridate)
 
 
 epic_5_25 <- readr::read_csv(
-  file = "/phi/sbi/prospective_data/Prospective/model_output/model_output_May2025.csv",
+  file = file.path(prospective_model_output_path, "model_output_May2025.csv"),
   na = c("", "NULL"),
   col_types = readr::cols(.default = readr::col_character()),
   progress = FALSE,
@@ -372,7 +372,7 @@ save_aim1_plot(p_pred_density, "future_predicted_probability_density.tiff")
 final_2025_df <- new_test_data_25 %>% bind_cols(data.frame("pred_sbi" = rf_pred_prob_future))
 
 # Start loading in and cleaning extracted data (to get PICU admit time and SBI components)
-adt_raw <- read_csv(file = "/phi/sbi/prospective_data/Prospective/data/adt_export_pros_100125.csv")
+adt_raw <- read_csv(file = file.path(prospective_data_path, "adt_export_pros_100125.csv"))
 
 adt_df <- adt_raw
 adt_df$intime <- as.POSIXct(adt_df$intime, format = "%m/%d/%y %H:%M")
@@ -412,7 +412,7 @@ future_w_admit_24h <- future_w_admit %>%
 
 ### Add in labs to determine lactate and culture negative sepsis outcome, will need to combine with blood culture data loaded from micro file
 
-lab_raw <- read.csv(file = "/phi/sbi/prospective_data/Prospective/data/lab_export_pros_100125.csv")
+lab_raw <- read.csv(file = file.path(prospective_data_path, "lab_export_pros_100125.csv"))
 lab_fut <- lab_raw
 colnames(lab_fut) <- str_to_lower(colnames(lab_fut))
 
@@ -423,7 +423,7 @@ lact_df <- lab_fut %>% filter(component_name %in% c(
   ))
 
 # Need to load in the demographics dataframe to be able to join by har instead of csn (or at least link the)
-demo_raw <- read.csv(file = "/phi/sbi/prospective_data/Prospective/data/demog_export_pros_100125.csv")
+demo_raw <- read.csv(file = file.path(prospective_data_path, "demog_export_pros_100125.csv"))
 
 just_ids <- demo_raw %>% dplyr::select(pat_mrn_id, hsp_account_id, pat_enc_csn_id) %>% distinct()
 just_ids$pat_enc_csn_id <- as.character(just_ids$pat_enc_csn_id)
@@ -496,8 +496,8 @@ future_w_har <- future_w_har %>%
   )
 
 # Now load in VPS data and determine pneumonia on admission
-vps_pna_raw_1 <- read_excel("/phi/sbi/sbi_blake/2025_Q1_pna.xlsx")
-vps_pna_raw_2 <- read_excel("/phi/sbi/sbi_blake/2025_Q2_pna.xlsx")
+vps_pna_raw_1 <- read_excel(file.path(sbi_blake_phi_path, "2025_Q1_pna.xlsx"))
+vps_pna_raw_2 <- read_excel(file.path(sbi_blake_phi_path, "2025_Q2_pna.xlsx"))
 
 vps_pna_raw_full <- bind_rows(vps_pna_raw_1, vps_pna_raw_2)
 
@@ -516,7 +516,7 @@ pna_admit <- pna_all %>% filter(pna_on_admit == "Yes") %>% distinct() # from 577
 future_w_pna <- future_w_har %>% mutate(pna_1_0 = ifelse(hsp_account_id %in% pna_admit$hsp_account_id, yes = 1, no = 0))
 
 # Now call micro script to determine micro sbi presence
-source(file = "/phi/sbi/sbi_blake/micro_tidying_2025.R")
+source(file = file.path(sbi_blake_phi_path, "micro_tidying_2025.R"))
 
 ## Identify study id's with a micro sbi
 pros_all <- future_w_micro %>% mutate(micro_sbi_1_0 = ifelse(study_id %in% micro_df$study_id, yes = 1, no = 0))
@@ -552,7 +552,7 @@ pros_full_data <- pros_all # store full dataset in case needed
 pros_all <- pros_all %>% filter(score_time <= study_end) %>% filter (score_time >= study_start_time)# filter for end of study period
 
 # Load in antibiotic data
-source(file = "/phi/sbi/sbi_blake/aim_1_paper_materials/abx_pros_2025.R")
+source(file = file.path(aim1_paper_materials_path, "abx_pros_2025.R"))
 
 # Preserve the antimicrobial medication class added by abx_pros_2025.R before
 # abx_df is reloaded later in this script for the policy-impact analyses.
@@ -593,7 +593,7 @@ pros_all <- pros_all %>%
 pros_all <- pros_all %>% mutate(sbi_present = ifelse(sbi_present == 1 | ever_cx_neg_sepsis == 1, yes = 1, no = sbi_present))
 
 # Load in demographic info to help match csn and har
-demo_ref <- read_csv(file = "/phi/sbi/prospective_data/Prospective/data/demog_export_pros_100125.csv")
+demo_ref <- read_csv(file = file.path(prospective_data_path, "demog_export_pros_100125.csv"))
 id_df <- demo_ref %>% dplyr::select(hsp_account_id, pat_enc_csn_id, pat_mrn_id) %>% distinct()
 id_df$pat_enc_csn_id <- as.character(id_df$pat_enc_csn_id)
 
@@ -665,8 +665,8 @@ pros_all$ever_cx_neg_sepsis[pros_all$pna_1_0 == 1] <- 0
 pros_all$ever_cx_neg_sepsis[pros_all$micro_sbi_1_0 == 1] <- 0
 
 # # Write / read fst of pros_all before modeling
-# write.csv(x = pros_all, file = "/phi/sbi/sbi_blake/pros_2025_validation_pros_all_just_b4_modeling_5_8_26.csv")
-# pros_all <- read.csv(file =  "/phi/sbi/sbi_blake/pros_2025_validation_pros_all_just_b4_modeling_5_8_26.csv")
+# write.csv(x = pros_all, file = file.path(sbi_blake_phi_path, "pros_2025_validation_pros_all_just_b4_modeling_5_8_26.csv"))
+# pros_all <- read.csv(file =  file.path(sbi_blake_phi_path, "pros_2025_validation_pros_all_just_b4_modeling_5_8_26.csv"))
 
 # Evaluate predictions
 colAUC(pros_all$pred_sbi, pros_all$sbi_present, plotROC = TRUE) # determine AUROC in test set = 0.83
@@ -1495,7 +1495,7 @@ future_false_sbi_negative_study_ids <- future_decisions_best %>%
 future_false_sbi_negative_study_ids
 
 ### Create flag for whether patient received any antibiotics in the PICU during the first 24 hours.
-abx_raw <- read.csv(file = "/phi/sbi/prospective_data/Prospective/data/antinfective_export_pros_100125_updated.csv")
+abx_raw <- read.csv(file = file.path(prospective_data_path, "antinfective_export_pros_100125_updated.csv"))
 
 abx_df <- abx_raw %>%
   dplyr::mutate(
@@ -2944,7 +2944,7 @@ p_sbi_negative_first24h_abx_subgroups_2025
 
 ######### Now analyze the false negative predictions to understand potential impact ######
 # read in the false_negative IDs
-fn_ids <- read.csv(file = "/phi/sbi/sbi_blake/false_neg_ids.csv")
+fn_ids <- read.csv(file = file.path(sbi_blake_phi_path, "false_neg_ids.csv"))
 
 # Identify type of SBI assigned by the SBI framework used in the study
 auto_sbi_cat <- pros_all %>% dplyr::select(study_id, sbi_present, micro_sbi_1_0, pna_1_0, cnss_true) %>% distinct() %>%

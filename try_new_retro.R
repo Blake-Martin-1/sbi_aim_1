@@ -1,15 +1,20 @@
+if (!exists("load_path_config")) {
+  source("path_config_helpers.R")
+}
+load_path_config()
+
 #### Script to try and design different models using retro data ####
 
 ### Script to create the retrospective models using the correct dataset and then apply to the prospective inputs for
 # updated model probabilities
 
 
-model_data_df <- read.fst(path = "~/sbi_blake/jan_25_23_model_data_df.fst")
+model_data_df <- read.fst(path = file.path(sbi_blake_path, "jan_25_23_model_data_df.fst"))
 model_glm_orig <- model_data_df
 
 # Filter out post-Beaker patients
 t_beaker <- as.POSIXct("2019-10-31 00:00:00 UTC", tz = "UTC")
-vps_pt_list_11_to_17 <- read_excel("/phi/sbi/sbi_data/vps_full_admit_list.xlsx")
+vps_pt_list_11_to_17 <- read_excel(file.path(sbi_data_path, "vps_full_admit_list.xlsx"))
 vps_pt_list_18_to_20 <- read_excel(vps_file_path_10_yr, sheet = "Pt List")
 vps_pt_list_full <- bind_rows(vps_pt_list_11_to_17, vps_pt_list_18_to_20)
 vps_pt_list_full <- vps_pt_list_full %>% mutate(mrn = as.character(vps_pt_list_full$mrn),
@@ -406,7 +411,7 @@ glimpse(test_df_with_pred)
 
 rf_df <- test_df_with_pred
 
-# write_csv(x = train_df_with_oof, file = "/home/REDACTED_USERNAME/sbi_blake/validation_files/rf_au_40_training_updated_2_4_26.csv")
+# write_csv(x = train_df_with_oof, file = file.path(sbi_blake_path, "validation_files", "rf_au_40_training_updated_2_4_26.csv"))
 
 ############################################ Identical code to create the abx_exposed version of the model #################################
 rf_df_abx <- model_data_df %>% left_join(case_id_and_picu_adm_date_time, by = "case_id")  %>%
@@ -730,7 +735,7 @@ train_df_with_oof_abx <- train_df_abx %>%
 train_df_with_oof_abx <- train_df_with_oof_abx %>% dplyr::select(-sbi_present.y) %>% rename(sbi_present = sbi_present.x)
 train_df_with_oof_abx <- train_df_with_oof_abx %>% rename(model_score = oof_prob) %>% dplyr::select(-rowIndex)
 
-# write_csv(x = train_df_with_oof_abx, file = "/home/REDACTED_USERNAME/sbi_blake/validation_files/rf_ae_40_training_updated_2_4_26.csv")
+# write_csv(x = train_df_with_oof_abx, file = file.path(sbi_blake_path, "validation_files", "rf_ae_40_training_updated_2_4_26.csv"))
 
 
 test_preds_abx <- tibble(

@@ -45,12 +45,12 @@ suppressPackageStartupMessages({
 })
 
 # Load in dataframe
-temp_model_data_df <- read.fst(path = "~/sbi_blake/jan_25_23_model_data_df.fst")
+temp_model_data_df <- read.fst(path = file.path(sbi_blake_path, "jan_25_23_model_data_df.fst"))
 model_data_df <- temp_model_data_df
 
 # Filter out post-Beaker patients
 t_beaker <- as.POSIXct("2019-10-31 00:00:00 UTC", tz = "UTC")
-vps_pt_list_11_to_17 <- read_excel("/phi/sbi/sbi_data/vps_full_admit_list.xlsx")
+vps_pt_list_11_to_17 <- read_excel(file.path(sbi_data_path, "vps_full_admit_list.xlsx"))
 vps_pt_list_18_to_20 <- read_excel(vps_file_path_10_yr, sheet = "Pt List")
 vps_pt_list_full <- bind_rows(vps_pt_list_11_to_17, vps_pt_list_18_to_20)
 vps_pt_list_full <- vps_pt_list_full %>% mutate(mrn = as.character(vps_pt_list_full$mrn),

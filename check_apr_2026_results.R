@@ -2,7 +2,7 @@ source("plot_save_helpers.R")
 #### Apply new nmodel to prospective results from Apr 2026 ####
 
 updated_25 <- readr::read_csv(
-  file = "/phi/sbi/sbi_blake/model_events_parsed_rf.csv",
+  file = file.path(sbi_blake_phi_path, "model_events_parsed_rf.csv"),
   na = c("", "NULL"),
   col_types = readr::cols(.default = readr::col_character()),
   progress = FALSE,
