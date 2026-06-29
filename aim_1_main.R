@@ -109,7 +109,7 @@ pros_rf_same$epoch <- "prospective"
 # In addition we'll need to know how many labs, fio2 values etc were available vs. imputed and if available how many measurements were present
 # will start with the retrospective dataset
 
-# First need to get back the case_id values (whoops)
+# Restore case_id values for retrospective records
 # load model_data_df
 full_retro_df <- read.fst(path = file.path(sbi_blake_path, "pre_micro_vps_vitals_11_21_23.fst"))
 
@@ -304,7 +304,7 @@ retro_rf_vs$n_fio2_rows[is.na(retro_rf_vs$n_fio2_rows)] <- 0
 retro_labs <- read_csv(file = file.path(sbi_blake_path, "labs_for_comp.csv"))
 # retro_fio2 <- read_csv(file = file.path(sbi_blake_path, "fio2_data.csv"))
 
-# Now nead to add in the number of pco2 case_id values that have values and how many
+# Count PCO2 measurements available during the first 2 hours
 co2_df <- retro_labs %>% filter(lab_time_taken <= picu_adm_date_time + 60 * 60 * 2) %>%
   group_by(case_id) %>%
   summarise(
@@ -366,7 +366,7 @@ pros_rf_same_abx$epoch <- "prospective"
 # In addition we'll need to know how many labs, fio2 values etc were available vs. imputed and if available how many measurements were present
 # will start with the retrospective dataset
 
-# First need to get back the case_id values (whoops)
+# Restore case_id values for retrospective records
 # load model_data_df
 full_retro_df <- read.fst(path = file.path(sbi_blake_path, "pre_micro_vps_vitals_11_21_23.fst"))
 
@@ -395,7 +395,7 @@ retro_rf_vs_abx$n_fio2_rows[is.na(retro_rf_vs_abx$n_fio2_rows)] <- 0
 retro_labs <- read_csv(file = file.path(sbi_blake_path, "labs_for_comp.csv"))
 # retro_fio2 <- read_csv(file = file.path(sbi_blake_path, "fio2_data.csv"))
 
-# Now nead to add in the number of lactate case_id values that have values and how many
+# Count lactate measurements available during the first 2 hours
 lactate_df <- retro_labs %>% filter(lab_time_taken <= picu_adm_date_time + 2 * 3600) %>%
   group_by(case_id) %>%
   summarise(
@@ -412,7 +412,7 @@ retro_full_abx <- left_join(retro_rf_vs_abx, lactate_df, by = "case_id")
 retro_full_abx$lactate_present[is.na(retro_full_abx$lactate_present)] <- 0
 retro_full_abx$n_lactate[is.na(retro_full_abx$n_lactate)] <- 0
 
-# Now nead to add in the number of lactate case_id values that have values and how many
+# Count hematocrit measurements available during the first 2 hours
 hematocrit_df <- retro_labs %>% filter(lab_time_taken <= picu_adm_date_time + 2 * 3600) %>%
   group_by(case_id) %>%
   summarise(
@@ -444,17 +444,17 @@ vitals_pros <- read_csv(file.path(prospective_data_path, "vitals_export_pros_100
 csn_dt <- as.data.table(csn_time)
 vit_dt <- as.data.table(vitals_pros)
 
-# Drop vitals with missing type (optional but recommended)
+# Exclude vitals without a documented type
 vit_dt <- vit_dt[!is.na(vital_type)]
 
 # Define window per study_id
 csn_dt[, window_start := picu_adm_date_time - as.difftime(24, units = "hours")]
 csn_dt[, window_end   := score_time]
 
-# Optional: prefilter vitals by relevant accounts
+# Keep vitals for relevant hospital accounts
 vit_dt <- vit_dt[hsp_account_id %in% csn_dt$hsp_account_id]
 
-# Ensure types
+# Confirm timestamp columns are ready for interval matching
 stopifnot(inherits(csn_dt$window_start, "POSIXct"),
           inherits(csn_dt$window_end,   "POSIXct"),
           inherits(vit_dt$recorded_time,"POSIXct"))
@@ -462,10 +462,10 @@ stopifnot(inherits(csn_dt$window_start, "POSIXct"),
 # Identify rows with a valid window (we'll match only these)
 csn_dt[, valid_window := !is.na(window_start) & !is.na(window_end) & (window_end >= window_start)]
 
-# Index to speed joins without sorting (often faster than setkey on huge tables)
+# Add a lookup index for account/time-based matching
 setindex(vit_dt, hsp_account_id, recorded_time)
 
-# Non-equi join only for rows with valid windows
+# Match vitals that fall within each valid score window
 matched <- vit_dt[
   csn_dt[valid_window == TRUE],
   on = .(hsp_account_id,
@@ -493,8 +493,8 @@ for (cc in new_count_cols) {
   set(csn_time_vitals, which(is.na(csn_time_vitals[[cc]])), cc, 0L)
 }
 
-# For rows with invalid windows, ensure counts exist and are 0
-# (If no vital types existed at all in matched data, new_count_cols could be empty; guard it.)
+# Set vital-sign counts to 0 for invalid score windows
+# Skip this step when no vital-count columns were created.
 if (length(new_count_cols) > 0) {
   for (cc in new_count_cols) {
     set(csn_time_vitals, which(csn_time_vitals$valid_window == FALSE), cc, 0L)
@@ -890,7 +890,7 @@ pco2_slim_no_abx <- pco2_pros_raw_fixed %>%
     by = c("pat_enc_csn_id", "score_time")
   )
 
-# Helper function to count PCO2 measurements in a packed string
+# Count measurements stored in packed timestamp strings
 count_pco2 <- function(x) {
   dplyr::case_when(
     is.na(x)    ~ 0L,
@@ -932,17 +932,17 @@ csn_time_abx <- pros_2hr_rf_ae %>% dplyr::select(study_id, pat_enc_csn_id, hsp_a
 csn_dt_abx <- as.data.table(csn_time_abx)
 vit_dt_abx <- as.data.table(vitals_pros)
 
-# Drop vitals with missing type (optional but recommended)
+# Exclude vitals without a documented type
 vit_dt_abx <- vit_dt_abx[!is.na(vital_type)]
 
 # Define window per study_id
 csn_dt_abx[, window_start := picu_adm_date_time - as.difftime(24, units = "hours")]
 csn_dt_abx[, window_end   := score_time]
 
-# Optional: prefilter vitals by relevant accounts
+# Keep vitals for relevant hospital accounts
 vit_dt_abx <- vit_dt_abx[hsp_account_id %in% csn_dt$hsp_account_id]
 
-# Ensure types
+# Confirm timestamp columns are ready for interval matching
 stopifnot(inherits(csn_dt_abx$window_start, "POSIXct"),
           inherits(csn_dt_abx$window_end,   "POSIXct"),
           inherits(vit_dt_abx$recorded_time,"POSIXct"))
@@ -950,10 +950,10 @@ stopifnot(inherits(csn_dt_abx$window_start, "POSIXct"),
 # Identify rows with a valid window (we'll match only these)
 csn_dt_abx[, valid_window := !is.na(window_start) & !is.na(window_end) & (window_end >= window_start)]
 
-# Index to speed joins without sorting (often faster than setkey on huge tables)
+# Add a lookup index for account/time-based matching
 setindex(vit_dt_abx, hsp_account_id, recorded_time)
 
-# Non-equi join only for rows with valid windows
+# Match vitals that fall within each valid score window
 matched_abx <- vit_dt_abx[
   csn_dt_abx[valid_window == TRUE],
   on = .(hsp_account_id,
@@ -981,8 +981,8 @@ for (cc in new_count_cols_abx) {
   set(csn_time_vitals_abx, which(is.na(csn_time_vitals_abx[[cc]])), cc, 0L)
 }
 
-# For rows with invalid windows, ensure counts exist and are 0
-# (If no vital types existed at all in matched data, new_count_cols could be empty; guard it.)
+# Set vital-sign counts to 0 for invalid score windows
+# Skip this step when no vital-count columns were created.
 if (length(new_count_cols_abx) > 0) {
   for (cc in new_count_cols_abx) {
     set(csn_time_vitals_abx, which(csn_time_vitals_abx$valid_window == FALSE), cc, 0L)
@@ -1028,7 +1028,7 @@ hct_slim_yes_abx <- hct_pros_raw_fixed %>%
     by = c("pat_enc_csn_id", "score_time")
   )
 
-# Helper function to count PCO2 measurements in a packed string
+# Count measurements stored in packed timestamp strings
 count_hct <- function(x) {
   dplyr::case_when(
     is.na(x)    ~ 0L,
@@ -1073,7 +1073,7 @@ lactate_slim_yes_abx <- lactate_pros_raw_fixed %>%
     by = c("pat_enc_csn_id", "score_time")
   )
 
-# Helper function to count PCO2 measurements in a packed string
+# Count measurements stored in packed timestamp strings
 count_lactate <- function(x) {
   dplyr::case_when(
     is.na(x)    ~ 0L,
@@ -1107,7 +1107,7 @@ colnames(retro_full_abx)
 retro_full_abx <- retro_full_abx %>% rename(study_id = case_id)
 setdiff(names(retro_full_abx), names(pros_full_yes_abx_fixed))
 
-# To do: add picu_adm_date_time back in, add in number of total vital sign rows, PCCC, broad diagnosisi categories, then at 2H the following: IMV, vasoactives in first 2h (calculate # of vasoactives)
+# Remaining summary fields: PICU admission time, total vital rows, PCCC, broad diagnosis categories, IMV, and vasoactive exposure in the first 2 hours
 # infection labels (SBI type, viral infections, fungal infections), number of cultures drawn (how many before prediction time), timing of antibiotic initiation,
 
 # First get relevant retrospective data
@@ -1219,21 +1219,21 @@ micro_dt <- as.data.table(micro_slim_retro)
 retro_dt[, window_start := picu_adm_date_time - as.difftime(24, units = "hours")]
 retro_dt[, window_end   := picu_adm_date_time + as.difftime(2,  units = "hours")]
 
-# Optional but helpful: keep only culture rows for MRNs in retro_dt
+# Keep culture rows for MRNs in the retrospective cohort
 micro_dt <- micro_dt[mrn %in% retro_dt$mrn]
 
-# Ensure POSIXct (defensive)
+# Confirm timestamp columns before window matching
 stopifnot(inherits(retro_dt$window_start, "POSIXct"),
           inherits(retro_dt$window_end,   "POSIXct"),
           inherits(micro_dt$specimn_taken_time,   "POSIXct"))
 
-# Create a stable row id so we can aggregate back per admission row
+# Add row ids for admission-level aggregation
 retro_dt[, row_id := .I]
 
-# Index micro for speed (doesn't reorder like setkey)
+# Add a lookup index for MRN/specimen-time matching
 setindex(micro_dt, mrn, specimn_taken_time)
 
-# Non-equi join: cultures within window for each admission row
+# Match cultures that fall within each admission window
 matched <- micro_dt[
   retro_dt,
   on = .(mrn,
@@ -1279,21 +1279,21 @@ micro_dt <- as.data.table(micro_slim_retro)
 retro_dt_abx[, window_start := picu_adm_date_time - as.difftime(24, units = "hours")]
 retro_dt_abx[, window_end   := picu_adm_date_time + as.difftime(2,  units = "hours")]
 
-# Optional but helpful: keep only culture rows for MRNs in retro_dt
+# Keep culture rows for MRNs in the retrospective cohort
 micro_dt <- micro_dt[mrn %in% retro_dt_abx$mrn]
 
-# Ensure POSIXct (defensive)
+# Confirm timestamp columns before window matching
 stopifnot(inherits(retro_dt_abx$window_start, "POSIXct"),
           inherits(retro_dt_abx$window_end,   "POSIXct"),
           inherits(micro_dt$specimn_taken_time,   "POSIXct"))
 
-# Create a stable row id so we can aggregate back per admission row
+# Add row ids for admission-level aggregation
 retro_dt_abx[, row_id := .I]
 
-# Index micro for speed (doesn't reorder like setkey)
+# Add a lookup index for MRN/specimen-time matching
 setindex(micro_dt, mrn, specimn_taken_time)
 
-# Non-equi join: cultures within window for each admission row
+# Match cultures that fall within each admission window
 matched_abx <- micro_dt[
   retro_dt_abx,
   on = .(mrn,
@@ -1328,7 +1328,6 @@ retro_yes_abx_final <- retro_full_w_vps_w_mrn_abx
 ######## Now get cultures numbers for prospective cohort ########
 micro_raw_pros <- read_csv(file = file.path(prospective_data_path, "micro_export_pros_100125.csv"))
 
-View(micro_raw_pros %>% dplyr::select(proc_name, component_name) %>% distinct())
 proc_abx <- c("ANAEROBIC BLOOD BACTERIAL", "ANAEROBIC BLOOD BACTERIAL CULTURE (SECOND)", "BLOOD BACTERIAL CULTURE", "BLOOD BACTERIAL CULTURE-SECOND", "MENINGITIS ENCEPHALITIS PANEL (MEP)",
               "URINE BACTERIAL CULTURE")
 comp_abx <- c("CULTURE, BLOOD", "CULTURE, BLOOD ANAEROBIC", "CULTURE, URINE", "RESULTS FOR MEP")
@@ -1383,21 +1382,21 @@ micro_dt <- as.data.table(micro_slim_pros)
 pros_dt[, window_start := picu_adm_date_time - as.difftime(24, units = "hours")]
 pros_dt[, window_end   := picu_adm_date_time + as.difftime(2,  units = "hours")]
 
-# Optional but helpful: keep only culture rows for MRNs in pros_dt
+# Keep culture rows for MRNs in the prospective cohort
 micro_dt <- micro_dt[mrn %in% pros_dt$mrn]
 
-# Ensure POSIXct (defensive)
+# Confirm timestamp columns before window matching
 stopifnot(inherits(pros_dt$window_start, "POSIXct"),
           inherits(pros_dt$window_end,   "POSIXct"),
           inherits(micro_dt$specimn_taken_time,   "POSIXct"))
 
-# Create a stable row id so we can aggregate back per admission row
+# Add row ids for admission-level aggregation
 pros_dt[, row_id := .I]
 
-# Index micro for speed (doesn't reorder like setkey)
+# Add a lookup index for MRN/specimen-time matching
 setindex(micro_dt, mrn, specimn_taken_time)
 
-# Non-equi join: cultures within window for each admission row
+# Match cultures that fall within each admission window
 matched <- micro_dt[
   pros_dt,
   on = .(mrn,
@@ -1438,21 +1437,21 @@ micro_dt <- as.data.table(micro_slim_pros)
 pros_dt_abx[, window_start := picu_adm_date_time - as.difftime(24, units = "hours")]
 pros_dt_abx[, window_end   := picu_adm_date_time + as.difftime(2,  units = "hours")]
 
-# Optional but helpful: keep only culture rows for MRNs in pros_dt
+# Keep culture rows for MRNs in the prospective cohort
 micro_dt <- micro_dt[mrn %in% pros_dt_abx$mrn]
 
-# Ensure POSIXct (defensive)
+# Confirm timestamp columns before window matching
 stopifnot(inherits(pros_dt_abx$window_start, "POSIXct"),
           inherits(pros_dt_abx$window_end,   "POSIXct"),
           inherits(micro_dt$specimn_taken_time,   "POSIXct"))
 
-# Create a stable row id so we can aggregate back per admission row
+# Add row ids for admission-level aggregation
 pros_dt_abx[, row_id := .I]
 
-# Index micro for speed (doesn't reorder like setkey)
+# Add a lookup index for MRN/specimen-time matching
 setindex(micro_dt, mrn, specimn_taken_time)
 
-# Non-equi join: cultures within window for each admission row
+# Match cultures that fall within each admission window
 matched_abx <- micro_dt[
   pros_dt_abx,
   on = .(mrn,
@@ -1535,13 +1534,13 @@ bact_dt[, mrn := as.character(mrn)]
 pros_dt[, window_start := picu_adm_date_time - as.difftime(24, units = "hours")]
 pros_dt[, window_end   := picu_adm_date_time + as.difftime(24,  units = "hours")]
 
-# Optional: shrink bact table to relevant MRNs + sites (speeds things up)
+# Keep bacterial cultures for cohort MRNs and infection sites
 bact_dt <- bact_dt[
   mrn %in% pros_dt$mrn &
     infxn_site %chin% c("blood", "urinary_tract", "cns")
 ]
 
-# Defensive checks
+# Confirm timestamp columns before window matching
 stopifnot(
   inherits(pros_dt$picu_adm_date_time, "POSIXct"),
   inherits(bact_dt$time_obtained, "POSIXct")
@@ -1550,10 +1549,10 @@ stopifnot(
 # Row id so we can aggregate back per admission row
 pros_dt[, row_id := .I]
 
-# Index for speed (doesn't reorder data like setkey)
+# Add a lookup index for MRN/time-based matching
 setindex(bact_dt, mrn, time_obtained)
 
-# Non-equi join: match cultures within the window for each admission row
+# Match cultures that fall within each admission window
 matched <- bact_dt[
   pros_dt,
   on = .(mrn,
@@ -1595,13 +1594,13 @@ bact_dt[, mrn := as.character(mrn)]
 pros_dt[, window_start := picu_adm_date_time - as.difftime(24, units = "hours")]
 pros_dt[, window_end   := picu_adm_date_time + as.difftime(24,  units = "hours")]
 
-# Optional: shrink bact table to relevant MRNs + sites (speeds things up)
+# Keep bacterial cultures for cohort MRNs and infection sites
 bact_dt <- bact_dt[
   mrn %in% pros_dt$mrn &
     infxn_site %chin% c("blood", "urinary_tract", "cns")
 ]
 
-# Defensive checks
+# Confirm timestamp columns before window matching
 stopifnot(
   inherits(pros_dt$picu_adm_date_time, "POSIXct"),
   inherits(bact_dt$time_obtained, "POSIXct")
@@ -1610,10 +1609,10 @@ stopifnot(
 # Row id so we can aggregate back per admission row
 pros_dt[, row_id := .I]
 
-# Index for speed (doesn't reorder data like setkey)
+# Add a lookup index for MRN/time-based matching
 setindex(bact_dt, mrn, time_obtained)
 
-# Non-equi join: match cultures within the window for each admission row
+# Match cultures that fall within each admission window
 matched <- bact_dt[
   pros_dt,
   on = .(mrn,
@@ -1657,16 +1656,16 @@ micro_raw_pros
 micro_dt <- as.data.table(micro_raw_pros %>% mutate(pat_mrn_id = as.character(pat_mrn_id)) %>% rename(mrn = pat_mrn_id) %>%
                             mutate(specimn_taken_time = force_tz(specimn_taken_time, tz = "America/Denver")))
 
-# Defensive: drop rows with missing specimen times or mrn
+# Drop rows missing MRN or specimen time before matching
 micro_dt <- micro_dt[!is.na(mrn) & !is.na(specimn_taken_time)]
 
-# Index for speed (doesn't reorder like setkey)
+# Add a lookup index for MRN/specimen-time matching
 setindex(micro_dt, mrn, specimn_taken_time)
 
 add_suspected_infection <- function(pros_df, micro_dt) {
   pros_dt <- as.data.table(pros_df)
 
-  # Ensure MRN is character
+  # Standardize MRN type before joining
   pros_dt[, mrn := as.character(mrn)]
 
   # Define ±24h window around PICU admission time
@@ -1676,10 +1675,10 @@ add_suspected_infection <- function(pros_df, micro_dt) {
   # Row id to aggregate back per admission row
   pros_dt[, row_id := .I]
 
-  # (Optional) reduce micro rows to only MRNs present in this cohort
+  # Keep microbiology rows for MRNs in this cohort
   micro_sub <- micro_dt[mrn %in% pros_dt$mrn]
 
-  # Non-equi join: any specimen within window for that MRN
+  # Match specimens that fall within the admission window
   matched <- micro_sub[
     pros_dt,
     on = .(mrn,
@@ -1732,7 +1731,7 @@ cxr_dt <- as.data.table(cxr_pros) %>%
 # keep only actual CXR orders if needed
 cxr_dt <- cxr_dt[chest_xray_yn == 1 & !is.na(chest_x_ray_order)]
 
-# Helper to update suspected_infection in a given pros df
+# Update suspected_infection for one prospective dataframe
 flag_cxr_suspected_infection <- function(pros_df, cxr_dt) {
 
   pros_dt <- as.data.table(pros_df)
@@ -1744,7 +1743,7 @@ flag_cxr_suspected_infection <- function(pros_df, cxr_dt) {
     win_end   = picu_adm_date_time + 24*60*60
   )]
 
-  # Non-equi join: for each admission row, find any CXR order in the window
+  # Match CXR orders that fall within each admission window
   # i.* columns come from pros_dt; x.* from cxr_dt
   hit_ids <- unique(
     cxr_dt[
@@ -1798,7 +1797,7 @@ retro_yes_abx_final <- retro_yes_abx_final %>% rename(pccc = ccc, malignancy_pcc
 flowsheet <- read.csv(file.path(sbi_blake_phi_path, "flo_export_pros_100125.csv"))
 demog     <- read.csv(file.path(sbi_blake_phi_path, "demog_export_pros_100125.csv"))
 
-# Helper functions / variablesbvæ
+# Timestamp parsing settings
 tz_use <- "America/Denver"
 
 # Robust parser for timestamps with/without fractional seconds
@@ -6862,7 +6861,6 @@ pros_summary_manuscript <- dplyr::bind_rows(
   )
 )
 
-View(pros_summary_manuscript)
 
 
 ##### Now do abx analysis by subgroups #######
