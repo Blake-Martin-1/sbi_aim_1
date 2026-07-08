@@ -11,6 +11,9 @@ suppressPackageStartupMessages({
   library(tibble)
 })
 
+# Generate dataframe to use for IER table generation
+ier_df <- pros_combined_for_subgroups %>% dplyr::select(age_years, race, ethnicity, is_female)
+
 # The NIH CSV upload expects exactly these column names.
 IER_COLUMNS <- c("Race", "Ethnicity", "Sex", "Age", "Age Unit")
 
