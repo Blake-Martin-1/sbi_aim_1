@@ -11,8 +11,14 @@ suppressPackageStartupMessages({
   library(tibble)
 })
 
-# Generate dataframe to use for IER table generation
-ier_df <- pros_combined_for_subgroups %>% dplyr::select(mrn, age_years, race, ethnicity, is_female) %>% distinct() #2,694 unique patients
+# Generate dataframe to use for IER table generation when the prospective
+# subgroup dataframe is already loaded. Each row should represent a unique
+# participant/MRN and include: mrn, age_years, race, ethnicity, is_female.
+if (exists("pros_combined_for_subgroups")) {
+  ier_df <- pros_combined_for_subgroups %>%
+    dplyr::select(mrn, age_years, race, ethnicity, is_female) %>%
+    distinct() # 2,694 unique patients
+}
 
 # The NIH CSV upload expects exactly these column names.
 IER_COLUMNS <- c("Race", "Ethnicity", "Sex", "Age", "Age Unit")
@@ -29,19 +35,31 @@ get_arg_value <- function(args, flag, default = NULL) {
   default
 }
 
-find_first_column <- function(data, candidates, required_for = NULL) {
-  hit <- intersect(candidates, names(data))
-  if (length(hit) > 0) {
-    return(hit[[1]])
+get_output_path <- function(args = commandArgs(trailingOnly = TRUE)) {
+  output_path <- get_arg_value(args, "--output") %||%
+    Sys.getenv("IER_OUTPUT_FILE_PATH", unset = NA_character_)
+
+  if (is.null(output_path) || is.na(output_path) || !nzchar(output_path)) {
+    if (!interactive()) {
+      stop("Provide an output CSV path with --output or IER_OUTPUT_FILE_PATH.", call. = FALSE)
+    }
+    output_path <- readline(prompt = "Enter the filepath where the NIH IER CSV should be saved: ")
   }
-  if (!is.null(required_for)) {
-    stop(
-      "Could not find a ", required_for, " column. Tried: ",
-      paste(candidates, collapse = ", "),
-      call. = FALSE
-    )
+
+  output_path <- trimws(output_path)
+  if (!nzchar(output_path)) {
+    stop("An output CSV filepath is required.", call. = FALSE)
   }
-  NA_character_
+
+  output_dir <- dirname(output_path)
+  if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  if (!dir.exists(output_dir)) {
+    stop("Output directory does not exist and could not be created: ", output_dir, call. = FALSE)
+  }
+
+  output_path
 }
 
 standardize_race <- function(x) {
@@ -49,12 +67,12 @@ standardize_race <- function(x) {
   y_lower <- str_to_lower(y)
 
   dplyr::case_when(
-    is.na(y) | y == "" | y_lower %in% c("unknown", "not reported", "unknown/not reported", "declined", "patient refused", "other_or_unknown", "other or unknown") ~ "Unknown",
+    is.na(y) | y == "" | y_lower %in% c("unknown", "not reported", "unknown/not reported", "declined", "patient refused", "other_or_unknown", "other or unknown", "other") ~ "Unknown",
     str_detect(y_lower, "more than one|multiple|multi") ~ "More than one race",
-    str_detect(y_lower, "american indian|alaska native|native american") ~ "American Indian/Alaska Native",
+    str_detect(y_lower, "american indian|alaska native|native american") ~ "American Indian",
     str_detect(y_lower, "asian") ~ "Asian",
-    str_detect(y_lower, "black|african american") ~ "Black or African American",
-    str_detect(y_lower, "hawaiian|pacific islander") ~ "Native Hawaiian or Other Pacific Islander",
+    str_detect(y_lower, "black|african american") ~ "Black",
+    str_detect(y_lower, "hawaiian|pacific islander") ~ "Hawaiian",
     str_detect(y_lower, "white|caucasian") ~ "White",
     TRUE ~ "Unknown"
   )
@@ -72,14 +90,13 @@ standardize_ethnicity <- function(x) {
   )
 }
 
-standardize_sex <- function(x) {
-  y <- str_squish(as.character(x))
-  y_lower <- str_to_lower(y)
+standardize_sex_from_is_female <- function(is_female) {
+  y <- suppressWarnings(as.numeric(is_female))
 
   dplyr::case_when(
-    is.na(y) | y == "" | y_lower %in% c("unknown", "not reported", "unknown/not reported", "u") ~ "Unknown",
-    y_lower %in% c("female", "f", "woman", "girl") ~ "Female",
-    y_lower %in% c("male", "m", "man", "boy") ~ "Male",
+    is.na(y) ~ "Unknown",
+    y == 1 ~ "Female",
+    y == 0 ~ "Male",
     TRUE ~ "Unknown"
   )
 }
@@ -107,57 +124,40 @@ age_to_nih_fields <- function(age_years) {
   tibble(Age = as.integer(age_value), `Age Unit` = age_unit)
 }
 
-make_ier <- function(prospective_data) {
-  if ("epoch" %in% names(prospective_data)) {
-    prospective_data <- prospective_data %>%
-      filter(str_to_lower(as.character(.data$epoch)) %in% c("pros", "prospective"))
+make_ier <- function(ier_df) {
+  required_cols <- c("mrn", "age_years", "race", "ethnicity", "is_female")
+  missing_cols <- setdiff(required_cols, names(ier_df))
+  if (length(missing_cols) > 0) {
+    stop("ier_df is missing required column(s): ", paste(missing_cols, collapse = ", "), call. = FALSE)
   }
 
-  id_col <- find_first_column(
-    prospective_data,
-    c("study_id", "pat_mrn_id", "mrn", "MRN", "PAT_MRN_ID", "PAT_ENC_CSN_ID", "csn"),
-    required_for = "participant identifier"
-  )
-  race_col <- find_first_column(prospective_data, c("race", "Race", "RACE", "old_race", "OLD_RACE"), required_for = "race")
-  ethnicity_col <- find_first_column(prospective_data, c("ethnicity", "Ethnicity", "ETHNICITY"), required_for = "ethnicity")
-  sex_col <- find_first_column(prospective_data, c("sex", "Sex", "SEX", "gender", "Gender", "is_female"), required_for = "sex")
-  age_col <- find_first_column(prospective_data, c("age", "age_years", "Age", "AGE", "age_at_admission", "AGE_YEARS"), required_for = "age in years")
-
-  prospective_data %>%
-    arrange(.data[[id_col]]) %>%
-    distinct(.data[[id_col]], .keep_all = TRUE) %>%
+  ier_df %>%
+    arrange(.data$mrn) %>%
+    distinct(.data$mrn, .keep_all = TRUE) %>%
     transmute(
-      Race = standardize_race(.data[[race_col]]),
-      Ethnicity = standardize_ethnicity(.data[[ethnicity_col]]),
-      Sex = if (sex_col == "is_female") {
-        case_when(is.na(.data[[sex_col]]) ~ "Unknown", as.logical(.data[[sex_col]]) ~ "Female", TRUE ~ "Male")
-      } else {
-        standardize_sex(.data[[sex_col]])
-      },
-      age_years_for_ier = suppressWarnings(as.numeric(.data[[age_col]]))
+      Race = standardize_race(.data$race),
+      Ethnicity = standardize_ethnicity(.data$ethnicity),
+      Sex = standardize_sex_from_is_female(.data$is_female),
+      age_years_for_ier = suppressWarnings(as.numeric(.data$age_years))
     ) %>%
     bind_cols(age_to_nih_fields(.$age_years_for_ier)) %>%
     select(all_of(IER_COLUMNS))
 }
 
-main <- function() {
-  args <- commandArgs(trailingOnly = TRUE)
-  input_path <- get_arg_value(args, "--input") %||%
-    Sys.getenv("PROSPECTIVE_MODEL_DATA_FILE_PATH", unset = NA_character_) %||%
-    getOption("prospective_model_data_file_path")
-  output_path <- get_arg_value(args, "--output", "IER_participant_level.csv")
-
-  if (is.null(input_path) || is.na(input_path) || !nzchar(input_path)) {
-    stop("Provide an input CSV with --input or PROSPECTIVE_MODEL_DATA_FILE_PATH.", call. = FALSE)
-  }
-  if (!file.exists(input_path)) {
-    stop("Input CSV does not exist: ", input_path, call. = FALSE)
-  }
-
-  prospective_data <- readr::read_csv(input_path, show_col_types = FALSE)
-  ier <- make_ier(prospective_data)
+write_ier_csv <- function(ier_df, output_path) {
+  ier <- make_ier(ier_df)
   readr::write_csv(ier, output_path, na = "")
-  message("Wrote ", nrow(ier), " prospective participant rows to ", output_path)
+  message("Wrote ", nrow(ier), " participant rows to ", output_path)
+  invisible(ier)
+}
+
+main <- function() {
+  if (!exists("ier_df", envir = .GlobalEnv)) {
+    stop("ier_df must exist before running generate_IER.R.", call. = FALSE)
+  }
+
+  output_path <- get_output_path()
+  write_ier_csv(get("ier_df", envir = .GlobalEnv), output_path)
 }
 
 if (sys.nframe() == 0 && !interactive()) {
