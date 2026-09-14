@@ -7771,3 +7771,57 @@ source(file = "sbi_decision_policy_explore.R")
 source(file = file.path(aim1_paper_materials_path, "policy_impact_on_abx.R"))
 
 source(file = file.path(aim1_paper_materials_path, "explore_retro_n_predictors.R"))
+
+####### Additional Code to Document Packages and Versions #########
+# ---- Place at the END of your master script ----
+
+# Capture the session before doing any reporting
+si <- sessionInfo()
+
+# Include both attached packages and packages loaded via namespaces
+pkg_info <- c(si$otherPkgs, si$loadedOnly)
+
+package_table <- data.frame(
+  Package = names(pkg_info),
+  Version = vapply(pkg_info, function(x) x$Version, character(1)),
+  row.names = NULL
+)
+
+package_table <- package_table[
+  order(tolower(package_table$Package)),
+  ,
+  drop = FALSE
+]
+
+# Record R and operating-system information separately
+environment_table <- data.frame(
+  Component = c("R", "Operating system", "Platform"),
+  Details = c(
+    si$R.version$version.string,
+    if (is.null(si$running)) NA_character_ else si$running,
+    si$platform
+  )
+)
+
+# Save outputs to a subfolder of the current working directory
+dir.create("software_versions", showWarnings = FALSE)
+
+write.csv(
+  package_table,
+  "software_versions/package_versions.csv",
+  row.names = FALSE
+)
+
+write.csv(
+  environment_table,
+  "software_versions/environment_details.csv",
+  row.names = FALSE
+)
+
+writeLines(
+  capture.output(print(si)),
+  "software_versions/sessionInfo.txt"
+)
+
+# View the package table
+print(package_table, row.names = FALSE)
