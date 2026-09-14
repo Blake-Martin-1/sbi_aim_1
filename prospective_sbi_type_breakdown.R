@@ -119,6 +119,10 @@ normalize_specimen_source <- function(x) {
     stringr::str_squish()
 }
 
+is_positive_sbi_flag <- function(x) {
+  tolower(trimws(as.character(x))) %in% c("1", "true", "yes", "y")
+}
+
 # Each study_id contributes at most once to a category, even when multiple
 # organisms/specimens from that category were recorded. An encounter may
 # contribute to more than one category.
@@ -128,7 +132,10 @@ summarize_prospective_sbi_types <- function(
     abx_exposed,
     window_hours = 24) {
   required_micro <- c("mrn", "specimen_source", "time_obtained")
-  required_cohort <- c("study_id", "mrn", "picu_adm_date_time")
+  required_cohort <- c(
+    "study_id", "mrn", "picu_adm_date_time", "ever_cx_neg_sepsis",
+    "pna_1_0"
+  )
 
   if (!all(required_micro %in% names(sbi_micro))) {
     stop("sbi_micro is missing: ", paste(setdiff(required_micro, names(sbi_micro)), collapse = ", "))
@@ -157,7 +164,7 @@ summarize_prospective_sbi_types <- function(
   denominators <- encounters |>
     dplyr::summarise(total_encounters = dplyr::n_distinct(study_id), .by = antibiotic_stratum)
 
-  encounter_sbi_types <- sbi_micro |>
+  microbiology_sbi_types <- sbi_micro |>
     dplyr::transmute(
       mrn = as.character(mrn),
       specimen_source = normalize_specimen_source(specimen_source),
@@ -176,7 +183,33 @@ summarize_prospective_sbi_types <- function(
     ) |>
     dplyr::distinct(study_id, antibiotic_stratum, broad_category, specimen_source)
 
-  all_categories <- sort(unique(prospective_sbi_source_lookup$broad_category))
+  non_microbiology_sbi_types <- dplyr::bind_rows(
+    encounters |>
+      dplyr::filter(is_positive_sbi_flag(ever_cx_neg_sepsis)) |>
+      dplyr::transmute(
+        study_id, antibiotic_stratum,
+        broad_category = "culture_negative_sepsis",
+        specimen_source = NA_character_
+      ),
+    encounters |>
+      dplyr::filter(is_positive_sbi_flag(pna_1_0)) |>
+      dplyr::transmute(
+        study_id, antibiotic_stratum,
+        broad_category = "bacterial_pneumonia",
+        specimen_source = "VPS pna_1_0"
+      )
+  )
+
+  encounter_sbi_types <- dplyr::bind_rows(
+    microbiology_sbi_types,
+    non_microbiology_sbi_types
+  ) |>
+    dplyr::distinct(study_id, antibiotic_stratum, broad_category, specimen_source)
+
+  all_categories <- sort(unique(c(
+    prospective_sbi_source_lookup$broad_category,
+    "culture_negative_sepsis", "bacterial_pneumonia"
+  )))
   sbi_type_summary <- encounter_sbi_types |>
     dplyr::distinct(study_id, antibiotic_stratum, broad_category) |>
     dplyr::count(antibiotic_stratum, broad_category, name = "encounters_with_sbi") |>

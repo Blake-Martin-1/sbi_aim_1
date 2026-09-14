@@ -7,12 +7,16 @@ test_that("SBI types use all encounters as stratum denominators", {
   unexposed <- tibble::tibble(
     study_id = c("u1", "u2", "u3"),
     mrn = c("1", "2", "3"),
-    picu_adm_date_time = origin
+    picu_adm_date_time = origin,
+    ever_cx_neg_sepsis = c(0, 1, 0),
+    pna_1_0 = c(1, 0, 0)
   )
   exposed <- tibble::tibble(
     study_id = c("e1", "e2"),
     mrn = c("4", "5"),
-    picu_adm_date_time = origin
+    picu_adm_date_time = origin,
+    ever_cx_neg_sepsis = 0,
+    pna_1_0 = 0
   )
   micro <- tibble::tibble(
     mrn = c("1", "1", "1", "4", "5"),
@@ -42,12 +46,34 @@ test_that("SBI types use all encounters as stratum denominators", {
     summary$encounters_with_sbi[summary$antibiotic_stratum == "exposed" & summary$broad_category == "blood"],
     0L
   )
+  expect_equal(
+    summary$encounters_with_sbi[summary$antibiotic_stratum == "unexposed" & summary$broad_category == "culture_negative_sepsis"],
+    1L
+  )
+  expect_equal(
+    summary$encounters_with_sbi[summary$antibiotic_stratum == "unexposed" & summary$broad_category == "bacterial_pneumonia"],
+    1L
+  )
+
+  # u1 has blood, urine, and VPS bacterial pneumonia and must remain in all
+  # three categories rather than being forced into one mutually exclusive type.
+  expect_setequal(
+    result$encounter_sbi_types$broad_category[result$encounter_sbi_types$study_id == "u1"],
+    c("blood", "gu", "bacterial_pneumonia")
+  )
 })
 
 test_that("encounter audit rows retain distinct sources and broad types", {
   origin <- as.POSIXct("2026-01-01 12:00:00", tz = "UTC")
-  unexposed <- tibble::tibble(study_id = "u1", mrn = "1", picu_adm_date_time = origin)
-  exposed <- tibble::tibble(study_id = character(), mrn = character(), picu_adm_date_time = as.POSIXct(character()))
+  unexposed <- tibble::tibble(
+    study_id = "u1", mrn = "1", picu_adm_date_time = origin,
+    ever_cx_neg_sepsis = 0, pna_1_0 = 0
+  )
+  exposed <- tibble::tibble(
+    study_id = character(), mrn = character(),
+    picu_adm_date_time = as.POSIXct(character()),
+    ever_cx_neg_sepsis = numeric(), pna_1_0 = numeric()
+  )
   micro <- tibble::tibble(
     mrn = c("1", "1"),
     specimen_source = c("Craniotomy", "new source"),
@@ -62,7 +88,10 @@ test_that("encounter audit rows retain distinct sources and broad types", {
 
 test_that("an encounter cannot be assigned to both exposure strata", {
   origin <- as.POSIXct("2026-01-01 12:00:00", tz = "UTC")
-  cohort <- tibble::tibble(study_id = "same", mrn = "1", picu_adm_date_time = origin)
+  cohort <- tibble::tibble(
+    study_id = "same", mrn = "1", picu_adm_date_time = origin,
+    ever_cx_neg_sepsis = 0, pna_1_0 = 0
+  )
   micro <- tibble::tibble(mrn = character(), specimen_source = character(), time_obtained = as.POSIXct(character()))
 
   expect_error(
