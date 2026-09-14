@@ -116,8 +116,18 @@ prospective_sbi_source_lookup <- tibble::tribble(
 normalize_specimen_source <- function(x) {
   x |>
     stringr::str_replace_all("\u00a0", " ") |>
-    stringr::str_squish()
+    stringr::str_to_lower() |>
+    # The prospective microbiology extract uses snake_case values (for
+    # example, peripheral_venipuncture), while the source dictionary was
+    # supplied as display labels (Peripheral, Venipuncture). Normalize both
+    # forms to the same punctuation-independent key before joining.
+    stringr::str_replace_all("[^[:alnum:]]+", "_") |>
+    stringr::str_replace_all("^_+|_+$", "")
 }
+
+prospective_sbi_source_lookup <- prospective_sbi_source_lookup |>
+  dplyr::mutate(specimen_source_key = normalize_specimen_source(specimen_source)) |>
+  dplyr::select(specimen_source_key, broad_category)
 
 is_positive_sbi_flag <- function(x) {
   tolower(trimws(as.character(x))) %in% c("1", "true", "yes", "y")
@@ -156,7 +166,8 @@ summarize_prospective_sbi_types <- function(
   microbiology_sbi_types <- sbi_micro |>
     dplyr::transmute(
       mrn = as.character(mrn),
-      specimen_source = normalize_specimen_source(specimen_source),
+      specimen_source = as.character(specimen_source),
+      specimen_source_key = normalize_specimen_source(specimen_source),
       time_obtained
     ) |>
     dplyr::filter(!is.na(mrn), !is.na(time_obtained)) |>
@@ -165,7 +176,7 @@ summarize_prospective_sbi_types <- function(
       time_obtained >= picu_adm_date_time - lubridate::hours(window_hours),
       time_obtained <= picu_adm_date_time + lubridate::hours(window_hours)
     ) |>
-    dplyr::left_join(prospective_sbi_source_lookup, by = "specimen_source") |>
+    dplyr::left_join(prospective_sbi_source_lookup, by = "specimen_source_key") |>
     dplyr::mutate(
       broad_category = dplyr::coalesce(broad_category, "unknown"),
       specimen_source = dplyr::coalesce(specimen_source, "NULL")

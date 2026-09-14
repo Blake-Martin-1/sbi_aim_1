@@ -86,6 +86,35 @@ test_that("encounter audit rows retain distinct sources and broad types", {
   expect_equal(unique(details$study_id), "u1")
 })
 
+test_that("snake_case sources from pros_micro_slim map to anatomical categories", {
+  origin <- as.POSIXct("2026-01-01 12:00:00", tz = "UTC")
+  unexposed <- tibble::tibble(
+    study_id = "u1", mrn = "1", picu_adm_date_time = origin,
+    ever_cx_neg_sepsis = 0, pna_1_0 = 0
+  )
+  exposed <- unexposed[0, ]
+  micro <- tibble::tibble(
+    mrn = "1",
+    specimen_source = c(
+      "peripheral_venipuncture", "peripheral_piv_start", "catheter_port",
+      "catheter_picc", "urine_clean_catch", "lumbar_puncture",
+      "nasopharyngeal_swab"
+    ),
+    time_obtained = origin
+  )
+
+  details <- summarize_prospective_sbi_types(
+    micro, unexposed, exposed
+  )$encounter_sbi_types
+
+  expect_setequal(
+    details$broad_category,
+    c("blood", "gu", "cns", "respiratory")
+  )
+  expect_false(any(details$broad_category == "unknown"))
+  expect_true("peripheral_venipuncture" %in% details$specimen_source)
+})
+
 test_that("a patient in both exposure strata is counted once", {
   origin <- as.POSIXct("2026-01-01 12:00:00", tz = "UTC")
   cohort <- tibble::tibble(
