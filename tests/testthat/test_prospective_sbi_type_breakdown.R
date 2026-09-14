@@ -18,6 +18,9 @@ test_that("SBI types report n (%) using each exposure stratum denominator", {
     ever_cx_neg_sepsis = 0,
     pna_1_0 = 0
   )
+  # Repeated source rows must not inflate the encounter denominator.
+  unexposed <- dplyr::bind_rows(unexposed, unexposed[1, ])
+  exposed <- dplyr::bind_rows(exposed, exposed[1, ])
   micro <- tibble::tibble(
     mrn = c("1", "1", "1", "4", "5"),
     specimen_source = c(
@@ -29,6 +32,10 @@ test_that("SBI types report n (%) using each exposure stratum denominator", {
 
   result <- summarize_prospective_sbi_types(micro, unexposed, exposed)
   summary <- result$sbi_type_summary
+
+  expect_equal(summary$broad_category[1], "number of encounters")
+  expect_equal(summary$antibiotic_unexposed[1], "3 (100.0%)")
+  expect_equal(summary$antibiotic_exposed[1], "3 (100.0%)")
 
   expect_equal(
     summary$antibiotic_unexposed[summary$broad_category == "blood"],

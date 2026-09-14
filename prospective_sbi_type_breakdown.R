@@ -251,6 +251,25 @@ summarize_prospective_sbi_types <- function(
     ) |>
     dplyr::arrange(broad_category)
 
+  encounter_count_row <- denominators |>
+    tidyr::complete(
+      antibiotic_stratum = c("unexposed", "exposed"),
+      fill = list(total_patients = 0L)
+    ) |>
+    dplyr::transmute(
+      broad_category = "number of encounters",
+      antibiotic_stratum = paste0("antibiotic_", antibiotic_stratum),
+      patients_with_sbi = sprintf("%d (100.0%%)", total_patients)
+    ) |>
+    tidyr::pivot_wider(
+      names_from = antibiotic_stratum,
+      values_from = patients_with_sbi
+    )
+
+  # Put each stratum denominator at the top so the percentages below it can be
+  # interpreted without referring back to the source cohorts.
+  sbi_type_summary <- dplyr::bind_rows(encounter_count_row, sbi_type_summary)
+
   list(
     encounter_sbi_types = encounter_sbi_types,
     sbi_type_summary = sbi_type_summary
