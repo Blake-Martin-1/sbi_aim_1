@@ -1,0 +1,196 @@
+# Utilities for summarizing prospective SBI types at the PICU-encounter level.
+
+prospective_sbi_source_lookup <- tibble::tribble(
+  ~specimen_source, ~broad_category,
+  "Abdomen", "abdomen",
+  "Abdominal Wall", "abdomen",
+  "Abscess", "other",
+  "Ankle", "msk",
+  "Anus", "gastrointestinal",
+  "Arm", "msk",
+  "Axilla", "msk",
+  "Back", "msk",
+  "Biliary Tract", "gastrointestinal",
+  "Blood, Arterial", "blood",
+  "Blood, Capillary", "blood",
+  "Blood, Line", "blood",
+  "Blood, Unknown", "blood",
+  "Blood, Venous", "blood",
+  "Brain", "cns",
+  "Bronchus", "respiratory",
+  "Buccal", "ent",
+  "Buttock", "msk",
+  "Catheter", "unknown",
+  "Catheter, Arterial Line", "blood",
+  "Catheter, Direct Intracardiac", "blood",
+  "Catheter, HD/Apheresis", "blood",
+  "Catheter, Non-tunneled", "blood",
+  "Catheter, PICC", "blood",
+  "Catheter, Port", "blood",
+  "Catheter, Tunneled", "blood",
+  "Cellulitis", "msk",
+  "Cervix", "gu",
+  "Chest", "msk",
+  "Colon", "gastrointestinal",
+  "Colon, Rectum", "gastrointestinal",
+  "Colon, Sigmoid", "gastrointestinal",
+  "Cornea", "other",
+  "Craniotomy", "cns",
+  "Dialysis Effluent", "blood",
+  "Duodenum", "gastrointestinal",
+  "Ear", "other",
+  "Eye", "other",
+  "Face", "msk",
+  "Femur", "msk",
+  "Finger", "msk",
+  "Foot", "msk",
+  "Forearm", "msk",
+  "G-tube", "gastrointestinal",
+  "Gallbladder", "gastrointestinal",
+  "Gastric", "gastrointestinal",
+  "Groin", "msk",
+  "Hand", "msk",
+  "Head", "cns",
+  "Heart", "mediastinum",
+  "Hip", "msk",
+  "JP Drain", "unknown",
+  "Knee", "msk",
+  "Leg", "msk",
+  "Lip", "ent",
+  "Liver", "gastrointestinal",
+  "Lumbar Puncture", "cns",
+  "Lung", "respiratory",
+  "Mandible", "msk",
+  "Maxilla", "msk",
+  "Mediastinum", "mediastinum",
+  "Mouth", "ent",
+  "Multiple Sources - Specify in Comments", "unknown",
+  "Naris", "respiratory",
+  "Nasopharyngeal Swab", "respiratory",
+  "Nasopharynx", "respiratory",
+  "Neck", "msk",
+  "Nose", "respiratory",
+  "NULL", "unknown",
+  "Oral Lesion", "ent",
+  "Ostomy", "gastrointestinal",
+  "Other - Specify in Comments", "unknown",
+  "Pelvis", "gu",
+  "Penis", "gu",
+  "Pericardium", "mediastinum",
+  "Perineum", "msk",
+  "Peripheral, PIV Start", "blood",
+  "Peripheral, Venipuncture", "blood",
+  "Peritoneum", "gastrointestinal",
+  "Pleura", "respiratory",
+  "Pleural Space", "respiratory",
+  "Scalp", "msk",
+  "Sella", "cns",
+  "Shoulder", "msk",
+  "Shunt", "cns",
+  "Sinus", "cns",
+  "Skull", "cns",
+  "Small Intestine", "gastrointestinal",
+  "Stomach, Body and Antrum", "gastrointestinal",
+  "Surface Lesion", "unknown",
+  "Testis", "gu",
+  "Thigh", "msk",
+  "Throat", "ent",
+  "Tibia", "msk",
+  "Toe", "msk",
+  "Tongue", "ent",
+  "Trachea", "respiratory",
+  "Urine, 1st Void", "gu",
+  "Urine, Bagged", "gu",
+  "Urine, Clean Catch", "gu",
+  "Urine, Cotton Ball", "gu",
+  "Urine, Indwelling Catheter", "gu",
+  "Urine, Nephrostomy", "gu",
+  "Urine, Open Bladder", "gu",
+  "Urine, Straight Catheter", "gu",
+  "Urine, Suprapubic", "gu",
+  "Vagina", "gu",
+  "Vulva", "gu",
+  "Wrist", "msk"
+)
+
+normalize_specimen_source <- function(x) {
+  x |>
+    stringr::str_replace_all("\u00a0", " ") |>
+    stringr::str_squish()
+}
+
+# Each study_id contributes at most once to a category, even when multiple
+# organisms/specimens from that category were recorded. An encounter may
+# contribute to more than one category.
+summarize_prospective_sbi_types <- function(
+    sbi_micro,
+    abx_unexposed,
+    abx_exposed,
+    window_hours = 24) {
+  required_micro <- c("mrn", "specimen_source", "time_obtained")
+  required_cohort <- c("study_id", "mrn", "picu_adm_date_time")
+
+  if (!all(required_micro %in% names(sbi_micro))) {
+    stop("sbi_micro is missing: ", paste(setdiff(required_micro, names(sbi_micro)), collapse = ", "))
+  }
+  if (!all(required_cohort %in% names(abx_unexposed)) ||
+      !all(required_cohort %in% names(abx_exposed))) {
+    stop("Both cohort data frames must contain study_id, mrn, and picu_adm_date_time")
+  }
+
+  encounters <- dplyr::bind_rows(
+    dplyr::mutate(abx_unexposed, antibiotic_stratum = "unexposed"),
+    dplyr::mutate(abx_exposed, antibiotic_stratum = "exposed")
+  ) |>
+    dplyr::select(dplyr::all_of(required_cohort), antibiotic_stratum) |>
+    dplyr::mutate(mrn = as.character(mrn)) |>
+    dplyr::distinct()
+
+  conflicting_strata <- encounters |>
+    dplyr::distinct(study_id, antibiotic_stratum) |>
+    dplyr::count(study_id) |>
+    dplyr::filter(n > 1L)
+  if (nrow(conflicting_strata) > 0L) {
+    stop("study_id values cannot occur in both antibiotic strata")
+  }
+
+  denominators <- encounters |>
+    dplyr::summarise(total_encounters = dplyr::n_distinct(study_id), .by = antibiotic_stratum)
+
+  encounter_sbi_types <- sbi_micro |>
+    dplyr::transmute(
+      mrn = as.character(mrn),
+      specimen_source = normalize_specimen_source(specimen_source),
+      time_obtained
+    ) |>
+    dplyr::filter(!is.na(mrn), !is.na(time_obtained)) |>
+    dplyr::inner_join(encounters, by = "mrn", relationship = "many-to-many") |>
+    dplyr::filter(
+      time_obtained >= picu_adm_date_time - lubridate::hours(window_hours),
+      time_obtained <= picu_adm_date_time + lubridate::hours(window_hours)
+    ) |>
+    dplyr::left_join(prospective_sbi_source_lookup, by = "specimen_source") |>
+    dplyr::mutate(
+      broad_category = dplyr::coalesce(broad_category, "unknown"),
+      specimen_source = dplyr::coalesce(specimen_source, "NULL")
+    ) |>
+    dplyr::distinct(study_id, antibiotic_stratum, broad_category, specimen_source)
+
+  all_categories <- sort(unique(prospective_sbi_source_lookup$broad_category))
+  sbi_type_summary <- encounter_sbi_types |>
+    dplyr::distinct(study_id, antibiotic_stratum, broad_category) |>
+    dplyr::count(antibiotic_stratum, broad_category, name = "encounters_with_sbi") |>
+    tidyr::complete(
+      antibiotic_stratum = denominators$antibiotic_stratum,
+      broad_category = all_categories,
+      fill = list(encounters_with_sbi = 0L)
+    ) |>
+    dplyr::left_join(denominators, by = "antibiotic_stratum") |>
+    dplyr::mutate(proportion_of_all_encounters = encounters_with_sbi / total_encounters) |>
+    dplyr::arrange(antibiotic_stratum, broad_category)
+
+  list(
+    encounter_sbi_types = encounter_sbi_types,
+    sbi_type_summary = sbi_type_summary
+  )
+}

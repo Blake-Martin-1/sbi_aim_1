@@ -1642,6 +1642,22 @@ pros_out[, c("row_id", "window_start", "window_end") := NULL]
 # Return to tibble
 pros_yes_abx_final <- as_tibble(pros_out)
 
+# Reviewer-requested prospective SBI breakdown. all_pros_micro has already been
+# adjudicated via `class`; restrict to bacterial infections so diagnostic tests
+# without an SBI do not enter the numerator. Denominators include every unique
+# study_id in each prospective antibiotic-exposure stratum.
+source("prospective_sbi_type_breakdown.R")
+
+prospective_sbi_breakdown <- summarize_prospective_sbi_types(
+  sbi_micro = pros_micro_slim %>% filter(class == "bacteria"),
+  abx_unexposed = pros_no_abx_final,
+  abx_exposed = pros_yes_abx_final
+)
+
+# Encounter-level audit trail and reviewer-facing count/proportion table.
+prospective_sbi_encounter_types <- prospective_sbi_breakdown$encounter_sbi_types
+prospective_sbi_type_summary <- prospective_sbi_breakdown$sbi_type_summary
+
 # Create suspected infection columns for use
 retro_no_abx_final$suspected_infection <- 1
 retro_yes_abx_final$suspected_infection <- 1
