@@ -1957,9 +1957,6 @@ save_pros_no_abx_cols <- pros_no_abx_final %>% dplyr::select(c(study_id, setdiff
   names(retro_no_abx_final)
 )))
 
-pros_no_abx_final <- pros_no_abx_final %>% rename(ever_cx_neg_sepsis = cx_neg_sepsis)
-pros_yes_abx_final <- pros_yes_abx_final %>% rename(ever_cx_neg_sepsis = cx_neg_sepsis)
-
 rm_from_pros_no_abx <- c("pat_enc_csn_id", "score_time", "hours_since_picu_adm", "intime", "outtime", "error_id", "pat_id", "line", "model_type", "time_elapsed",
                           "abx_log_last_rdi_utc", "abx_rf_last_rdi_utc", "noabx_log_last_rdi_utc", "noabx_rf_last_rdi_utc", "contact_creation_to_admission_delta", "height",
                           "height_date", "old_race", "weight", "weight_date", "albumin_mean", "ast_present", "bacteria_urine_mean", "bands_perc_mean",
@@ -1978,7 +1975,7 @@ rm_from_pros_no_abx <- c("pat_enc_csn_id", "score_time", "hours_since_picu_adm",
                           "sbp_mean_raw", "sbp_median_raw", "sbp_min_raw", "scheduled_admit",
                           "sodium_present", "uric_acid_present", "valid_start_instant", "valid_end_instant",
                           "wbc_csf_present", "wbc_urine_mean", "weight_present", "is_interventional_radiology",
-                          "bcx_sent", "micro_sbi_1_0", "cnss_true",
+                          "cx_neg_sepsis", "bcx_sent", "micro_sbi_1_0", "cnss_true",
                           "start", "end", "abx_exp", "abx_duration_after_score",
                           "t_diff", "hsp_account_id", "language", "insurance_type",
                           "rowid", "n_map_rows", "n_pupil_reaction_size_bilat_rows", "n_pupil_reaction_size_left_rows",
