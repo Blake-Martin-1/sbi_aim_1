@@ -123,24 +123,10 @@ is_positive_sbi_flag <- function(x) {
   tolower(trimws(as.character(x))) %in% c("1", "true", "yes", "y")
 }
 
-# Return the encounter identifiers assigned to both antibiotic strata. Keeping
-# this check separate from the summary makes it possible to inspect the
-# problematic identifiers before attempting to build the SBI tables.
-find_study_ids_in_both_abx_strata <- function(abx_unexposed, abx_exposed) {
-  if (!"study_id" %in% names(abx_unexposed) ||
-      !"study_id" %in% names(abx_exposed)) {
-    stop("Both cohort data frames must contain study_id")
-  }
-
-  intersect(
-    unique(stats::na.omit(abx_unexposed$study_id)),
-    unique(stats::na.omit(abx_exposed$study_id))
-  )
-}
-
 # Each study_id contributes at most once to a category, even when multiple
-# organisms/specimens from that category were recorded. An encounter may
-# contribute to more than one category.
+# organisms/specimens from that category were recorded or when it appears in
+# both antibiotic-exposure cohorts. A patient may contribute to more than one
+# category. Antibiotic exposure is intentionally not part of this summary.
 summarize_prospective_sbi_types <- function(
     sbi_micro,
     abx_unexposed,
@@ -160,27 +146,12 @@ summarize_prospective_sbi_types <- function(
     stop("Both cohort data frames must contain study_id, mrn, and picu_adm_date_time")
   }
 
-  encounters <- dplyr::bind_rows(
-    dplyr::mutate(abx_unexposed, antibiotic_stratum = "unexposed"),
-    dplyr::mutate(abx_exposed, antibiotic_stratum = "exposed")
-  ) |>
-    dplyr::select(dplyr::all_of(required_cohort), antibiotic_stratum) |>
+  encounters <- dplyr::bind_rows(abx_unexposed, abx_exposed) |>
+    dplyr::select(dplyr::all_of(required_cohort)) |>
     dplyr::mutate(mrn = as.character(mrn)) |>
     dplyr::distinct()
 
-  conflicting_study_ids <- find_study_ids_in_both_abx_strata(
-    abx_unexposed,
-    abx_exposed
-  )
-  if (length(conflicting_study_ids) > 0L) {
-    stop(
-      "study_id values cannot occur in both antibiotic strata: ",
-      paste(conflicting_study_ids, collapse = ", ")
-    )
-  }
-
-  denominators <- encounters |>
-    dplyr::summarise(total_encounters = dplyr::n_distinct(study_id), .by = antibiotic_stratum)
+  total_patients <- dplyr::n_distinct(encounters$study_id, na.rm = TRUE)
 
   microbiology_sbi_types <- sbi_micro |>
     dplyr::transmute(
@@ -199,20 +170,20 @@ summarize_prospective_sbi_types <- function(
       broad_category = dplyr::coalesce(broad_category, "unknown"),
       specimen_source = dplyr::coalesce(specimen_source, "NULL")
     ) |>
-    dplyr::distinct(study_id, antibiotic_stratum, broad_category, specimen_source)
+    dplyr::distinct(study_id, broad_category, specimen_source)
 
   non_microbiology_sbi_types <- dplyr::bind_rows(
     encounters |>
       dplyr::filter(is_positive_sbi_flag(ever_cx_neg_sepsis)) |>
       dplyr::transmute(
-        study_id, antibiotic_stratum,
+        study_id,
         broad_category = "culture_negative_sepsis",
         specimen_source = NA_character_
       ),
     encounters |>
       dplyr::filter(is_positive_sbi_flag(pna_1_0)) |>
       dplyr::transmute(
-        study_id, antibiotic_stratum,
+        study_id,
         broad_category = "bacterial_pneumonia",
         specimen_source = "VPS pna_1_0"
       )
@@ -222,23 +193,24 @@ summarize_prospective_sbi_types <- function(
     microbiology_sbi_types,
     non_microbiology_sbi_types
   ) |>
-    dplyr::distinct(study_id, antibiotic_stratum, broad_category, specimen_source)
+    dplyr::distinct(study_id, broad_category, specimen_source)
 
   all_categories <- sort(unique(c(
     prospective_sbi_source_lookup$broad_category,
     "culture_negative_sepsis", "bacterial_pneumonia"
   )))
   sbi_type_summary <- encounter_sbi_types |>
-    dplyr::distinct(study_id, antibiotic_stratum, broad_category) |>
-    dplyr::count(antibiotic_stratum, broad_category, name = "encounters_with_sbi") |>
+    dplyr::distinct(study_id, broad_category) |>
+    dplyr::count(broad_category, name = "patients_with_sbi") |>
     tidyr::complete(
-      antibiotic_stratum = denominators$antibiotic_stratum,
       broad_category = all_categories,
-      fill = list(encounters_with_sbi = 0L)
+      fill = list(patients_with_sbi = 0L)
     ) |>
-    dplyr::left_join(denominators, by = "antibiotic_stratum") |>
-    dplyr::mutate(proportion_of_all_encounters = encounters_with_sbi / total_encounters) |>
-    dplyr::arrange(antibiotic_stratum, broad_category)
+    dplyr::mutate(
+      total_patients = total_patients,
+      proportion_of_all_patients = patients_with_sbi / total_patients
+    ) |>
+    dplyr::arrange(broad_category)
 
   list(
     encounter_sbi_types = encounter_sbi_types,

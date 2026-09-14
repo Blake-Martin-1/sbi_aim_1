@@ -2,7 +2,7 @@ library(testthat)
 
 source("../../prospective_sbi_type_breakdown.R")
 
-test_that("SBI types use all encounters as stratum denominators", {
+test_that("SBI types use all unique patients without exposure stratification", {
   origin <- as.POSIXct("2026-01-01 12:00:00", tz = "UTC")
   unexposed <- tibble::tibble(
     study_id = c("u1", "u2", "u3"),
@@ -12,8 +12,8 @@ test_that("SBI types use all encounters as stratum denominators", {
     pna_1_0 = c(1, 0, 0)
   )
   exposed <- tibble::tibble(
-    study_id = c("e1", "e2"),
-    mrn = c("4", "5"),
+    study_id = c("e1", "u1", "e2"),
+    mrn = c("4", "1", "5"),
     picu_adm_date_time = origin,
     ever_cx_neg_sepsis = 0,
     pna_1_0 = 0
@@ -31,27 +31,27 @@ test_that("SBI types use all encounters as stratum denominators", {
   summary <- result$sbi_type_summary
 
   expect_equal(
-    summary$encounters_with_sbi[summary$antibiotic_stratum == "unexposed" & summary$broad_category == "blood"],
+    summary$patients_with_sbi[summary$broad_category == "blood"],
     1L
   )
   expect_equal(
-    summary$proportion_of_all_encounters[summary$antibiotic_stratum == "unexposed" & summary$broad_category == "blood"],
-    1 / 3
+    summary$proportion_of_all_patients[summary$broad_category == "blood"],
+    1 / 5
   )
   expect_equal(
-    summary$proportion_of_all_encounters[summary$antibiotic_stratum == "exposed" & summary$broad_category == "respiratory"],
-    1 / 2
+    summary$proportion_of_all_patients[summary$broad_category == "respiratory"],
+    1 / 5
   )
   expect_equal(
-    summary$encounters_with_sbi[summary$antibiotic_stratum == "exposed" & summary$broad_category == "blood"],
-    0L
+    unique(summary$total_patients),
+    5L
   )
   expect_equal(
-    summary$encounters_with_sbi[summary$antibiotic_stratum == "unexposed" & summary$broad_category == "culture_negative_sepsis"],
+    summary$patients_with_sbi[summary$broad_category == "culture_negative_sepsis"],
     1L
   )
   expect_equal(
-    summary$encounters_with_sbi[summary$antibiotic_stratum == "unexposed" & summary$broad_category == "bacterial_pneumonia"],
+    summary$patients_with_sbi[summary$broad_category == "bacterial_pneumonia"],
     1L
   )
 
@@ -86,7 +86,7 @@ test_that("encounter audit rows retain distinct sources and broad types", {
   expect_equal(unique(details$study_id), "u1")
 })
 
-test_that("an encounter cannot be assigned to both exposure strata", {
+test_that("a patient in both exposure strata is counted once", {
   origin <- as.POSIXct("2026-01-01 12:00:00", tz = "UTC")
   cohort <- tibble::tibble(
     study_id = "same", mrn = "1", picu_adm_date_time = origin,
@@ -94,18 +94,8 @@ test_that("an encounter cannot be assigned to both exposure strata", {
   )
   micro <- tibble::tibble(mrn = character(), specimen_source = character(), time_obtained = as.POSIXct(character()))
 
-  expect_error(
-    summarize_prospective_sbi_types(micro, cohort, cohort),
-    "cannot occur in both antibiotic strata: same"
-  )
-})
+  summary <- summarize_prospective_sbi_types(micro, cohort, cohort)$sbi_type_summary
 
-test_that("overlapping antibiotic strata study IDs can be inspected", {
-  unexposed <- tibble::tibble(study_id = c("shared_2", "unexposed", "shared_1", NA_character_))
-  exposed <- tibble::tibble(study_id = c("exposed", "shared_1", "shared_2", "shared_1", NA_character_))
-
-  expect_equal(
-    find_study_ids_in_both_abx_strata(unexposed, exposed),
-    c("shared_2", "shared_1")
-  )
+  expect_equal(unique(summary$total_patients), 1L)
+  expect_false("antibiotic_stratum" %in% names(summary))
 })
