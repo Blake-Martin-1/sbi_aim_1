@@ -141,7 +141,7 @@ make_ier <- function(ier_df) {
       age_years_for_ier = suppressWarnings(as.numeric(.data$age_years))
     ) %>%
     bind_cols(age_to_nih_fields(.$age_years_for_ier)) %>%
-    select(all_of(IER_COLUMNS))
+    dplyr::select(all_of(IER_COLUMNS))
 }
 
 write_ier_csv <- function(ier_df, output_path) {
@@ -160,6 +160,4 @@ main <- function() {
   write_ier_csv(get("ier_df", envir = .GlobalEnv), output_path)
 }
 
-if (sys.nframe() == 0 && !interactive()) {
-  main()
-}
+main()
