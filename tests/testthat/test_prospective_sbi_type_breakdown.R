@@ -96,6 +96,16 @@ test_that("an encounter cannot be assigned to both exposure strata", {
 
   expect_error(
     summarize_prospective_sbi_types(micro, cohort, cohort),
-    "cannot occur in both"
+    "cannot occur in both antibiotic strata: same"
+  )
+})
+
+test_that("overlapping antibiotic strata study IDs can be inspected", {
+  unexposed <- tibble::tibble(study_id = c("shared_2", "unexposed", "shared_1", NA_character_))
+  exposed <- tibble::tibble(study_id = c("exposed", "shared_1", "shared_2", "shared_1", NA_character_))
+
+  expect_equal(
+    find_study_ids_in_both_abx_strata(unexposed, exposed),
+    c("shared_2", "shared_1")
   )
 })

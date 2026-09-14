@@ -123,6 +123,21 @@ is_positive_sbi_flag <- function(x) {
   tolower(trimws(as.character(x))) %in% c("1", "true", "yes", "y")
 }
 
+# Return the encounter identifiers assigned to both antibiotic strata. Keeping
+# this check separate from the summary makes it possible to inspect the
+# problematic identifiers before attempting to build the SBI tables.
+find_study_ids_in_both_abx_strata <- function(abx_unexposed, abx_exposed) {
+  if (!"study_id" %in% names(abx_unexposed) ||
+      !"study_id" %in% names(abx_exposed)) {
+    stop("Both cohort data frames must contain study_id")
+  }
+
+  intersect(
+    unique(stats::na.omit(abx_unexposed$study_id)),
+    unique(stats::na.omit(abx_exposed$study_id))
+  )
+}
+
 # Each study_id contributes at most once to a category, even when multiple
 # organisms/specimens from that category were recorded. An encounter may
 # contribute to more than one category.
@@ -153,12 +168,15 @@ summarize_prospective_sbi_types <- function(
     dplyr::mutate(mrn = as.character(mrn)) |>
     dplyr::distinct()
 
-  conflicting_strata <- encounters |>
-    dplyr::distinct(study_id, antibiotic_stratum) |>
-    dplyr::count(study_id) |>
-    dplyr::filter(n > 1L)
-  if (nrow(conflicting_strata) > 0L) {
-    stop("study_id values cannot occur in both antibiotic strata")
+  conflicting_study_ids <- find_study_ids_in_both_abx_strata(
+    abx_unexposed,
+    abx_exposed
+  )
+  if (length(conflicting_study_ids) > 0L) {
+    stop(
+      "study_id values cannot occur in both antibiotic strata: ",
+      paste(conflicting_study_ids, collapse = ", ")
+    )
   }
 
   denominators <- encounters |>

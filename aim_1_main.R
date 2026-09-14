@@ -2479,6 +2479,13 @@ pros_yes_abx_1st_infxn <- pros_yes_abx_final %>%
 # multiple SBI categories.
 source("prospective_sbi_type_breakdown.R")
 
+# Retain the conflicting IDs as a standalone object so they can be inspected
+# directly if summarize_prospective_sbi_types() rejects overlapping strata.
+study_ids_in_both_abx_strata <- find_study_ids_in_both_abx_strata(
+  abx_unexposed = pros_no_abx_1st_infxn,
+  abx_exposed = pros_yes_abx_1st_infxn
+)
+
 prospective_sbi_breakdown <- summarize_prospective_sbi_types(
   sbi_micro = pros_micro_slim %>% filter(class == "bacteria"),
   abx_unexposed = pros_no_abx_1st_infxn,
