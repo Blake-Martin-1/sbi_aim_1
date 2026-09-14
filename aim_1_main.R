@@ -2491,6 +2491,8 @@ prospective_sbi_breakdown <- summarize_prospective_sbi_types(
 prospective_sbi_encounter_types <- prospective_sbi_breakdown$encounter_sbi_types
 prospective_sbi_type_summary <- prospective_sbi_breakdown$sbi_type_summary
 
+prospective_sbi_type_summary <- prospective_sbi_type_summary %>% mutate(percentages = round(proportion_of_all_patients * 100, digits = 1))
+
 # Fix PCCC rows
 pros_no_abx_1st_infxn$pccc <- as.factor(pros_no_abx_1st_infxn$pccc)
 pros_no_abx_1st_infxn$malignancy_pccc <- as.factor(pros_no_abx_1st_infxn$malignancy_pccc)
