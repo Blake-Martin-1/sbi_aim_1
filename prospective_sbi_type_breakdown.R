@@ -133,10 +133,10 @@ is_positive_sbi_flag <- function(x) {
   tolower(trimws(as.character(x))) %in% c("1", "true", "yes", "y")
 }
 
-# Each study_id contributes at most once to a category, even when multiple
-# organisms/specimens from that category were recorded or when it appears in
-# both antibiotic-exposure cohorts. A patient may contribute to more than one
-# category. Antibiotic exposure is intentionally not part of this summary.
+# Each study_id contributes at most once to a category within each antibiotic
+# exposure stratum, even when multiple organisms/specimens from that category
+# were recorded. A study_id that occurs in both cohorts contributes once to
+# each stratum, and a patient may contribute to more than one SBI category.
 summarize_prospective_sbi_types <- function(
     sbi_micro,
     abx_unexposed,
@@ -156,12 +156,19 @@ summarize_prospective_sbi_types <- function(
     stop("Both cohort data frames must contain study_id, mrn, and picu_adm_date_time")
   }
 
-  encounters <- dplyr::bind_rows(abx_unexposed, abx_exposed) |>
-    dplyr::select(dplyr::all_of(required_cohort)) |>
+  encounters <- dplyr::bind_rows(
+    dplyr::mutate(abx_unexposed, antibiotic_stratum = "unexposed"),
+    dplyr::mutate(abx_exposed, antibiotic_stratum = "exposed")
+  ) |>
+    dplyr::select(dplyr::all_of(required_cohort), antibiotic_stratum) |>
     dplyr::mutate(mrn = as.character(mrn)) |>
     dplyr::distinct()
 
-  total_patients <- dplyr::n_distinct(encounters$study_id, na.rm = TRUE)
+  denominators <- encounters |>
+    dplyr::summarise(
+      total_patients = dplyr::n_distinct(study_id, na.rm = TRUE),
+      .by = antibiotic_stratum
+    )
 
   microbiology_sbi_types <- sbi_micro |>
     dplyr::transmute(
@@ -181,20 +188,22 @@ summarize_prospective_sbi_types <- function(
       broad_category = dplyr::coalesce(broad_category, "unknown"),
       specimen_source = dplyr::coalesce(specimen_source, "NULL")
     ) |>
-    dplyr::distinct(study_id, broad_category, specimen_source)
+    dplyr::distinct(
+      study_id, antibiotic_stratum, broad_category, specimen_source
+    )
 
   non_microbiology_sbi_types <- dplyr::bind_rows(
     encounters |>
       dplyr::filter(is_positive_sbi_flag(ever_cx_neg_sepsis)) |>
       dplyr::transmute(
-        study_id,
+        study_id, antibiotic_stratum,
         broad_category = "culture_negative_sepsis",
         specimen_source = NA_character_
       ),
     encounters |>
       dplyr::filter(is_positive_sbi_flag(pna_1_0)) |>
       dplyr::transmute(
-        study_id,
+        study_id, antibiotic_stratum,
         broad_category = "bacterial_pneumonia",
         specimen_source = "VPS pna_1_0"
       )
@@ -204,22 +213,41 @@ summarize_prospective_sbi_types <- function(
     microbiology_sbi_types,
     non_microbiology_sbi_types
   ) |>
-    dplyr::distinct(study_id, broad_category, specimen_source)
+    dplyr::distinct(
+      study_id, antibiotic_stratum, broad_category, specimen_source
+    )
 
   all_categories <- sort(unique(c(
     prospective_sbi_source_lookup$broad_category,
     "culture_negative_sepsis", "bacterial_pneumonia"
   )))
   sbi_type_summary <- encounter_sbi_types |>
-    dplyr::distinct(study_id, broad_category) |>
-    dplyr::count(broad_category, name = "patients_with_sbi") |>
+    dplyr::distinct(study_id, antibiotic_stratum, broad_category) |>
+    dplyr::count(
+      antibiotic_stratum, broad_category, name = "patients_with_sbi"
+    ) |>
     tidyr::complete(
+      antibiotic_stratum = c("unexposed", "exposed"),
       broad_category = all_categories,
       fill = list(patients_with_sbi = 0L)
     ) |>
+    dplyr::left_join(denominators, by = "antibiotic_stratum") |>
     dplyr::mutate(
-      total_patients = total_patients,
-      proportion_of_all_patients = patients_with_sbi / total_patients
+      total_patients = dplyr::coalesce(total_patients, 0L),
+      patients_with_sbi = dplyr::if_else(
+        total_patients == 0L,
+        sprintf("%d (NA%%)", patients_with_sbi),
+        sprintf(
+          "%d (%.1f%%)", patients_with_sbi,
+          100 * patients_with_sbi / total_patients
+        )
+      ),
+      antibiotic_stratum = paste0("antibiotic_", antibiotic_stratum)
+    ) |>
+    dplyr::select(broad_category, antibiotic_stratum, patients_with_sbi) |>
+    tidyr::pivot_wider(
+      names_from = antibiotic_stratum,
+      values_from = patients_with_sbi
     ) |>
     dplyr::arrange(broad_category)
 
