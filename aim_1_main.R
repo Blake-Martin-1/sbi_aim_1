@@ -2479,9 +2479,9 @@ pros_yes_abx_1st_infxn <- pros_yes_abx_final %>%
 # multiple SBI categories.
 source("prospective_sbi_type_breakdown.R")
 
-# The two cohorts are combined only inside this SBI-type summary. A study_id
-# present in both exposure cohorts is counted once; exposure strata remain
-# unchanged for every other prospective analysis.
+# The SBI-type summary reports separate antibiotic-unexposed and
+# antibiotic-exposed columns. A study_id present in both cohorts contributes
+# once to each stratum, as patients can change exposure status over time.
 prospective_sbi_breakdown <- summarize_prospective_sbi_types(
   sbi_micro = pros_micro_slim %>% filter(class == "bacteria"),
   abx_unexposed = pros_no_abx_1st_infxn,

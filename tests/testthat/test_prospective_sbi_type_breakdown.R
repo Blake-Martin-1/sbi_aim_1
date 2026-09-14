@@ -2,7 +2,7 @@ library(testthat)
 
 source("../../prospective_sbi_type_breakdown.R")
 
-test_that("SBI types use all unique patients without exposure stratification", {
+test_that("SBI types report n (%) using each exposure stratum denominator", {
   origin <- as.POSIXct("2026-01-01 12:00:00", tz = "UTC")
   unexposed <- tibble::tibble(
     study_id = c("u1", "u2", "u3"),
@@ -31,29 +31,28 @@ test_that("SBI types use all unique patients without exposure stratification", {
   summary <- result$sbi_type_summary
 
   expect_equal(
-    summary$patients_with_sbi[summary$broad_category == "blood"],
-    1L
+    summary$antibiotic_unexposed[summary$broad_category == "blood"],
+    "1 (33.3%)"
   )
   expect_equal(
-    summary$proportion_of_all_patients[summary$broad_category == "blood"],
-    1 / 5
+    summary$antibiotic_exposed[summary$broad_category == "blood"],
+    "1 (33.3%)"
   )
   expect_equal(
-    summary$proportion_of_all_patients[summary$broad_category == "respiratory"],
-    1 / 5
+    summary$antibiotic_exposed[summary$broad_category == "respiratory"],
+    "1 (33.3%)"
   )
   expect_equal(
-    unique(summary$total_patients),
-    5L
+    summary$antibiotic_unexposed[summary$broad_category == "culture_negative_sepsis"],
+    "1 (33.3%)"
   )
   expect_equal(
-    summary$patients_with_sbi[summary$broad_category == "culture_negative_sepsis"],
-    1L
+    summary$antibiotic_unexposed[summary$broad_category == "bacterial_pneumonia"],
+    "1 (33.3%)"
   )
-  expect_equal(
-    summary$patients_with_sbi[summary$broad_category == "bacterial_pneumonia"],
-    1L
-  )
+  expect_equal(names(summary), c(
+    "broad_category", "antibiotic_unexposed", "antibiotic_exposed"
+  ))
 
   # u1 has blood, urine, and VPS bacterial pneumonia and must remain in all
   # three categories rather than being forced into one mutually exclusive type.
@@ -115,16 +114,19 @@ test_that("snake_case sources from pros_micro_slim map to anatomical categories"
   expect_true("peripheral_venipuncture" %in% details$specimen_source)
 })
 
-test_that("a patient in both exposure strata is counted once", {
+test_that("a patient in both exposure strata is counted once in each", {
   origin <- as.POSIXct("2026-01-01 12:00:00", tz = "UTC")
   cohort <- tibble::tibble(
     study_id = "same", mrn = "1", picu_adm_date_time = origin,
     ever_cx_neg_sepsis = 0, pna_1_0 = 0
   )
-  micro <- tibble::tibble(mrn = character(), specimen_source = character(), time_obtained = as.POSIXct(character()))
+  micro <- tibble::tibble(
+    mrn = "1", specimen_source = "Blood, Venous", time_obtained = origin
+  )
 
   summary <- summarize_prospective_sbi_types(micro, cohort, cohort)$sbi_type_summary
 
-  expect_equal(unique(summary$total_patients), 1L)
-  expect_false("antibiotic_stratum" %in% names(summary))
+  blood <- summary[summary$broad_category == "blood", ]
+  expect_equal(blood$antibiotic_unexposed, "1 (100.0%)")
+  expect_equal(blood$antibiotic_exposed, "1 (100.0%)")
 })
