@@ -61,8 +61,10 @@ library(ggplot2)
 library(forcats)
 library(scales)
 
+pros_file_location <- readline(
+  prompt = "Enter the full path to the prospective validation cohort file: ")
 
-pros_one_model <- read_csv(file = file.path(aim1_paper_materials_path, "pros_all_just_b4_modeling_10_14_25.csv"))
+pros_one_model <- read_csv(file = pros_file_location)
 # pros_all <- read_csv(file = file.path(sbi_blake_phi_path, "pros_all_just_b4_modeling_1_15_26_all_models.csv"))
 
 ### Train new models using prospective data ###
