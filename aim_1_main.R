@@ -7789,6 +7789,10 @@ source(file = "create_new_pros_model.R")
 
 source(file = "sbi_decision_policy_explore.R")
 
+# Export the 18 SBI-positive test admissions incorrectly ruled out by the
+# winning policy for manual chart review.
+source(file = "create_false_negative_chart_review_table.R")
+
 source(file = file.path(aim1_paper_materials_path, "policy_impact_on_abx.R"))
 
 source(file = file.path(aim1_paper_materials_path, "explore_retro_n_predictors.R"))
