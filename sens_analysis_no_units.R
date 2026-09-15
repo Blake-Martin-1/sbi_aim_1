@@ -576,11 +576,13 @@ validation_npv_by_threshold <- purrr::map_dfr(
   }
 )
 
-# Save the plotted values and their component counts for manual review.
-readr::write_csv(
-  validation_npv_by_threshold,
-  file.path(sbi_blake_phi_path, "no_units_validation_npv_by_threshold.csv")
-)
+# # Save the plotted values and their component counts for manual review.
+# readr::write_csv(
+#   validation_npv_by_threshold,
+#   file.path(sbi_blake_phi_path, "no_units_validation_npv_by_threshold.csv")
+# )
+
+View(validation_npv_by_threshold)
 
 p_validation_npv_by_threshold <- validation_npv_by_threshold %>%
   ggplot2::ggplot(ggplot2::aes(x = threshold, y = npv)) +
@@ -609,7 +611,7 @@ p_validation_npv_by_threshold <- validation_npv_by_threshold %>%
     panel.grid.minor = ggplot2::element_blank()
   )
 
-p_validation_npv_by_threshold
+p_validation_npv_by_threshold # both table and chart show we should still used threshold of 0.12
 
 
 ######### Now plot NPV, AUROC, and AUPRC by hour #############
