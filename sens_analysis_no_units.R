@@ -546,6 +546,71 @@ p_calibration <- ggplot2::ggplot(
 p_calibration
 # save_aim1_plot(p_calibration, "new_prospective_model_calibration.tiff")
 
+# Examine validation-set NPV across candidate rule-out thresholds
+validation_threshold_data <- rf_valid_df %>%
+  dplyr::transmute(
+    sbi_present = as.integer(as.character(sbi_present)),
+    rf_prob = as.numeric(rf_prob)
+  ) %>%
+  dplyr::filter(!is.na(sbi_present), !is.na(rf_prob))
+
+validation_npv_by_threshold <- purrr::map_dfr(
+  seq(0.01, 1, by = 0.01),
+  function(candidate_threshold) {
+    predicted_sbi_negative <- validation_threshold_data$rf_prob <= candidate_threshold
+    true_negative <- sum(
+      predicted_sbi_negative & validation_threshold_data$sbi_present == 0
+    )
+    false_negative <- sum(
+      predicted_sbi_negative & validation_threshold_data$sbi_present == 1
+    )
+    n_predicted_negative <- true_negative + false_negative
+
+    tibble::tibble(
+      threshold = candidate_threshold,
+      npv = if (n_predicted_negative == 0) NA_real_ else true_negative / n_predicted_negative,
+      n_predicted_negative = n_predicted_negative,
+      true_negative = true_negative,
+      false_negative = false_negative
+    )
+  }
+)
+
+# Save the plotted values and their component counts for manual review.
+readr::write_csv(
+  validation_npv_by_threshold,
+  file.path(sbi_blake_phi_path, "no_units_validation_npv_by_threshold.csv")
+)
+
+p_validation_npv_by_threshold <- validation_npv_by_threshold %>%
+  ggplot2::ggplot(ggplot2::aes(x = threshold, y = npv)) +
+  ggplot2::geom_line(color = "blue3", linewidth = 0.9, na.rm = TRUE) +
+  ggplot2::geom_point(color = "blue3", size = 1.5, na.rm = TRUE) +
+  ggplot2::scale_x_continuous(
+    breaks = seq(0, 1, by = 0.1),
+    limits = c(0, 1),
+    labels = scales::percent_format(accuracy = 1)
+  ) +
+  ggplot2::scale_y_continuous(
+    limits = c(0, 1),
+    labels = scales::percent_format(accuracy = 0.1)
+  ) +
+  ggplot2::labs(
+    title = "Validation-Set NPV by SBI Risk Threshold",
+    subtitle = "Thresholds from 0.01 to 1.00 in increments of 0.01",
+    x = "SBI risk threshold",
+    y = "Negative predictive value"
+  ) +
+  ggplot2::theme_bw(base_size = 14) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = ggplot2::element_text(hjust = 0.5),
+    axis.title = ggplot2::element_text(face = "bold"),
+    panel.grid.minor = ggplot2::element_blank()
+  )
+
+p_validation_npv_by_threshold
+
 
 ######### Now plot NPV, AUROC, and AUPRC by hour #############
 # Packages
