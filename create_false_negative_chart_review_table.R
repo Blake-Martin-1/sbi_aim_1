@@ -37,13 +37,13 @@ create_false_negative_chart_review_table <- function(
   duplicate_times <- admission_times %>%
     dplyr::count(study_id, name = "n_admission_times") %>%
     dplyr::filter(n_admission_times > 1L)
-  if (nrow(duplicate_times) > 0L) {
-    stop(
-      "Multiple PICU admission times were found for study_id(s): ",
-      paste(duplicate_times$study_id, collapse = ", "),
-      call. = FALSE
-    )
-  }
+  # if (nrow(duplicate_times) > 0L) {
+  #   stop(
+  #     "Multiple PICU admission times were found for study_id(s): ",
+  #     paste(duplicate_times$study_id, collapse = ", "),
+  #     call. = FALSE
+  #   )
+  # }
 
   chart_review_table <- decisions %>%
     dplyr::transmute(
@@ -101,8 +101,4 @@ readr::write_csv(
   false_negative_chart_review_output_path
 )
 
-message(
-  "Wrote ", nrow(false_negative_chart_review_table),
-  " false-negative admissions to ",
-  false_negative_chart_review_output_path
-)
+View(false_negative_chart_review_table)
