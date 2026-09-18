@@ -94,7 +94,6 @@ test_df<- test_df%>% mutate(across(where(is.character), as.factor))
 # Train model
 set.seed(2025)
 
-library(doParallel)
 registerDoParallel(cores = parallel::detectCores() - 1)  # leave 1 core free
 
 # Work at encounter level to assign folds for 5-fold cross validation within training set
@@ -261,7 +260,6 @@ test_df<- test_df%>% mutate(across(where(is.character), as.factor))
 # Train model
 set.seed(2025)
 
-library(doParallel)
 registerDoParallel(cores = parallel::detectCores() - 1)  # leave 1 core free
 
 # Work at encounter level to assign folds for 5-fold cross validation within training set
@@ -616,12 +614,6 @@ p_validation_npv_by_threshold # both table and chart show we should still used t
 
 ######### Now plot NPV, AUROC, and AUPRC by hour #############
 # Packages
-library(dplyr)
-library(ggplot2)
-library(purrr)
-library(tibble)
-library(pROC)
-library(PRROC)
 
 # -----------------------------
 # Settings

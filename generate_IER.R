@@ -4,13 +4,6 @@
 #          CSV from the prospective AIM 1 dataset.
 # ---------------------------------------------------------------------------- #
 
-suppressPackageStartupMessages({
-  library(dplyr)
-  library(readr)
-  library(stringr)
-  library(tibble)
-})
-
 # Generate dataframe to use for IER table generation when the prospective
 # subgroup dataframe is already loaded. Each row should represent a unique
 # participant/MRN and include: mrn, age_years, race, ethnicity, is_female.

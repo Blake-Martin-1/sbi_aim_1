@@ -2,17 +2,6 @@ source("plot_save_helpers.R")
 # Script to run retrospective models on prospective data
 # and evaluate performance restricted to prospective patients with suspected infection.
 
-suppressPackageStartupMessages({
-  library(dplyr)
-  library(tidyr)
-  library(tibble)
-  library(ggplot2)
-  library(pROC)
-  library(yardstick)
-  library(gtsummary)
-  library(patchwork)
-})
-
 # -----------------------------------------------------------------------------
 # 1) Characteristics: prospective suspected infection vs no suspected infection
 # -----------------------------------------------------------------------------

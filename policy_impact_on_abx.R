@@ -9,10 +9,6 @@ if (!exists("load_path_config")) {
 }
 load_path_config()
 
-library(data.table)
-library(dplyr)
-library(tibble)
-library(lubridate)
 
 ### Create flag for whether patient received any antibiotics in the PICU during the first 24 hours.
 abx_raw <- read.csv(file = file.path(sbi_blake_phi_path, "antinfective_export_pros_091225.csv"))

@@ -10,54 +10,7 @@ setwd(dir = wd_string)
 
 source("setup_aim_1.R")
 
-# Load additional scripts
-library(scales)
-library(gbm)
-library(lubridate)
-library(data.table)
-library(pedbp)
-library(DescTools)
-library(stringi)
-library(stringr)
-library(readxl)
-library(devtools)
-library(rriskDistributions)
-library(mltools)
-library(tidyr)
-library(rsample)
-library(parsnip)
-library(ranger)
-library(pROC)      # ROC + AUC
-library(caret)
-library(iml)
-library(purrr)
-library(glmnet)
-library(tidyverse)
-library(survey)
-library(forcats)
-library(gtsummary)
-library(flextable)
-library(officer)
-library(ggplot2)
-library(dplyr)
-library(tibble)
-library(yardstick)
-library(patchwork)
-library(PRROC)     # PR curve + AUPRC
-library(WeightIt)
-library(cobalt)
-library(emmeans)
-library(ggrepel)
-library(WeightedROC)
-library(gtsummary)
-library(readr)
-library(dplyr)
-library(stringr)
-library(purrr)
-library(tidyr)
-library(ggplot2)
-library(forcats)
-library(scales)
+# Packages are loaded centrally by setup_aim_1.R.
 
 # Run script to generate models and rf_df and rf_df_abx
 source(file = "retro_models_to_2026.R")
@@ -2512,11 +2465,6 @@ pros_yes_abx_1st_infxn <- pros_yes_abx_1st_infxn %>%
 
 ## Create table for suplement with list of predictors ##
 ## Load packages
-library(dplyr)
-library(stringr)
-library(tibble)
-library(flextable)
-library(officer)
 
 ## Your predictor vectors
 predictors <- c(
@@ -6883,8 +6831,6 @@ pros_summary_manuscript <- dplyr::bind_rows(
 
 
 ##### Now do abx analysis by subgroups #######
-library(dplyr)
-library(tibble)
 
 # Assumes age is already in YEARS.
 # If age is in months, replace age_years = age with age_years = age / 12
@@ -6994,10 +6940,6 @@ pros_subset_summary_manuscript <- dplyr::bind_rows(
 print(pros_subset_summary_manuscript)
 
 ### Now make stacked bar charts for SBI- patients and those given abx
-library(dplyr)
-library(ggplot2)
-library(scales)
-library(forcats)
 
 #-----------------------------------------
 # Create plotting dataframe for stacked bars

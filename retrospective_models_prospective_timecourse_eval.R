@@ -304,9 +304,6 @@ npv_plot_df <- bind_rows(npv_no_abx, npv_yes_abx) %>%
 # Plot
 # ----------------------------
 
-library(dplyr)
-library(ggplot2)
-library(scales)
 
 npv_plot_df <- npv_plot_df %>%
   mutate(
@@ -375,12 +372,6 @@ save_aim1_plot(p_npv_facet, "retrospective_models_npv_by_picu_hour_faceted.tiff"
 
 
 ### Repeat but for AUROC and AUPRC by hour ###
-library(dplyr)
-library(ggplot2)
-library(scales)
-library(pROC)
-library(yardstick)
-library(purrr)
 
 #------------------------------------------------------------
 # Metric helper functions matching aim_1_main.R

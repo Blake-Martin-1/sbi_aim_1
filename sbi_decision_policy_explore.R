@@ -9,11 +9,6 @@ source("plot_save_helpers.R")
 ### =========================================================
 
 ### Packages
-library(dplyr)
-library(tidyr)
-library(tibble)
-library(future)
-library(furrr)
 
 n_workers <- max(1L, as.integer(parallelly::availableCores()) - 1L)
 
@@ -648,11 +643,6 @@ test_trajectories_with_decision <- rf_test_seq %>%
   )
 
 #### Now create figure for manuscript
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-library(scales)
-library(patchwork)
 
 ## -----------------------------
 ## Prep labels for final states

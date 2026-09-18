@@ -13,53 +13,6 @@ setwd(dir = aim1_paper_materials_path)
 source("setup_aim_1.R")
 
 # Load additional scripts
-library(scales)
-library(gbm)
-library(lubridate)
-library(data.table)
-library(pedbp)
-library(DescTools)
-library(stringi)
-library(stringr)
-library(readxl)
-library(devtools)
-library(rriskDistributions)
-library(mltools)
-library(tidyr)
-library(rsample)
-library(parsnip)
-library(ranger)
-library(pROC)      # ROC + AUC
-library(caret)
-library(iml)
-library(purrr)
-library(glmnet)
-library(tidyverse)
-library(survey)
-library(forcats)
-library(gtsummary)
-library(flextable)
-library(officer)
-library(ggplot2)
-library(dplyr)
-library(tibble)
-library(yardstick)
-library(patchwork)
-library(PRROC)     # PR curve + AUPRC
-library(WeightIt)
-library(cobalt)
-library(emmeans)
-library(ggrepel)
-library(WeightedROC)
-library(gtsummary)
-library(readr)
-library(dplyr)
-library(stringr)
-library(purrr)
-library(tidyr)
-library(ggplot2)
-library(forcats)
-library(scales)
 
 pros_file_location <- readline(
   prompt = "Enter the full path to the prospective validation cohort file: ")
@@ -162,7 +115,6 @@ test_df<- test_df%>% mutate(across(where(is.character), as.factor))
 # Train model
 set.seed(2025)
 
-library(doParallel)
 registerDoParallel(cores = parallel::detectCores() - 1)  # leave 1 core free
 
 # Work at encounter level to assign folds for 5-fold cross validation within training set
@@ -469,12 +421,6 @@ p_calibration
 
 ######### Now plot NPV, AUROC, and AUPRC by hour #############
 # Packages
-library(dplyr)
-library(ggplot2)
-library(purrr)
-library(tibble)
-library(pROC)
-library(PRROC)
 
 # -----------------------------
 # Settings

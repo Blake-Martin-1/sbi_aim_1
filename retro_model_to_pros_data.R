@@ -123,10 +123,6 @@ print(paste0("Prospective yes-abx AUROC (95% CI) = ", fmt_ci(pros_auroc_yes_abx,
 # =========================
 # Prospective AUPRC (no_abx + yes_abx)
 # =========================
-suppressPackageStartupMessages({
-  library(dplyr)
-  library(yardstick)
-})
 
 # ---- No-abx prospective AUPRC ----
 stopifnot(all(c("yes","no") %in% colnames(rf_pred_prob_pros)))   # caret probs
